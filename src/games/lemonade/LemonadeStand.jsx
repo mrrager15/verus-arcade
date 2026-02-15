@@ -1,5 +1,7 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../verus/AuthContext.jsx";
+import { saveGame, loadGame } from "../../verus/api.js";
 
 // ═══════════════════════════════════════════════════════════════
 // VERUS ARCADE — LEMONADE STAND
@@ -14,11 +16,7 @@ function fnv(str) {
 }
 function hashStr(str) { return fnv(str).toString(16).padStart(8, "0"); }
 function rng(id, day, salt = "") { return fnv(`${id}::day${day}::${salt}`) / 0xffffffff; }
-
-// Chain hash: each action links to the previous hash
-function chainHash(prevHash, actionData) {
-  return hashStr(`${prevHash}::${JSON.stringify(actionData)}`);
-}
+function chainHash(prevHash, actionData) { return hashStr(`${prevHash}::${JSON.stringify(actionData)}`); }
 
 // ── DETERMINISTIC GAME ENGINE ──
 function getWeather(id, day) {
@@ -29,11 +27,7 @@ function getWeather(id, day) {
   if (r < 0.75) return { type: "sunny", label: "☀ Sunny", tempBase: 78, modifier: 0.85 };
   return { type: "hot", label: "🔥 Hot & Dry", tempBase: 92, modifier: 1.0 };
 }
-
-function getTemp(id, day, weather) {
-  return Math.round(weather.tempBase + (rng(id, day, "temp") - 0.5) * 16);
-}
-
+function getTemp(id, day, weather) { return Math.round(weather.tempBase + (rng(id, day, "temp") - 0.5) * 16); }
 function getEvent(id, day) {
   const r = rng(id, day, "event");
   if (r < 0.08) return { label: "🚧 Street closed!", salesMod: 0.3 };
@@ -42,7 +36,6 @@ function getEvent(id, day) {
   if (r < 0.25) return { label: "🐝 Bees swarmed your stand!", salesMod: 0.4 };
   return null;
 }
-
 function calcDemand(id, day, weather, temp, price, quality, event) {
   const base = 30 + temp * 0.8;
   const wd = base * weather.modifier;
@@ -63,55 +56,35 @@ const RECIPES = [
 const SUPPLY_PRICES = { lemons: 0.50, sugar: 0.25, cups: 0.10, ice: 0.15 };
 const TOTAL_DAYS = 14;
 
+function calcScore(cash, reputation, history) {
+  const profit = cash - 20;
+  const totalSold = history.reduce((s, h) => s + h.sold, 0);
+  return Math.round(profit * 10 + reputation * 2 + totalSold);
+}
+
 // ── REPLAY ENGINE ──
-// Given a seed and action log, replays the entire game and returns final state
-// This is what a verifier would run
 function replayGame(seed, actionLog) {
   let state = { cash: 20, reputation: 50, inventory: { lemons: 0, sugar: 0, cups: 0, ice: 0 } };
   let prevHash = hashStr(`genesis::${seed}`);
   const results = [];
-
   for (const entry of actionLog) {
     const { day, buys, recipeIndex, price } = entry;
-
-    // Verify hash chain
     const expectedHash = chainHash(prevHash, { day, buys, recipeIndex, price });
-    if (entry.hash !== expectedHash) {
-      return { valid: false, error: `Hash mismatch at day ${day}`, expected: expectedHash, got: entry.hash };
-    }
-
-    // Apply buys
-    const buyCost = buys.lemons * SUPPLY_PRICES.lemons + buys.sugar * SUPPLY_PRICES.sugar +
-      buys.cups * SUPPLY_PRICES.cups + buys.ice * SUPPLY_PRICES.ice;
+    if (entry.hash !== expectedHash) return { valid: false, error: `Hash mismatch at day ${day}` };
+    const buyCost = buys.lemons*SUPPLY_PRICES.lemons + buys.sugar*SUPPLY_PRICES.sugar + buys.cups*SUPPLY_PRICES.cups + buys.ice*SUPPLY_PRICES.ice;
     state.cash -= buyCost;
-    state.inventory.lemons += buys.lemons;
-    state.inventory.sugar += buys.sugar;
-    state.inventory.cups += buys.cups;
-    state.inventory.ice += buys.ice;
-
-    // Simulate day
+    state.inventory.lemons += buys.lemons; state.inventory.sugar += buys.sugar;
+    state.inventory.cups += buys.cups; state.inventory.ice += buys.ice;
     const recipe = RECIPES[recipeIndex];
-    const weather = getWeather(seed, day);
-    const temp = getTemp(seed, day, weather);
-    const event = getEvent(seed, day);
-    const canMake = Math.min(
-      Math.floor(state.inventory.lemons / recipe.lemons),
-      Math.floor(state.inventory.sugar / recipe.sugar),
-      Math.floor(state.inventory.ice / recipe.ice),
-      state.inventory.cups
-    );
+    const weather = getWeather(seed, day); const temp = getTemp(seed, day, weather); const event = getEvent(seed, day);
+    const canMake = Math.min(Math.floor(state.inventory.lemons/recipe.lemons), Math.floor(state.inventory.sugar/recipe.sugar), Math.floor(state.inventory.ice/recipe.ice), state.inventory.cups);
     const demand = calcDemand(seed, day, weather, temp, price, recipe.quality, event);
-    const sold = Math.min(canMake, demand);
-    const revenue = sold * price;
-
-    state.inventory.lemons -= sold * recipe.lemons;
-    state.inventory.sugar -= sold * recipe.sugar;
-    state.inventory.ice -= sold * recipe.ice;
-    state.inventory.cups -= sold;
+    const sold = Math.min(canMake, demand); const revenue = sold * price;
+    state.inventory.lemons -= sold*recipe.lemons; state.inventory.sugar -= sold*recipe.sugar;
+    state.inventory.ice -= sold*recipe.ice; state.inventory.cups -= sold;
     const melt = 0.5 + rng(seed, day, "melt") * 0.3;
     state.inventory.ice = Math.floor(state.inventory.ice * (1 - melt));
     state.cash += revenue;
-
     let repD = 0;
     if (sold > 0 && recipe.quality >= 0.7) repD += 3;
     if (sold > 0 && recipe.quality < 0.5) repD -= 2;
@@ -119,11 +92,9 @@ function replayGame(seed, actionLog) {
     if (price <= 1.0 && recipe.quality >= 0.7) repD += 2;
     if (demand > canMake) repD -= 1;
     state.reputation = Math.max(0, Math.min(100, state.reputation + repD));
-
     results.push({ day, weather: weather.label, sold, demand, revenue, repD });
     prevHash = entry.hash;
   }
-
   return { valid: true, finalState: state, results, finalHash: prevHash };
 }
 
@@ -131,18 +102,12 @@ function replayGame(seed, actionLog) {
 function LemonPixel({ size = 60 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" style={{ imageRendering: "pixelated" }}>
-      <rect x="6" y="1" width="1" height="1" fill="#4a7c3f" />
-      <rect x="7" y="1" width="1" height="1" fill="#4a7c3f" />
-      <rect x="7" y="2" width="1" height="1" fill="#4a7c3f" />
-      <rect x="5" y="3" width="6" height="1" fill="#f5d442" />
-      <rect x="4" y="4" width="8" height="1" fill="#f5d442" />
-      <rect x="3" y="5" width="10" height="1" fill="#f5d442" />
-      <rect x="3" y="6" width="10" height="1" fill="#f7e86a" />
-      <rect x="3" y="7" width="10" height="1" fill="#f7e86a" />
-      <rect x="3" y="8" width="10" height="1" fill="#f5d442" />
-      <rect x="3" y="9" width="10" height="1" fill="#f5d442" />
-      <rect x="4" y="10" width="8" height="1" fill="#f5d442" />
-      <rect x="5" y="11" width="6" height="1" fill="#e8c431" />
+      <rect x="6" y="1" width="1" height="1" fill="#4a7c3f" /><rect x="7" y="1" width="1" height="1" fill="#4a7c3f" />
+      <rect x="7" y="2" width="1" height="1" fill="#4a7c3f" /><rect x="5" y="3" width="6" height="1" fill="#f5d442" />
+      <rect x="4" y="4" width="8" height="1" fill="#f5d442" /><rect x="3" y="5" width="10" height="1" fill="#f5d442" />
+      <rect x="3" y="6" width="10" height="1" fill="#f7e86a" /><rect x="3" y="7" width="10" height="1" fill="#f7e86a" />
+      <rect x="3" y="8" width="10" height="1" fill="#f5d442" /><rect x="3" y="9" width="10" height="1" fill="#f5d442" />
+      <rect x="4" y="10" width="8" height="1" fill="#f5d442" /><rect x="5" y="11" width="6" height="1" fill="#e8c431" />
     </svg>
   );
 }
@@ -153,30 +118,23 @@ function ChainPanel({ verusId, actionLog, genesisHash, verifyResult }) {
   const lastHash = actionLog.length > 0 ? actionLog[actionLog.length - 1].hash : genesisHash;
   return (
     <div onClick={() => setOpen(!open)} style={{
-      background: "#0a0e14", border: "1px solid #1a3a2a", borderRadius: 6,
-      padding: "10px 14px", fontFamily: "'Courier New', monospace", fontSize: 10,
-      color: "#3ddc84", marginTop: 12, maxHeight: open ? 600 : 72,
-      overflow: "hidden", transition: "max-height 0.3s ease", cursor: "pointer",
+      background: "#0a0e14", border: "1px solid #1a3a2a", borderRadius: 6, padding: "10px 14px",
+      fontFamily: "'Courier New', monospace", fontSize: 10, color: "#3ddc84", marginTop: 12,
+      maxHeight: open ? 600 : 56, overflow: "hidden", transition: "max-height 0.3s", cursor: "pointer",
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
         <span style={{ color: "#6ec87a", fontWeight: 700 }}>⛓ PROOF-OF-GAMEPLAY CHAIN</span>
         <span style={{ color: "#555", fontSize: 9 }}>{open ? "▲" : "▼"}</span>
       </div>
       <div style={{ color: "#2a7a4a", fontSize: 9 }}>
-        ID: <span style={{ color: "#3ddc84" }}>{verusId}.Verus Arcade@</span>
-        {" · "}Head: <span style={{ color: "#5feba7" }}>{lastHash}</span>
+        Head: <span style={{ color: "#5feba7" }}>{lastHash}</span> · {actionLog.length} actions
       </div>
-
       {open && (
         <div style={{ marginTop: 8 }}>
-          <div style={{ color: "#1a6a3a", marginBottom: 4 }}>
-            genesis → <span style={{ color: "#5feba7" }}>{genesisHash}</span>
-          </div>
+          <div style={{ color: "#1a6a3a", marginBottom: 4 }}>genesis → <span style={{ color: "#5feba7" }}>{genesisHash}</span></div>
           {actionLog.map((entry, i) => (
-            <div key={i} style={{ marginBottom: 4, paddingLeft: 8, borderLeft: "2px solid #0f3320" }}>
-              <div style={{ color: "#1a6a3a" }}>
-                Day {entry.day} · <span style={{ color: "#5feba7" }}>{entry.hash}</span>
-              </div>
+            <div key={i} style={{ marginBottom: 3, paddingLeft: 8, borderLeft: "2px solid #0f3320" }}>
+              <div style={{ color: "#1a6a3a" }}>Day {entry.day} · <span style={{ color: "#5feba7" }}>{entry.hash}</span></div>
               <div style={{ color: "#0f5a2a", fontSize: 9 }}>
                 buys:[{entry.buys.lemons}L {entry.buys.sugar}S {entry.buys.cups}C {entry.buys.ice}I]
                 · {RECIPES[entry.recipeIndex].name} · ${entry.price.toFixed(2)}
@@ -184,8 +142,7 @@ function ChainPanel({ verusId, actionLog, genesisHash, verifyResult }) {
             </div>
           ))}
           {verifyResult && (
-            <div style={{
-              marginTop: 8, padding: "6px 8px", borderRadius: 3,
+            <div style={{ marginTop: 8, padding: "6px 8px", borderRadius: 3,
               background: verifyResult.valid ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
               border: `1px solid ${verifyResult.valid ? "#22c55e" : "#ef4444"}`,
             }}>
@@ -212,24 +169,46 @@ const mkInit = () => ({
   buyAmounts: { lemons: 10, sugar: 20, cups: 20, ice: 15 },
   actionLog: [], genesisHash: "",
   pendingBuys: null, verifyResult: null,
+  // On-chain integration
+  chainSaveStatus: null, // null | "saving" | "saved" | "error"
+  chainSaveTxid: null,
+  previousHighscore: null,
+  loadingChainData: false,
 });
 
 export default function LemonadeStand() {
   const [state, setState] = useState(mkInit());
   const up = useCallback((p) => setState(prev => ({ ...prev, ...p })), []);
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  // Load previous score when logged in
+  useEffect(() => {
+    if (user && state.phase === "title" && !state.loadingChainData && state.previousHighscore === null) {
+      up({ loadingChainData: true });
+      loadGame(user.fullname || user.identity + "@", "lemonade")
+        .then(data => {
+          up({
+            loadingChainData: false,
+            previousHighscore: data.found ? data.score : 0,
+            verusId: user.identity,
+          });
+        })
+        .catch(() => up({ loadingChainData: false, verusId: user.identity }));
+    }
+  }, [user, state.phase]);
 
   const startGame = () => {
-    const id = state.verusId.trim().replace(/@/g, "");
+    const id = user ? user.identity : state.verusId.trim().replace(/@/g, "");
     if (!id) return;
     const genesis = hashStr(`genesis::${id}`);
-    up({ ...mkInit(), phase: "plan", verusId: id, day: 1, genesisHash: genesis });
+    const fresh = mkInit();
+    up({ ...fresh, phase: "plan", verusId: id, day: 1, genesisHash: genesis, previousHighscore: state.previousHighscore });
   };
 
   const totalCost = () => {
     const b = state.buyAmounts;
-    return b.lemons * SUPPLY_PRICES.lemons + b.sugar * SUPPLY_PRICES.sugar +
-      b.cups * SUPPLY_PRICES.cups + b.ice * SUPPLY_PRICES.ice;
+    return b.lemons*SUPPLY_PRICES.lemons + b.sugar*SUPPLY_PRICES.sugar + b.cups*SUPPLY_PRICES.cups + b.ice*SUPPLY_PRICES.ice;
   };
 
   const buySupplies = () => {
@@ -239,16 +218,12 @@ export default function LemonadeStand() {
     up({
       cash: state.cash - cost,
       inventory: {
-        lemons: state.inventory.lemons + state.buyAmounts.lemons,
-        sugar: state.inventory.sugar + state.buyAmounts.sugar,
-        cups: state.inventory.cups + state.buyAmounts.cups,
-        ice: state.inventory.ice + state.buyAmounts.ice,
+        lemons: state.inventory.lemons + state.buyAmounts.lemons, sugar: state.inventory.sugar + state.buyAmounts.sugar,
+        cups: state.inventory.cups + state.buyAmounts.cups, ice: state.inventory.ice + state.buyAmounts.ice,
       },
       pendingBuys: {
-        lemons: prev.lemons + state.buyAmounts.lemons,
-        sugar: prev.sugar + state.buyAmounts.sugar,
-        cups: prev.cups + state.buyAmounts.cups,
-        ice: prev.ice + state.buyAmounts.ice,
+        lemons: prev.lemons + state.buyAmounts.lemons, sugar: prev.sugar + state.buyAmounts.sugar,
+        cups: prev.cups + state.buyAmounts.cups, ice: prev.ice + state.buyAmounts.ice,
       },
     });
   };
@@ -256,53 +231,31 @@ export default function LemonadeStand() {
   const simulateDay = () => {
     const buys = state.pendingBuys || { lemons: 0, sugar: 0, cups: 0, ice: 0 };
     const actionData = { day: state.day, buys, recipeIndex: state.recipeIndex, price: state.price };
-    const prevHash = state.actionLog.length > 0
-      ? state.actionLog[state.actionLog.length - 1].hash
-      : state.genesisHash;
+    const prevHash = state.actionLog.length > 0 ? state.actionLog[state.actionLog.length - 1].hash : state.genesisHash;
     const actionHash = chainHash(prevHash, actionData);
-
     const recipe = RECIPES[state.recipeIndex];
-    const weather = getWeather(state.verusId, state.day);
-    const temp = getTemp(state.verusId, state.day, weather);
+    const weather = getWeather(state.verusId, state.day); const temp = getTemp(state.verusId, state.day, weather);
     const event = getEvent(state.verusId, state.day);
-    const canMake = Math.min(
-      Math.floor(state.inventory.lemons / recipe.lemons),
-      Math.floor(state.inventory.sugar / recipe.sugar),
-      Math.floor(state.inventory.ice / recipe.ice),
-      state.inventory.cups
-    );
+    const canMake = Math.min(Math.floor(state.inventory.lemons/recipe.lemons), Math.floor(state.inventory.sugar/recipe.sugar), Math.floor(state.inventory.ice/recipe.ice), state.inventory.cups);
     const demand = calcDemand(state.verusId, state.day, weather, temp, state.price, recipe.quality, event);
-    const sold = Math.min(canMake, demand);
-    const revenue = sold * state.price;
-
+    const sold = Math.min(canMake, demand); const revenue = sold * state.price;
     const newInv = { ...state.inventory };
-    newInv.lemons -= sold * recipe.lemons;
-    newInv.sugar -= sold * recipe.sugar;
-    newInv.ice -= sold * recipe.ice;
-    newInv.cups -= sold;
+    newInv.lemons -= sold*recipe.lemons; newInv.sugar -= sold*recipe.sugar;
+    newInv.ice -= sold*recipe.ice; newInv.cups -= sold;
     const melt = 0.5 + rng(state.verusId, state.day, "melt") * 0.3;
     newInv.ice = Math.floor(newInv.ice * (1 - melt));
     Object.keys(newInv).forEach(k => { newInv[k] = Math.max(0, newInv[k]); });
-
     let repD = 0;
     if (sold > 0 && recipe.quality >= 0.7) repD += 3;
     if (sold > 0 && recipe.quality < 0.5) repD -= 2;
     if (state.price > 2.5) repD -= 2;
     if (state.price <= 1.0 && recipe.quality >= 0.7) repD += 2;
     if (demand > canMake) repD -= 1;
-
-    const result = {
-      day: state.day, weather: weather.label, temp,
-      event: event?.label || null, demand, maxCups: canMake,
-      sold, revenue, recipe: recipe.name, price: state.price, repD,
-    };
-
+    const result = { day: state.day, weather: weather.label, temp, event: event?.label || null, demand, maxCups: canMake, sold, revenue, recipe: recipe.name, price: state.price, repD };
     up({
-      phase: "result",
-      cash: state.cash + revenue,
+      phase: "result", cash: state.cash + revenue,
       reputation: Math.max(0, Math.min(100, state.reputation + repD)),
-      inventory: newInv,
-      todayResult: result,
+      inventory: newInv, todayResult: result,
       history: [...state.history, result],
       actionLog: [...state.actionLog, { ...actionData, hash: actionHash }],
       pendingBuys: null,
@@ -313,12 +266,29 @@ export default function LemonadeStand() {
     if (state.day >= TOTAL_DAYS) {
       const vResult = replayGame(state.verusId, state.actionLog);
       up({ phase: "gameover", verifyResult: vResult });
+      // Auto-save to chain if logged in
+      if (user && vResult.valid) {
+        const score = calcScore(state.cash, state.reputation, state.history);
+        const head = state.actionLog[state.actionLog.length - 1].hash;
+        up({ chainSaveStatus: "saving" });
+        saveGame(user.fullname || user.identity + "@", "lemonade", state.actionLog, head, score)
+          .then(result => {
+            if (result.success) up({ chainSaveStatus: "saved", chainSaveTxid: result.txid });
+            else up({ chainSaveStatus: "error" });
+          })
+          .catch(() => up({ chainSaveStatus: "error" }));
+      }
     } else {
       up({ phase: "plan", day: state.day + 1, todayResult: null, pendingBuys: null });
     }
   };
 
-  const resetGame = () => setState(mkInit());
+  const resetGame = () => {
+    const hs = state.previousHighscore;
+    const init = mkInit();
+    setState({ ...init, verusId: user ? user.identity : "", previousHighscore: hs });
+  };
+
   const weather = state.verusId && state.day > 0 ? getWeather(state.verusId, state.day) : null;
 
   // ── STYLES ──
@@ -350,19 +320,46 @@ export default function LemonadeStand() {
               Your <strong>VerusID</strong> seeds the game world. Every decision is recorded in a <strong>hash chain</strong> — tamper-proof and verifiable by anyone.
             </p>
             <p style={{ margin: 0, fontSize: 12, fontStyle: "italic", color: "#8a7a5a" }}>
-              No state is stored — only your choices. Replay the action log to verify any score.
+              Run a lemonade stand for 14 days. Buy supplies, pick recipes, set prices. Beat the weather.
             </p>
           </div>
-          <div style={{ ...CD, textAlign: "left" }}>
-            <div style={LB}>Your VerusID</div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="text" value={state.verusId} onChange={(e) => up({ verusId: e.target.value })}
-                onKeyDown={(e) => e.key === "Enter" && startGame()} placeholder="myname"
-                style={{ flex: 1, padding: "10px 12px", border: `2px solid ${bdr}`, borderRadius: 6, fontFamily: "'Courier New', monospace", fontSize: 15, color: tD, background: "#fffef5", outline: "none" }} />
-              <span style={{ fontSize: 11, color: tM, fontFamily: "'Courier New', monospace" }}>.Verus Arcade@</span>
+
+          {/* Logged-in user panel */}
+          {user ? (
+            <div style={{ ...CD, textAlign: "left" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: grn }} />
+                <span style={{ fontFamily: "'Courier New', monospace", fontSize: 13, color: grn, fontWeight: 700 }}>
+                  {user.fullname || user.identity + "@"}
+                </span>
+              </div>
+              {state.loadingChainData ? (
+                <div style={{ fontSize: 12, color: tM, fontStyle: "italic" }}>Loading chain data...</div>
+              ) : state.previousHighscore > 0 ? (
+                <div style={{ fontSize: 12, color: tM }}>
+                  Previous highscore: <strong style={{ color: acc }}>{state.previousHighscore} pts</strong>
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: tM }}>No previous games found — let's play!</div>
+              )}
             </div>
-          </div>
-          <button onClick={startGame} style={{ ...BN(true), width: "100%", padding: "14px 20px", fontSize: 16 }}>🍋 Start Game</button>
+          ) : (
+            <div style={{ ...CD, textAlign: "left" }}>
+              <div style={LB}>VerusID (manual)</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input type="text" value={state.verusId} onChange={(e) => up({ verusId: e.target.value })}
+                  onKeyDown={(e) => e.key === "Enter" && startGame()} placeholder="myname"
+                  style={{ flex: 1, padding: "10px 12px", border: `2px solid ${bdr}`, borderRadius: 6, fontFamily: "'Courier New', monospace", fontSize: 15, color: tD, background: "#fffef5", outline: "none" }} />
+                <span style={{ fontSize: 11, color: tM, fontFamily: "'Courier New', monospace" }}>.Verus Arcade@</span>
+              </div>
+              <div style={{ fontSize: 11, color: "#8a7a5a", marginTop: 6, fontStyle: "italic" }}>
+                ⚠ Playing without login — scores won't be saved on-chain.{" "}
+                <span onClick={() => navigate("/login")} style={{ color: acc, cursor: "pointer", textDecoration: "underline" }}>Log in</span>
+              </div>
+            </div>
+          )}
+
+          <button onClick={startGame} disabled={!user && !state.verusId.trim()} style={{ ...BN(true, !user && !state.verusId.trim()), width: "100%", padding: "14px 20px", fontSize: 16 }}>🍋 Start Game</button>
           <button onClick={() => navigate('/')} style={{ ...BN(), width: "100%", padding: "10px 20px", fontSize: 12, marginTop: 8, borderColor: "#5a6a7e", color: "#5a6a7e" }}>← Back to Arcade</button>
         </div>
       </div>
@@ -377,7 +374,9 @@ export default function LemonadeStand() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div>
             <div style={{ ...LB, marginBottom: 0 }}>Day {state.day}/{TOTAL_DAYS}</div>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>{state.verusId}.Verus Arcade@</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>
+              {user ? (user.fullname || user.identity + "@") : state.verusId + ".Verus Arcade@"}
+            </div>
           </div>
           <button onClick={resetGame} style={{ ...BN(), padding: "6px 14px", fontSize: 11, borderColor: red, color: red }}>↺ Restart</button>
         </div>
@@ -396,14 +395,14 @@ export default function LemonadeStand() {
         <div style={CD}>
           <div style={{ ...LB, marginBottom: 8 }}>Inventory</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, textAlign: "center" }}>
-            {[["🍋", "Lemons", state.inventory.lemons], ["🧂", "Sugar", state.inventory.sugar], ["🥤", "Cups", state.inventory.cups], ["🧊", "Ice", state.inventory.ice]].map(([ic, nm, val]) => (
+            {[["🍋","Lemons",state.inventory.lemons],["🧂","Sugar",state.inventory.sugar],["🥤","Cups",state.inventory.cups],["🧊","Ice",state.inventory.ice]].map(([ic,nm,val]) => (
               <div key={nm}><div style={{ fontSize: 16 }}>{ic}</div><div style={{ fontSize: 15, fontWeight: 700 }}>{val}</div><div style={{ fontSize: 9, color: tM }}>{nm}</div></div>
             ))}
           </div>
         </div>
         <div style={CD}>
           <div style={{ ...LB, marginBottom: 8 }}>Buy Supplies</div>
-          {["lemons", "sugar", "cups", "ice"].map(item => (
+          {["lemons","sugar","cups","ice"].map(item => (
             <div key={item} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
               <span style={{ fontSize: 13, width: 100, textTransform: "capitalize" }}>{item} <span style={{ color: "#aaa", fontSize: 11 }}>${SUPPLY_PRICES[item].toFixed(2)}</span></span>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -428,7 +427,7 @@ export default function LemonadeStand() {
                 textAlign: "left", fontFamily: "'Georgia', serif",
               }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: i === state.recipeIndex ? accD : tM }}>{r.name}</div>
-                <div style={{ fontSize: 10, color: "#999", marginTop: 2 }}>{"★".repeat(Math.ceil(r.quality * 4))}{"☆".repeat(4 - Math.ceil(r.quality * 4))}</div>
+                <div style={{ fontSize: 10, color: "#999", marginTop: 2 }}>{"★".repeat(Math.ceil(r.quality*4))}{"☆".repeat(4-Math.ceil(r.quality*4))}</div>
               </button>
             ))}
           </div>
@@ -497,10 +496,12 @@ export default function LemonadeStand() {
     const totalRev = state.history.reduce((s, h) => s + h.revenue, 0);
     const totalSold = state.history.reduce((s, h) => s + h.sold, 0);
     const profit = state.cash - 20;
+    const score = calcScore(state.cash, state.reputation, state.history);
     const grade = profit > 40 ? "S" : profit > 25 ? "A" : profit > 15 ? "B" : profit > 5 ? "C" : profit > 0 ? "D" : "F";
     const gc = { S: "#d4a017", A: grn, B: "#5a9bd5", C: tM, D: "#c97932", F: red }[grade];
     const vr = state.verifyResult;
     const head = state.actionLog.length > 0 ? state.actionLog[state.actionLog.length - 1].hash : state.genesisHash;
+    const isNewHigh = state.previousHighscore !== null && score > state.previousHighscore;
 
     return (
       <div style={CS}>
@@ -508,7 +509,13 @@ export default function LemonadeStand() {
           <LemonPixel size={60} />
           <h2 style={{ fontSize: 24, margin: "12px 0 4px" }}>Summer's Over!</h2>
           <div style={{ fontSize: 60, fontWeight: 900, color: gc, lineHeight: 1, margin: "8px 0", fontFamily: "'Courier New', monospace" }}>{grade}</div>
-          <div style={{ ...LB, fontSize: 10, marginBottom: 12 }}>Entrepreneur Grade</div>
+          <div style={{ ...LB, fontSize: 10, marginBottom: 4 }}>Entrepreneur Grade</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: acc, fontFamily: "'Courier New', monospace", marginBottom: 12 }}>
+            {score} pts
+            {isNewHigh && <span style={{ fontSize: 12, color: grn, marginLeft: 8 }}>🏆 NEW HIGH!</span>}
+          </div>
+
+          {/* Verification */}
           {vr && (
             <div style={{
               padding: "10px 14px", borderRadius: 6, marginBottom: 12,
@@ -521,12 +528,61 @@ export default function LemonadeStand() {
               <div style={{ fontSize: 11, color: tM, marginTop: 4 }}>
                 {vr.valid ? `Replayed ${state.actionLog.length} actions. Cash: $${vr.finalState.cash.toFixed(2)}, Rep: ${vr.finalState.reputation}` : vr.error}
               </div>
-              <div style={{ fontFamily: "'Courier New', monospace", fontSize: 10, color: acc, marginTop: 4 }}>
-                Chain head: {head}
-              </div>
+            </div>
+          )}
+
+          {/* On-chain save status */}
+          {user && (
+            <div style={{
+              padding: "8px 14px", borderRadius: 6, marginBottom: 12,
+              background: state.chainSaveStatus === "saved" ? "rgba(58,125,68,0.08)"
+                : state.chainSaveStatus === "error" ? "rgba(192,57,43,0.08)"
+                : "rgba(212,160,23,0.08)",
+              border: `1px solid ${
+                state.chainSaveStatus === "saved" ? grn
+                : state.chainSaveStatus === "error" ? red
+                : acc
+              }`,
+            }}>
+              {state.chainSaveStatus === "saving" && (
+                <div style={{ fontSize: 12, color: acc, fontFamily: "'Courier New', monospace" }}>
+                  ⏳ Saving to Verus testnet...
+                </div>
+              )}
+              {state.chainSaveStatus === "saved" && (
+                <div>
+                  <div style={{ fontSize: 12, color: grn, fontWeight: 700, fontFamily: "'Courier New', monospace" }}>
+                    ✓ SAVED ON-CHAIN
+                  </div>
+                  <div style={{ fontSize: 10, color: tM, marginTop: 2, fontFamily: "'Courier New', monospace", wordBreak: "break-all" }}>
+                    txid: {state.chainSaveTxid}
+                  </div>
+                </div>
+              )}
+              {state.chainSaveStatus === "error" && (
+                <div style={{ fontSize: 12, color: red, fontFamily: "'Courier New', monospace" }}>
+                  ✗ Save failed — try again later
+                </div>
+              )}
+              {!state.chainSaveStatus && (
+                <div style={{ fontSize: 12, color: acc, fontFamily: "'Courier New', monospace" }}>
+                  ⏳ Preparing on-chain save...
+                </div>
+              )}
+            </div>
+          )}
+
+          {!user && (
+            <div style={{
+              padding: "8px 14px", borderRadius: 6, marginBottom: 12,
+              background: "rgba(90,106,126,0.08)", border: "1px solid #2a3a4e",
+              fontSize: 12, color: "#5a6a7e", fontFamily: "'Courier New', monospace",
+            }}>
+              Score not saved — <span onClick={() => navigate("/login")} style={{ color: acc, cursor: "pointer", textDecoration: "underline" }}>log in</span> to save on-chain
             </div>
           )}
         </div>
+
         <div style={CD}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, textAlign: "center" }}>
             {[
@@ -563,8 +619,9 @@ export default function LemonadeStand() {
           <div style={{ color: "#5feba7" }}>vrsc::arcade.lemonade.seed → "{state.verusId}"</div>
           <div style={{ color: "#5feba7" }}>vrsc::arcade.lemonade.actions → [{state.actionLog.length} chained entries]</div>
           <div style={{ color: "#5feba7" }}>vrsc::arcade.lemonade.chainhead → "{head}"</div>
+          <div style={{ color: "#5feba7" }}>vrsc::arcade.lemonade.score → "{score}"</div>
+          {state.chainSaveTxid && <div style={{ color: "#5feba7" }}>vrsc::arcade.lemonade.txid → "{state.chainSaveTxid}"</div>}
           <div style={{ color: "#1a6a3a", marginTop: 4 }}>// Verify: replay(seed, actions) → hash must match chainhead</div>
-          <div style={{ color: "#1a6a3a" }}>// Edit any action → chain breaks → score rejected</div>
         </div>
       </div>
     );

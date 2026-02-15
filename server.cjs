@@ -4,7 +4,7 @@ const http = require('http');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 
 // ── Verus RPC Configuration ──
 const RPC = {
@@ -24,6 +24,7 @@ function rpcCall(method, params = []) {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Basic ' + Buffer.from(RPC.user + ':' + RPC.pass).toString('base64'),
+        'Content-Length': Buffer.byteLength(data),
       },
     };
     const req = http.request(options, (res) => {
@@ -43,6 +44,30 @@ function rpcCall(method, params = []) {
     req.write(data);
     req.end();
   });
+}
+
+// ── Hex helpers ──
+function toHex(str) { return Buffer.from(str, 'utf8').toString('hex'); }
+function fromHex(hex) { return Buffer.from(hex, 'hex').toString('utf8'); }
+
+// Deterministic key from game name (20-byte hash as hex)
+function gameKey(game) {
+  // Simple hash to create a 20-byte key (like a VDXF key address)
+  let h = 0x811c9dc5;
+  const input = 'vrsc::arcade.' + game;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  // Expand to 20 bytes by repeated hashing
+  const bytes = [];
+  for (let round = 0; round < 5; round++) {
+    h ^= round;
+    h = Math.imul(h, 0x01000193);
+    const v = h >>> 0;
+    bytes.push(v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff);
+  }
+  return bytes.slice(0, 20).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // ── API Routes ──
@@ -95,47 +120,63 @@ app.post('/api/login/verify', async (req, res) => {
   }
 });
 
+// ── Game Save/Load via contentmap ──
 app.post('/api/game/save', async (req, res) => {
   const { identity, game, actionLog, chainHead, score } = req.body;
-  if (!identity || !game || !actionLog) {
+  if (!identity || !game) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
   try {
+    const key = gameKey(game);
+    const payload = JSON.stringify({ actionLog, chainHead, score, timestamp: Date.now() });
+    const valueHex = toHex(payload);
+
+    console.log('[SAVE] Identity:', identity, '| Game:', game, '| Key:', key, '| Score:', score);
+
     const updateData = {
-      name: identity,
-      contentmultimap: {
-        ['vrsc::arcade.' + game + '.actions']: [{ vdxftype: 'utf8', value: JSON.stringify(actionLog) }],
-        ['vrsc::arcade.' + game + '.chainhead']: [{ vdxftype: 'utf8', value: chainHead }],
-        ['vrsc::arcade.' + game + '.score']: [{ vdxftype: 'utf8', value: String(score) }],
-        ['vrsc::arcade.' + game + '.timestamp']: [{ vdxftype: 'utf8', value: String(Date.now()) }],
-      },
+      name: identity.replace(/@$/, '').replace(/\.vrsctest$/i, ''),
+      contentmap: {},
     };
+    updateData.contentmap[key] = valueHex;
+
     const txid = await rpcCall('updateidentity', [updateData]);
+    console.log('[SAVE] Success! txid:', txid);
     res.json({ success: true, txid });
   } catch (e) {
-    res.status(500).json({ error: e.message || e });
+    console.error('[SAVE] Error:', e);
+    res.status(500).json({ error: e.message || JSON.stringify(e) });
   }
 });
 
 app.get('/api/game/load/:identity/:game', async (req, res) => {
   try {
     const idInfo = await rpcCall('getidentity', [req.params.identity]);
-    const cmap = idInfo.identity.contentmultimap || {};
-    const game = req.params.game;
-    const actions = cmap['vrsc::arcade.' + game + '.actions'];
-    const chainHead = cmap['vrsc::arcade.' + game + '.chainhead'];
-    const score = cmap['vrsc::arcade.' + game + '.score'];
-    res.json({
-      found: !!actions,
-      actions: actions ? JSON.parse(actions[0].value || actions[0]) : null,
-      chainHead: chainHead ? (chainHead[0].value || chainHead[0]) : null,
-      score: score ? Number(score[0].value || score[0]) : null,
-    });
+    const cmap = idInfo.identity.contentmap || {};
+    const key = gameKey(req.params.game);
+
+    console.log('[LOAD] Identity:', req.params.identity, '| Game:', req.params.game, '| Key:', key);
+
+    if (cmap[key]) {
+      const payload = JSON.parse(fromHex(cmap[key]));
+      console.log('[LOAD] Found! Score:', payload.score);
+      res.json({
+        found: true,
+        actionLog: payload.actionLog,
+        chainHead: payload.chainHead,
+        score: payload.score,
+        timestamp: payload.timestamp,
+      });
+    } else {
+      console.log('[LOAD] No data found for key');
+      res.json({ found: false, score: null });
+    }
   } catch (e) {
+    console.error('[LOAD] Error:', e);
     res.status(500).json({ error: e.message || e });
   }
 });
 
+// ── Sub-ID Registration ──
 app.post('/api/register-player', async (req, res) => {
   const { playerName } = req.body;
   if (!playerName) return res.status(400).json({ error: 'Missing playerName' });
@@ -174,5 +215,7 @@ app.listen(PORT, () => {
   console.log('\n⛓  Verus Arcade Backend');
   console.log('   Server:  http://localhost:' + PORT);
   console.log('   RPC:     ' + RPC.host + ':' + RPC.port);
-  console.log('   Chain:   vrsctest\n');
+  console.log('   Chain:   vrsctest');
+  console.log('   Keys:    lemonade=' + gameKey('lemonade') + ' colony=' + gameKey('colony'));
+  console.log('');
 });

@@ -1,4 +1,6 @@
-const API = 'http://localhost:3001/api';
+const API = window.location.hostname === 'localhost' 
+  ? 'http://localhost:3001/api'
+  : 'https://api.verusarcade.com/api';
 
 export async function getChainHealth() {
   const res = await fetch(`${API}/health`);

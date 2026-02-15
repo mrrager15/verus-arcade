@@ -3,15 +3,17 @@ const cors = require('cors');
 const http = require('http');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: ['https://verusarcade.com', 'https://www.verusarcade.com', 'http://localhost:5173']
+}));
 app.use(express.json({ limit: '5mb' }));
 
 // ── Verus RPC Configuration ──
 const RPC = {
   host: '127.0.0.1',
   port: 18843,
-  user: 'user787555433',
-  pass: 'pass1530fe87fc666953017d00b8a5c8a1c0c681625584c7bd752ec13ec77373e06bec',
+  user: process.env.RPC_USER || 'fallback',
+  pass: process.env.RPC_PASS || 'fallback',
 };
 
 function rpcCall(method, params = []) {

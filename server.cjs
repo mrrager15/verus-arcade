@@ -120,27 +120,72 @@ app.post('/api/login/verify', async (req, res) => {
   }
 });
 
-// ── Game Save/Load via contentmap ──
+// ── Game Save/Load via contentmultimap ──
+// Key: identity's own i-address
+// Value: array of hex-encoded JSON strings, one per game
+// Each entry: {game:"lemonade", seed:"...", actions:[...], chainHead:"...", score:N}
+
 app.post('/api/game/save', async (req, res) => {
   const { identity, game, actionLog, chainHead, score } = req.body;
   if (!identity || !game) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
   try {
-    const key = gameKey(game);
-    const payload = JSON.stringify({ actionLog, chainHead, score, timestamp: Date.now() });
-    const valueHex = toHex(payload);
+    const idName = identity.replace(/@$/, '').replace(/\.vrsctest$/i, '');
 
-    console.log('[SAVE] Identity:', identity, '| Game:', game, '| Key:', key, '| Score:', score);
+    // Full action log on-chain — this IS the proof-of-gameplay
+    const gameData = {
+      game: game,
+      seed: idName,
+      actions: actionLog || [],
+      chainHead: chainHead,
+      score: score,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+
+    console.log('[SAVE] Identity:', identity, '| Game:', game, '| Score:', score, '| Actions:', (actionLog || []).length);
+
+    // Read existing contentmultimap to preserve other games
+    let idAddress = '';
+    let existingEntries = [];
+    try {
+      const idInfo = await rpcCall('getidentity', [identity]);
+      idAddress = idInfo.identity.identityaddress;
+      const cmm = idInfo.identity.contentmultimap || {};
+      if (cmm[idAddress]) {
+        existingEntries = Array.isArray(cmm[idAddress]) ? cmm[idAddress] : [cmm[idAddress]];
+      }
+      console.log('[SAVE] Identity address:', idAddress, '| Existing entries:', existingEntries.length);
+    } catch (e) {
+      console.log('[SAVE] Could not read existing identity:', e.message || e);
+      return res.status(500).json({ error: 'Could not read identity' });
+    }
+
+    // Decode existing entries, filter out old data for this game, add new
+    const otherGames = [];
+    for (const hexEntry of existingEntries) {
+      try {
+        const entry = JSON.parse(fromHex(hexEntry));
+        if (entry.game !== game) {
+          otherGames.push(hexEntry);
+        }
+      } catch {
+        // Keep unreadable entries as-is
+        otherGames.push(hexEntry);
+      }
+    }
+
+    // Build new array: other games + updated game
+    const newEntries = [...otherGames, toHex(JSON.stringify(gameData))];
 
     const updateData = {
-      name: identity.replace(/@$/, '').replace(/\.vrsctest$/i, ''),
-      contentmap: {},
+      name: idName,
+      contentmultimap: {},
     };
-    updateData.contentmap[key] = valueHex;
+    updateData.contentmultimap[idAddress] = newEntries;
 
     const txid = await rpcCall('updateidentity', [updateData]);
-    console.log('[SAVE] Success! txid:', txid);
+    console.log('[SAVE] Success! txid:', txid, '| Total game entries:', newEntries.length);
     res.json({ success: true, txid });
   } catch (e) {
     console.error('[SAVE] Error:', e);
@@ -151,25 +196,33 @@ app.post('/api/game/save', async (req, res) => {
 app.get('/api/game/load/:identity/:game', async (req, res) => {
   try {
     const idInfo = await rpcCall('getidentity', [req.params.identity]);
-    const cmap = idInfo.identity.contentmap || {};
-    const key = gameKey(req.params.game);
+    const idAddress = idInfo.identity.identityaddress;
+    const cmm = idInfo.identity.contentmultimap || {};
+    const game = req.params.game;
 
-    console.log('[LOAD] Identity:', req.params.identity, '| Game:', req.params.game, '| Key:', key);
+    console.log('[LOAD] Identity:', req.params.identity, '| Game:', game, '| Address:', idAddress);
 
-    if (cmap[key]) {
-      const payload = JSON.parse(fromHex(cmap[key]));
-      console.log('[LOAD] Found! Score:', payload.score);
-      res.json({
-        found: true,
-        actionLog: payload.actionLog,
-        chainHead: payload.chainHead,
-        score: payload.score,
-        timestamp: payload.timestamp,
-      });
-    } else {
-      console.log('[LOAD] No data found for key');
-      res.json({ found: false, score: null });
+    const entries = cmm[idAddress] ? (Array.isArray(cmm[idAddress]) ? cmm[idAddress] : [cmm[idAddress]]) : [];
+
+    for (const hexEntry of entries) {
+      try {
+        const entry = JSON.parse(fromHex(hexEntry));
+        if (entry.game === game) {
+          console.log('[LOAD] Found! Score:', entry.score, '| Actions:', (entry.actions || []).length);
+          return res.json({
+            found: true,
+            seed: entry.seed,
+            actionLog: entry.actions,
+            chainHead: entry.chainHead,
+            score: entry.score,
+            timestamp: entry.timestamp,
+          });
+        }
+      } catch {}
     }
+
+    console.log('[LOAD] No data found for game:', game);
+    res.json({ found: false, score: null });
   } catch (e) {
     console.error('[LOAD] Error:', e);
     res.status(500).json({ error: e.message || e });
@@ -216,6 +269,6 @@ app.listen(PORT, () => {
   console.log('   Server:  http://localhost:' + PORT);
   console.log('   RPC:     ' + RPC.host + ':' + RPC.port);
   console.log('   Chain:   vrsctest');
-  console.log('   Keys:    lemonade=' + gameKey('lemonade') + ' colony=' + gameKey('colony'));
+  console.log('   Storage: contentmultimap (per-game entries)');
   console.log('');
 });

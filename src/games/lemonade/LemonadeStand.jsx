@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../verus/AuthContext.jsx";
-import { saveGame, loadGame } from "../../verus/api.js";
+import { loadGame } from "../../verus/api.js";
 
 // ═══════════════════════════════════════════════════════════════
 // VERUS ARCADE — LEMONADE STAND
@@ -172,7 +172,7 @@ const mkInit = () => ({
   // On-chain integration
   chainSaveStatus: null, // null | "saving" | "saved" | "error"
   chainSaveTxid: null,
-  previousHighscore: null,
+  chainStats: null, // { gamesPlayed, highscore, totalPoints, bestGrade, lastPlayed }
   loadingChainData: false,
 });
 
@@ -182,15 +182,15 @@ export default function LemonadeStand() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  // Load previous score when logged in
+  // Load previous stats when logged in
   useEffect(() => {
-    if (user && state.phase === "title" && !state.loadingChainData && state.previousHighscore === null) {
+    if (user && state.phase === "title" && !state.loadingChainData && state.chainStats === null) {
       up({ loadingChainData: true });
       loadGame(user.fullname || user.identity + "@", "lemonade")
         .then(data => {
           up({
             loadingChainData: false,
-            previousHighscore: data.found ? data.score : 0,
+            chainStats: data.found ? (data.stats || { gamesPlayed: 0, highscore: data.score || 0, totalPoints: 0, bestGrade: "F" }) : { gamesPlayed: 0, highscore: 0, totalPoints: 0, bestGrade: "F" },
             verusId: user.identity,
           });
         })
@@ -203,7 +203,7 @@ export default function LemonadeStand() {
     if (!id) return;
     const genesis = hashStr(`genesis::${id}`);
     const fresh = mkInit();
-    up({ ...fresh, phase: "plan", verusId: id, day: 1, genesisHash: genesis, previousHighscore: state.previousHighscore });
+    up({ ...fresh, phase: "plan", verusId: id, day: 1, genesisHash: genesis, chainStats: state.chainStats });
   };
 
   const totalCost = () => {
@@ -266,27 +266,56 @@ export default function LemonadeStand() {
     if (state.day >= TOTAL_DAYS) {
       const vResult = replayGame(state.verusId, state.actionLog);
       up({ phase: "gameover", verifyResult: vResult });
-      // Auto-save to chain if logged in
-      if (user && vResult.valid) {
-        const score = calcScore(state.cash, state.reputation, state.history);
-        const head = state.actionLog[state.actionLog.length - 1].hash;
-        up({ chainSaveStatus: "saving" });
-        saveGame(user.fullname || user.identity + "@", "lemonade", state.actionLog, head, score)
-          .then(result => {
-            if (result.success) up({ chainSaveStatus: "saved", chainSaveTxid: result.txid });
-            else up({ chainSaveStatus: "error" });
-          })
-          .catch(() => up({ chainSaveStatus: "error" }));
-      }
     } else {
       up({ phase: "plan", day: state.day + 1, todayResult: null, pendingBuys: null });
     }
   };
 
+  // Manual save — only called after user confirms
+  const saveToChain = () => {
+    if (state.chainSaveStatus) return; // prevent double-click
+    const score = calcScore(state.cash, state.reputation, state.history);
+    const head = state.actionLog[state.actionLog.length - 1].hash;
+    const profit = state.cash - 20;
+    const grade = profit > 40 ? "S" : profit > 25 ? "A" : profit > 15 ? "B" : profit > 5 ? "C" : profit > 0 ? "D" : "F";
+    const prevHigh = state.chainStats?.highscore || 0;
+    const isNewHigh = score > prevHigh;
+
+    up({ chainSaveStatus: "saving" });
+    const body = {
+      identity: user.fullname || user.identity + "@",
+      game: "lemonade",
+      actionLog: state.actionLog,
+      chainHead: head,
+      score,
+      grade,
+      isNewHigh,
+    };
+
+    fetch("http://localhost:3001/api/game/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then(r => r.json())
+      .then(result => {
+        if (result.success) {
+          up({
+            chainSaveStatus: "saved",
+            chainSaveTxid: result.txid,
+            chainStats: result.stats || state.chainStats,
+          });
+        } else {
+          up({ chainSaveStatus: "error" });
+        }
+      })
+      .catch(() => up({ chainSaveStatus: "error" }));
+  };
+
   const resetGame = () => {
-    const hs = state.previousHighscore;
+    const cs = state.chainStats;
     const init = mkInit();
-    setState({ ...init, verusId: user ? user.identity : "", previousHighscore: hs });
+    setState({ ...init, verusId: user ? user.identity : "", chainStats: cs });
   };
 
   const weather = state.verusId && state.day > 0 ? getWeather(state.verusId, state.day) : null;
@@ -335,9 +364,10 @@ export default function LemonadeStand() {
               </div>
               {state.loadingChainData ? (
                 <div style={{ fontSize: 12, color: tM, fontStyle: "italic" }}>Loading chain data...</div>
-              ) : state.previousHighscore > 0 ? (
+              ) : state.chainStats && state.chainStats.highscore > 0 ? (
                 <div style={{ fontSize: 12, color: tM }}>
-                  Previous highscore: <strong style={{ color: acc }}>{state.previousHighscore} pts</strong>
+                  <div>Highscore: <strong style={{ color: acc }}>{state.chainStats.highscore} pts</strong> (Grade: {state.chainStats.bestGrade})</div>
+                  <div style={{ fontSize: 11, marginTop: 2 }}>Games played: {state.chainStats.gamesPlayed} · Total XP: {state.chainStats.totalPoints}</div>
                 </div>
               ) : (
                 <div style={{ fontSize: 12, color: tM }}>No previous games found — let's play!</div>
@@ -501,7 +531,7 @@ export default function LemonadeStand() {
     const gc = { S: "#d4a017", A: grn, B: "#5a9bd5", C: tM, D: "#c97932", F: red }[grade];
     const vr = state.verifyResult;
     const head = state.actionLog.length > 0 ? state.actionLog[state.actionLog.length - 1].hash : state.genesisHash;
-    const isNewHigh = state.previousHighscore !== null && score > state.previousHighscore;
+    const isNewHigh = !state.chainStats || state.chainStats.highscore === 0 || score > state.chainStats.highscore;
 
     return (
       <div style={CS}>
@@ -531,42 +561,63 @@ export default function LemonadeStand() {
             </div>
           )}
 
-          {/* On-chain save status */}
+          {/* On-chain save */}
           {user && (
             <div style={{
-              padding: "8px 14px", borderRadius: 6, marginBottom: 12,
+              padding: "10px 14px", borderRadius: 6, marginBottom: 12,
               background: state.chainSaveStatus === "saved" ? "rgba(58,125,68,0.08)"
                 : state.chainSaveStatus === "error" ? "rgba(192,57,43,0.08)"
-                : "rgba(212,160,23,0.08)",
+                : "rgba(212,160,23,0.06)",
               border: `1px solid ${
                 state.chainSaveStatus === "saved" ? grn
                 : state.chainSaveStatus === "error" ? red
-                : acc
+                : bdr
               }`,
             }}>
               {state.chainSaveStatus === "saving" && (
-                <div style={{ fontSize: 12, color: acc, fontFamily: "'Courier New', monospace" }}>
+                <div style={{ fontSize: 12, color: acc, fontFamily: "'Courier New', monospace", textAlign: "center" }}>
                   ⏳ Saving to Verus testnet...
                 </div>
               )}
               {state.chainSaveStatus === "saved" && (
                 <div>
-                  <div style={{ fontSize: 12, color: grn, fontWeight: 700, fontFamily: "'Courier New', monospace" }}>
+                  <div style={{ fontSize: 12, color: grn, fontWeight: 700, fontFamily: "'Courier New', monospace", textAlign: "center" }}>
                     ✓ SAVED ON-CHAIN
                   </div>
-                  <div style={{ fontSize: 10, color: tM, marginTop: 2, fontFamily: "'Courier New', monospace", wordBreak: "break-all" }}>
+                  <div style={{ fontSize: 10, color: tM, marginTop: 2, fontFamily: "'Courier New', monospace", wordBreak: "break-all", textAlign: "center" }}>
                     txid: {state.chainSaveTxid}
                   </div>
                 </div>
               )}
               {state.chainSaveStatus === "error" && (
-                <div style={{ fontSize: 12, color: red, fontFamily: "'Courier New', monospace" }}>
+                <div style={{ fontSize: 12, color: red, fontFamily: "'Courier New', monospace", textAlign: "center" }}>
                   ✗ Save failed — try again later
                 </div>
               )}
-              {!state.chainSaveStatus && (
-                <div style={{ fontSize: 12, color: acc, fontFamily: "'Courier New', monospace" }}>
-                  ⏳ Preparing on-chain save...
+              {!state.chainSaveStatus && isNewHigh && (
+                <div>
+                  <div style={{ fontSize: 12, color: acc, fontFamily: "'Courier New', monospace", marginBottom: 8, textAlign: "center" }}>
+                    🏆 New highscore! Save to blockchain?
+                  </div>
+                  <div style={{ fontSize: 10, color: tM, marginBottom: 10, textAlign: "center", fontStyle: "italic" }}>
+                    Updates your proof-of-gameplay + stats (costs a small tx fee)
+                  </div>
+                  <button onClick={saveToChain} disabled={!!state.chainSaveStatus} style={{ ...BN(true, !!state.chainSaveStatus), width: "100%", padding: "10px", fontSize: 13 }}>
+                    ⛓ Save Highscore On-Chain
+                  </button>
+                </div>
+              )}
+              {!state.chainSaveStatus && !isNewHigh && (
+                <div>
+                  <div style={{ fontSize: 12, color: tM, fontFamily: "'Courier New', monospace", marginBottom: 8, textAlign: "center" }}>
+                    Your highscore is {state.chainStats?.highscore || 0} pts — this game: {score} pts
+                  </div>
+                  <div style={{ fontSize: 10, color: tM, marginBottom: 10, textAlign: "center", fontStyle: "italic" }}>
+                    Updates stats only (games played, total XP). Proof stays from your highscore game. (costs a small tx fee)
+                  </div>
+                  <button onClick={saveToChain} disabled={!!state.chainSaveStatus} style={{ ...BN(false, !!state.chainSaveStatus), width: "100%", padding: "10px", fontSize: 12, borderColor: acc, color: accD }}>
+                    📊 Update Stats On-Chain
+                  </button>
                 </div>
               )}
             </div>
@@ -615,12 +666,14 @@ export default function LemonadeStand() {
           marginTop: 12, padding: "10px 14px", background: "#0a0e14", borderRadius: 6,
           fontFamily: "'Courier New', monospace", fontSize: 10, color: "#3ddc84",
         }}>
-          <div style={{ color: "#1a6a3a" }}>// On-chain storage (tamper-proof):</div>
-          <div style={{ color: "#5feba7" }}>vrsc::arcade.lemonade.seed → "{state.verusId}"</div>
-          <div style={{ color: "#5feba7" }}>vrsc::arcade.lemonade.actions → [{state.actionLog.length} chained entries]</div>
-          <div style={{ color: "#5feba7" }}>vrsc::arcade.lemonade.chainhead → "{head}"</div>
-          <div style={{ color: "#5feba7" }}>vrsc::arcade.lemonade.score → "{score}"</div>
-          {state.chainSaveTxid && <div style={{ color: "#5feba7" }}>vrsc::arcade.lemonade.txid → "{state.chainSaveTxid}"</div>}
+          <div style={{ color: "#1a6a3a" }}>// On-chain data (contentmultimap):</div>
+          <div style={{ color: "#5feba7" }}>stats.gamesPlayed → {(state.chainStats?.gamesPlayed || 0) + 1}</div>
+          <div style={{ color: "#5feba7" }}>stats.highscore → {isNewHigh ? score : state.chainStats?.highscore || 0}</div>
+          <div style={{ color: "#5feba7" }}>stats.totalPoints → {(state.chainStats?.totalPoints || 0) + score}</div>
+          <div style={{ color: "#5feba7" }}>stats.bestGrade → "{isNewHigh ? grade : state.chainStats?.bestGrade || grade}"</div>
+          <div style={{ color: "#5feba7" }}>proof.actions → [{state.actionLog.length} chained entries]</div>
+          <div style={{ color: "#5feba7" }}>proof.chainhead → "{head}"</div>
+          {state.chainSaveTxid && <div style={{ color: "#5feba7" }}>txid → "{state.chainSaveTxid}"</div>}
           <div style={{ color: "#1a6a3a", marginTop: 4 }}>// Verify: replay(seed, actions) → hash must match chainhead</div>
         </div>
       </div>

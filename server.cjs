@@ -123,29 +123,24 @@ app.post('/api/login/verify', async (req, res) => {
 // ── Game Save/Load via contentmultimap ──
 // Key: identity's own i-address
 // Value: array of hex-encoded JSON strings, one per game
-// Each entry: {game:"lemonade", seed:"...", actions:[...], chainHead:"...", score:N}
+// Structure per game:
+// {
+//   game: "lemonade",
+//   stats: { gamesPlayed, highscore, totalPoints, bestGrade, lastPlayed },
+//   proof: { seed, actions, chainHead }   ← only from highscore game
+// }
 
 app.post('/api/game/save', async (req, res) => {
-  const { identity, game, actionLog, chainHead, score } = req.body;
+  const { identity, game, actionLog, chainHead, score, grade, isNewHigh } = req.body;
   if (!identity || !game) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
   try {
     const idName = identity.replace(/@$/, '').replace(/\.vrsctest$/i, '');
 
-    // Full action log on-chain — this IS the proof-of-gameplay
-    const gameData = {
-      game: game,
-      seed: idName,
-      actions: actionLog || [],
-      chainHead: chainHead,
-      score: score,
-      timestamp: Math.floor(Date.now() / 1000),
-    };
+    console.log('[SAVE] Identity:', identity, '| Game:', game, '| Score:', score, '| NewHigh:', isNewHigh);
 
-    console.log('[SAVE] Identity:', identity, '| Game:', game, '| Score:', score, '| Actions:', (actionLog || []).length);
-
-    // Read existing contentmultimap to preserve other games
+    // Read existing contentmultimap
     let idAddress = '';
     let existingEntries = [];
     try {
@@ -155,38 +150,64 @@ app.post('/api/game/save', async (req, res) => {
       if (cmm[idAddress]) {
         existingEntries = Array.isArray(cmm[idAddress]) ? cmm[idAddress] : [cmm[idAddress]];
       }
-      console.log('[SAVE] Identity address:', idAddress, '| Existing entries:', existingEntries.length);
     } catch (e) {
       console.log('[SAVE] Could not read existing identity:', e.message || e);
       return res.status(500).json({ error: 'Could not read identity' });
     }
 
-    // Decode existing entries, filter out old data for this game, add new
+    // Find existing data for this game (if any)
+    let existingGameData = null;
     const otherGames = [];
     for (const hexEntry of existingEntries) {
       try {
         const entry = JSON.parse(fromHex(hexEntry));
-        if (entry.game !== game) {
+        if (entry.game === game) {
+          existingGameData = entry;
+        } else {
           otherGames.push(hexEntry);
         }
       } catch {
-        // Keep unreadable entries as-is
         otherGames.push(hexEntry);
       }
+    }
+
+    // Build updated stats
+    const prevStats = existingGameData?.stats || { gamesPlayed: 0, highscore: 0, totalPoints: 0, bestGrade: "F" };
+    const gradeRank = { S: 6, A: 5, B: 4, C: 3, D: 2, F: 1 };
+    const newStats = {
+      gamesPlayed: prevStats.gamesPlayed + 1,
+      highscore: Math.max(prevStats.highscore, score),
+      totalPoints: prevStats.totalPoints + score,
+      bestGrade: (gradeRank[grade] || 0) > (gradeRank[prevStats.bestGrade] || 0) ? grade : prevStats.bestGrade,
+      lastPlayed: Math.floor(Date.now() / 1000),
+    };
+
+    // Build new game entry
+    const gameData = { game, stats: newStats };
+
+    // Only update proof if new highscore
+    if (isNewHigh) {
+      gameData.proof = {
+        seed: idName,
+        actions: actionLog || [],
+        chainHead: chainHead,
+      };
+      console.log('[SAVE] Including proof (new highscore) | Actions:', (actionLog || []).length);
+    } else if (existingGameData?.proof) {
+      // Keep existing proof from previous highscore
+      gameData.proof = existingGameData.proof;
+      console.log('[SAVE] Keeping existing proof (not a new highscore)');
     }
 
     // Build new array: other games + updated game
     const newEntries = [...otherGames, toHex(JSON.stringify(gameData))];
 
-    const updateData = {
-      name: idName,
-      contentmultimap: {},
-    };
+    const updateData = { name: idName, contentmultimap: {} };
     updateData.contentmultimap[idAddress] = newEntries;
 
     const txid = await rpcCall('updateidentity', [updateData]);
-    console.log('[SAVE] Success! txid:', txid, '| Total game entries:', newEntries.length);
-    res.json({ success: true, txid });
+    console.log('[SAVE] Success! txid:', txid, '| Stats:', JSON.stringify(newStats));
+    res.json({ success: true, txid, stats: newStats });
   } catch (e) {
     console.error('[SAVE] Error:', e);
     res.status(500).json({ error: e.message || JSON.stringify(e) });
@@ -208,14 +229,13 @@ app.get('/api/game/load/:identity/:game', async (req, res) => {
       try {
         const entry = JSON.parse(fromHex(hexEntry));
         if (entry.game === game) {
-          console.log('[LOAD] Found! Score:', entry.score, '| Actions:', (entry.actions || []).length);
+          console.log('[LOAD] Found! Stats:', JSON.stringify(entry.stats));
           return res.json({
             found: true,
-            seed: entry.seed,
-            actionLog: entry.actions,
-            chainHead: entry.chainHead,
-            score: entry.score,
-            timestamp: entry.timestamp,
+            stats: entry.stats || {},
+            proof: entry.proof || null,
+            // Backwards compat
+            score: entry.stats?.highscore || entry.score || 0,
           });
         }
       } catch {}

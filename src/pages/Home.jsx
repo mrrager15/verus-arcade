@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../verus/AuthContext.jsx'
 
 const GAMES = [
   {
@@ -53,6 +54,7 @@ function StarField() {
 
 export default function Home() {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
 
   return (
     <div style={{
@@ -70,6 +72,46 @@ export default function Home() {
         position: 'relative',
         zIndex: 1,
       }}>
+        {/* User Bar */}
+        <div style={{
+          display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+          marginBottom: 12, gap: 12,
+          animation: 'fadeIn 0.4s ease',
+        }}>
+          {user ? (
+            <>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)',
+                borderRadius: 6, padding: '6px 14px',
+              }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e' }} />
+                <span style={{ fontFamily: "'Courier New', monospace", fontSize: 12, color: '#22c55e', fontWeight: 700 }}>
+                  {user.fullname || user.identity + '@'}
+                </span>
+              </div>
+              <span
+                onClick={logout}
+                style={{ fontSize: 11, color: '#5a6a7e', cursor: 'pointer', fontFamily: "'Courier New', monospace" }}
+              >
+                Logout
+              </span>
+            </>
+          ) : (
+            <span
+              onClick={() => navigate('/login')}
+              style={{
+                fontFamily: "'Courier New', monospace", fontSize: 12, color: '#f59e0b',
+                cursor: 'pointer', fontWeight: 700, letterSpacing: 1,
+                padding: '6px 16px', border: '1px solid rgba(245,158,11,0.3)',
+                borderRadius: 6, background: 'rgba(245,158,11,0.06)',
+              }}
+            >
+              🆔 LOGIN WITH VERUSID
+            </span>
+          )}
+        </div>
+
         {/* Header */}
         <div style={{
           textAlign: 'center',

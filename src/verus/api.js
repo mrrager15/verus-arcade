@@ -43,3 +43,31 @@ export async function getProfile(identity) {
   const res = await fetch(`${API}/profile/${encodeURIComponent(identity)}`);
   return res.json();
 }
+
+export async function checkGamertag(name) {
+  const res = await fetch(`${API}/register/check/${encodeURIComponent(name)}`);
+  return res.json();
+}
+
+export async function registerPlayer(gamertag) {
+  const res = await fetch(`${API}/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gamertag }),
+  });
+  return res.json();
+}
+
+export async function custodialLogin(gamertag) {
+  const res = await fetch(`${API}/login/custodial`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gamertag }),
+  });
+  return res.json();
+}
+
+export async function getRegistrationStatus(name) {
+  const res = await fetch(`${API}/register/status/${encodeURIComponent(name)}`);
+  return res.json();
+}

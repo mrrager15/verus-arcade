@@ -192,7 +192,13 @@ export default function Login() {
         )}
 
         {/* Back to Arcade */}
-        <div style={{ textAlign: 'center', marginTop: 20 }}>
+        <div style={{ textAlign: 'center', marginTop: 20, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
+          <span
+            onClick={() => navigate('/register')}
+            style={{ fontSize: 12, color: S.acc, cursor: 'pointer', fontFamily: S.font, fontWeight: 700 }}
+          >
+            New player? Create a free account →
+          </span>
           <span
             onClick={() => navigate('/')}
             style={{ fontSize: 12, color: S.dim, cursor: 'pointer', fontFamily: S.font }}

@@ -17,10 +17,11 @@ export function AuthProvider({ children }) {
   }, [user]);
 
   const login = (userData) => setUser(userData);
+  const loginDirect = (userData) => setUser({ ...userData, custodial: true });
   const logout = () => setUser(null);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, login, loginDirect, logout }}>
       {children}
     </AuthContext.Provider>
   );

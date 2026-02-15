@@ -151,6 +151,16 @@ app.post('/api/game/save', async (req, res) => {
         existingEntries = Array.isArray(cmm[idAddress]) ? cmm[idAddress] : [cmm[idAddress]];
       }
     } catch (e) {
+      // Check if this is a pending registration
+      const shortName = idName.split('.')[0];
+      if (pendingRegistrations.has(shortName)) {
+        const entry = pendingRegistrations.get(shortName);
+        return res.status(503).json({
+          error: 'Identity is still being created on-chain. Try saving again in a minute.',
+          status: entry.status,
+          pending: true,
+        });
+      }
       console.log('[SAVE] Could not read existing identity:', e.message || e);
       return res.status(500).json({ error: 'Could not read identity' });
     }
@@ -202,7 +212,15 @@ app.post('/api/game/save', async (req, res) => {
     // Build new array: other games + updated game
     const newEntries = [...otherGames, toHex(JSON.stringify(gameData))];
 
-    const updateData = { name: idName, contentmultimap: {} };
+    // For subIDs (name contains dot), use separate parent field
+    const updateData = { contentmultimap: {} };
+    if (idName.includes('.')) {
+      const parts = idName.split('.');
+      updateData.name = parts[0];
+      updateData.parent = 'iBrnBWkYJvzH6z1SB2TDnxk5mbPc781z1P';
+    } else {
+      updateData.name = idName;
+    }
     updateData.contentmultimap[idAddress] = newEntries;
 
     const txid = await rpcCall('updateidentity', [updateData]);
@@ -298,24 +316,70 @@ app.get('/api/profile/:identity', async (req, res) => {
   }
 });
 
-// ── Sub-ID Registration ──
-app.post('/api/register-player', async (req, res) => {
-  const { playerName } = req.body;
-  if (!playerName) return res.status(400).json({ error: 'Missing playerName' });
+// ── IP Rate Limiting for Registration ──
+const registeredIPs = new Map(); // IP → { gamertag, timestamp }
+
+function getClientIP(req) {
+  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+}
+
+// ── Name Validation ──
+function validateGamertag(name) {
+  if (!name || typeof name !== 'string') return 'Gamertag is required';
+  const trimmed = name.trim().toLowerCase();
+  if (trimmed.length < 3) return 'Gamertag must be at least 3 characters';
+  if (trimmed.length > 20) return 'Gamertag must be 20 characters or less';
+  if (!/^[a-z0-9_-]+$/.test(trimmed)) return 'Only lowercase letters, numbers, hyphens and underscores allowed';
+  if (/^[_-]|[_-]$/.test(trimmed)) return 'Cannot start or end with hyphen/underscore';
+  return null; // valid
+}
+
+// Helper: wait for N seconds
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Helper: wait for tx to get 1 confirmation (no timeout — blocks can take up to 10min)
+async function waitForConfirmation(txid) {
+  while (true) {
+    try {
+      const tx = await rpcCall('getrawtransaction', [txid, 1]);
+      if (tx.confirmations && tx.confirmations >= 1) return true;
+    } catch {}
+    await sleep(5000);
+  }
+}
+
+// ── Check if gamertag is available ──
+app.get('/api/register/check/:name', async (req, res) => {
+  const error = validateGamertag(req.params.name);
+  if (error) return res.json({ available: false, error });
+
+  const name = req.params.name.trim().toLowerCase();
   try {
-    const address = await rpcCall('getrawchangeaddress');
-    const commitment = await rpcCall('registernamecommitment', [playerName, address, '', 'Verus Arcade@']);
-    res.json({ success: true, commitment, address });
-  } catch (e) {
-    res.status(500).json({ error: e.message || e });
+    await rpcCall('getidentity', [name + '.Verus Arcade@']);
+    res.json({ available: false, error: 'Name already taken' });
+  } catch {
+    res.json({ available: true, name });
   }
 });
 
-app.post('/api/register-player/confirm', async (req, res) => {
-  const { commitment, address } = req.body;
-  if (!commitment || !address) return res.status(400).json({ error: 'Missing data' });
+// ── Pending registrations (background processing) ──
+const pendingRegistrations = new Map(); // name → { status, address, commitment, error, txid }
+
+// Background worker: completes registration after commitment confirms
+async function completeRegistration(name, address, commitment) {
+  const entry = pendingRegistrations.get(name);
+  if (!entry) return;
+
   try {
-    const identity = {
+    // Wait for commitment confirmation
+    entry.status = 'waiting_block';
+    console.log(`[REGISTER] Waiting for commitment confirmation: ${name}`);
+    const confirmed = await waitForConfirmation(commitment.txid);
+    console.log(`[REGISTER] Commitment confirmed: ${name}`);
+
+    // Register the identity
+    entry.status = 'registering';
+    const idDef = {
       txid: commitment.txid,
       namereservation: commitment.namereservation,
       identity: {
@@ -325,10 +389,145 @@ app.post('/api/register-player/confirm', async (req, res) => {
         parent: 'iBrnBWkYJvzH6z1SB2TDnxk5mbPc781z1P',
       },
     };
-    const txid = await rpcCall('registeridentity', [identity]);
-    res.json({ success: true, txid });
+
+    const regTxid = await rpcCall('registeridentity', [idDef]);
+    entry.status = 'confirming';
+    entry.txid = regTxid;
+    console.log(`[REGISTER] Identity tx sent: ${name} | txid: ${regTxid}`);
+
+    // Wait for identity confirmation
+    await waitForConfirmation(regTxid);
+    entry.status = 'ready';
+    console.log(`[REGISTER] ✅ Identity ready: ${name}.Verus Arcade@`);
   } catch (e) {
-    res.status(500).json({ error: e.message || e });
+    entry.status = 'error';
+    entry.error = e.message || JSON.stringify(e);
+    console.error(`[REGISTER] Error completing: ${name}`, e);
+  }
+}
+
+// ── Register new player (fast response, background processing) ──
+app.post('/api/register', async (req, res) => {
+  const { gamertag } = req.body;
+  const ip = getClientIP(req);
+
+  // Validate name
+  const nameError = validateGamertag(gamertag);
+  if (nameError) return res.status(400).json({ error: nameError });
+
+  const name = gamertag.trim().toLowerCase();
+
+  // Check IP rate limit
+  if (registeredIPs.has(ip)) {
+    const existing = registeredIPs.get(ip);
+    return res.status(429).json({
+      error: `This device already registered: ${existing.gamertag}.Verus Arcade@`,
+      existingGamertag: existing.gamertag,
+    });
+  }
+
+  // Check if already being registered
+  if (pendingRegistrations.has(name)) {
+    const entry = pendingRegistrations.get(name);
+    return res.json({
+      success: true,
+      gamertag: name,
+      fullname: name + '.Verus Arcade@',
+      address: entry.address,
+      status: entry.status,
+    });
+  }
+
+  console.log(`[REGISTER] Starting registration for "${name}" from IP ${ip}`);
+
+  try {
+    // Check if name is already taken
+    try {
+      await rpcCall('getidentity', [name + '.Verus Arcade@']);
+      return res.status(409).json({ error: 'Name already taken' });
+    } catch {
+      // Good - name is available
+    }
+
+    // Generate new address
+    const address = await rpcCall('getnewaddress');
+    console.log(`[REGISTER] Generated address: ${address}`);
+
+    // Register name commitment
+    const commitment = await rpcCall('registernamecommitment', [
+      name, address, '', 'Verus Arcade',
+    ]);
+    console.log(`[REGISTER] Name commitment txid: ${commitment.txid}`);
+
+    // Record IP immediately
+    registeredIPs.set(ip, { gamertag: name, timestamp: Date.now() });
+
+    // Track pending registration
+    pendingRegistrations.set(name, {
+      status: 'committed',
+      address,
+      commitment,
+      error: null,
+      txid: null,
+    });
+
+    // Start background processing (don't await!)
+    completeRegistration(name, address, commitment);
+
+    // Respond immediately — player can start playing
+    const fullName = name + '.Verus Arcade@';
+    res.json({
+      success: true,
+      gamertag: name,
+      fullname: fullName,
+      address,
+      status: 'committed',
+    });
+
+  } catch (e) {
+    console.error('[REGISTER] Error:', e);
+    res.status(500).json({ error: e.message || JSON.stringify(e) });
+  }
+});
+
+// ── Check registration status ──
+app.get('/api/register/status/:name', (req, res) => {
+  const name = req.params.name.trim().toLowerCase();
+  const entry = pendingRegistrations.get(name);
+  if (!entry) {
+    return res.json({ status: 'unknown', name });
+  }
+  res.json({
+    name,
+    status: entry.status, // committed → waiting_block → registering → confirming → ready | error
+    address: entry.address,
+    error: entry.error,
+    ready: entry.status === 'ready',
+  });
+});
+
+// ── Custodial Login (for subID players) ──
+app.post('/api/login/custodial', async (req, res) => {
+  const { gamertag } = req.body;
+  if (!gamertag) return res.status(400).json({ error: 'Missing gamertag' });
+
+  const name = gamertag.trim().toLowerCase();
+  const fullName = name + '.Verus Arcade@';
+
+  try {
+    const idInfo = await rpcCall('getidentity', [fullName]);
+    const id = idInfo.identity;
+    console.log(`[LOGIN] Custodial login: ${fullName} | Address: ${id.identityaddress}`);
+
+    res.json({
+      verified: true,
+      identity: id.name,
+      identityaddress: id.identityaddress,
+      fullyqualifiedname: id.fullyqualifiedname || fullName,
+      custodial: true,
+    });
+  } catch (e) {
+    res.status(404).json({ verified: false, error: 'Gamertag not found. Register first!' });
   }
 });
 

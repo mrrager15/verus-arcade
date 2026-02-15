@@ -38,3 +38,8 @@ export async function loadGame(identity, game) {
   const res = await fetch(`${API}/game/load/${encodeURIComponent(identity)}/${game}`);
   return res.json();
 }
+
+export async function getProfile(identity) {
+  const res = await fetch(`${API}/profile/${encodeURIComponent(identity)}`);
+  return res.json();
+}

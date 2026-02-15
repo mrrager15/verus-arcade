@@ -80,15 +80,19 @@ export default function Home() {
         }}>
           {user ? (
             <>
-              <div style={{
+              <div
+                onClick={() => navigate('/profile')}
+                style={{
                 display: 'flex', alignItems: 'center', gap: 8,
                 background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)',
-                borderRadius: 6, padding: '6px 14px',
+                borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
               }}>
                 <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e' }} />
-                <span style={{ fontFamily: "'Courier New', monospace", fontSize: 12, color: '#22c55e', fontWeight: 700 }}>
-                  {user.fullname || user.identity + '@'}
-                </span>
+                <span
+                style={{ fontFamily: "'Courier New', monospace", fontSize: 12, color: '#22c55e', fontWeight: 700 }}
+              >
+                {user.fullname || user.identity + '@'}
+              </span>
               </div>
               <span
                 onClick={logout}

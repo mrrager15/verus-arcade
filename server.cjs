@@ -249,6 +249,55 @@ app.get('/api/game/load/:identity/:game', async (req, res) => {
   }
 });
 
+// ── Player Profile (all games) ──
+app.get('/api/profile/:identity', async (req, res) => {
+  try {
+    const idInfo = await rpcCall('getidentity', [req.params.identity]);
+    const id = idInfo.identity;
+    const idAddress = id.identityaddress;
+    const cmm = id.contentmultimap || {};
+
+    console.log('[PROFILE] Identity:', req.params.identity, '| Address:', idAddress);
+
+    const entries = cmm[idAddress] ? (Array.isArray(cmm[idAddress]) ? cmm[idAddress] : [cmm[idAddress]]) : [];
+
+    const games = {};
+    let totalXP = 0;
+    let totalGames = 0;
+
+    for (const hexEntry of entries) {
+      try {
+        const entry = JSON.parse(fromHex(hexEntry));
+        if (entry.game && entry.stats) {
+          games[entry.game] = {
+            stats: entry.stats,
+            hasProof: !!entry.proof,
+            proofActions: entry.proof?.actions?.length || 0,
+            proofChainHead: entry.proof?.chainHead || null,
+          };
+          totalXP += entry.stats.totalPoints || 0;
+          totalGames += entry.stats.gamesPlayed || 0;
+        }
+      } catch {}
+    }
+
+    console.log('[PROFILE] Games found:', Object.keys(games).length, '| Total XP:', totalXP);
+
+    res.json({
+      identity: {
+        name: id.name,
+        address: idAddress,
+        fullyqualifiedname: id.fullyqualifiedname || id.name + '@',
+      },
+      games,
+      totals: { totalXP, totalGames },
+    });
+  } catch (e) {
+    console.error('[PROFILE] Error:', e);
+    res.status(500).json({ error: e.message || e });
+  }
+});
+
 // ── Sub-ID Registration ──
 app.post('/api/register-player', async (req, res) => {
   const { playerName } = req.body;

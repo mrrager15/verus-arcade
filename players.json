@@ -1,0 +1,10 @@
+{
+  "test123": {
+    "pinHash": "41c991eb6a66242c0454191244278183ce58cf4a6bcd372f799e4b9cc01886af",
+    "address": "RAAdfhuPqEduBzznQFDS3L2fhAPALm7rCo",
+    "registeredAt": 1771266646365,
+    "claimed": false,
+    "claimedAddress": null,
+    "freeSavesLeft": 0
+  }
+}

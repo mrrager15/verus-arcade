@@ -28,6 +28,7 @@ export default function Register() {
   const navigate = useNavigate();
   const { user, loginDirect } = useAuth();
   const [gamertag, setGamertag] = useState("");
+  const [pin, setPin] = useState("");
   const [step, setStep] = useState(STEPS.INPUT);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
@@ -73,9 +74,19 @@ export default function Register() {
     return null;
   };
 
+  const validatePin = () => {
+    if (!pin) return "Pin is required";
+    if (pin.length < 4) return "Pin must be at least 4 digits";
+    if (pin.length > 6) return "Pin can be max 6 digits";
+    if (!/^\d+$/.test(pin)) return "Pin must contain only numbers";
+    return null;
+  };
+
   const handleRegister = async () => {
     const validationError = validate();
     if (validationError) { setError(validationError); return; }
+    const pinError = validatePin();
+    if (pinError) { setError(pinError); return; }
     if (!available) return;
 
     setStep(STEPS.COMMITTING);
@@ -85,7 +96,7 @@ export default function Register() {
       const res = await fetch(`${API}/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gamertag: gamertag.trim().toLowerCase() }),
+        body: JSON.stringify({ gamertag: gamertag.trim().toLowerCase(), pin }),
       });
 
       const data = await res.json();
@@ -96,18 +107,16 @@ export default function Register() {
         return;
       }
 
-      // Server returns immediately after commitment — login right away
       setResult(data);
       setStep(STEPS.DONE);
 
-      // Auto-login after 1.5s so player can see success screen briefly
       setTimeout(() => {
         loginDirect({
           identity: data.gamertag,
           fullname: data.fullname,
           identityaddress: data.address,
           custodial: true,
-          pending: true, // identity still being created in background
+          pending: true,
         });
         navigate("/");
       }, 1500);
@@ -115,18 +124,6 @@ export default function Register() {
     } catch (e) {
       setError(e.message);
       setStep(STEPS.ERROR);
-    }
-  };
-
-  const handleLogin = () => {
-    if (result) {
-      loginDirect({
-        identity: result.gamertag,
-        fullname: result.fullname,
-        identityaddress: result.address,
-        custodial: true,
-      });
-      navigate("/");
     }
   };
 
@@ -139,6 +136,8 @@ export default function Register() {
 
   const isProcessing = step > STEPS.INPUT && step < STEPS.DONE && step !== STEPS.ERROR;
   const inputError = gamertag.length > 0 ? validate() : null;
+  const pinError = pin.length > 0 ? validatePin() : null;
+  const canSubmit = available && !inputError && !pinError && pin.length >= 4;
 
   return (
     <div style={{ minHeight: "100vh", background: S.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
@@ -151,7 +150,7 @@ export default function Register() {
             JOIN THE ARCADE
           </h1>
           <p style={{ fontSize: 13, color: S.dim, lineHeight: 1.6, margin: 0 }}>
-            Choose a gamertag. We'll create your on-chain identity.
+            Choose a gamertag and a pin code to secure your account.
           </p>
         </div>
 
@@ -161,7 +160,6 @@ export default function Register() {
           borderRadius: 10, padding: "28px 24px",
         }}>
 
-          {/* Step: Input */}
           {(step === STEPS.INPUT || step === STEPS.ERROR) && (
             <>
               <label style={{ fontSize: 10, color: S.dim, fontFamily: S.font, letterSpacing: 2, textTransform: "uppercase", display: "block", marginBottom: 8 }}>
@@ -180,10 +178,9 @@ export default function Register() {
                     background: "rgba(0,0,0,0.3)", border: `1px solid ${inputError ? S.red : available ? S.grn : S.border}`,
                     borderRadius: 6, color: S.bright, fontFamily: S.font, fontSize: 16,
                     fontWeight: 700, letterSpacing: 1, outline: "none",
-                    boxSizing: "border-box",
-                    transition: "border-color 0.2s",
+                    boxSizing: "border-box", transition: "border-color 0.2s",
                   }}
-                  onKeyDown={e => { if (e.key === "Enter" && available) handleRegister(); }}
+                  onKeyDown={e => { if (e.key === "Enter" && canSubmit) handleRegister(); }}
                   disabled={isProcessing}
                   autoFocus
                 />
@@ -195,8 +192,7 @@ export default function Register() {
                 </div>
               </div>
 
-              {/* Validation feedback */}
-              <div style={{ minHeight: 20, marginBottom: 16 }}>
+              <div style={{ minHeight: 20, marginBottom: 12 }}>
                 {inputError && gamertag.length > 0 && (
                   <div style={{ fontSize: 11, color: S.red, fontFamily: S.font }}>{inputError}</div>
                 )}
@@ -206,6 +202,38 @@ export default function Register() {
                 {!inputError && available === false && (
                   <div style={{ fontSize: 11, color: S.red, fontFamily: S.font }}>✗ {error || "Name taken"}</div>
                 )}
+              </div>
+
+              <label style={{ fontSize: 10, color: S.dim, fontFamily: S.font, letterSpacing: 2, textTransform: "uppercase", display: "block", marginBottom: 8 }}>
+                PIN CODE
+              </label>
+
+              <input
+                type="password"
+                inputMode="numeric"
+                value={pin}
+                onChange={e => { setPin(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(null); }}
+                placeholder="4-6 digits"
+                maxLength={6}
+                style={{
+                  width: "100%", padding: "14px 16px",
+                  background: "rgba(0,0,0,0.3)", border: `1px solid ${pinError ? S.red : pin.length >= 4 ? S.grn : S.border}`,
+                  borderRadius: 6, color: S.bright, fontFamily: S.font, fontSize: 20,
+                  fontWeight: 700, letterSpacing: 8, outline: "none",
+                  boxSizing: "border-box", textAlign: "center",
+                  transition: "border-color 0.2s",
+                }}
+                onKeyDown={e => { if (e.key === "Enter" && canSubmit) handleRegister(); }}
+                disabled={isProcessing}
+              />
+
+              <div style={{ minHeight: 20, marginBottom: 16, marginTop: 4 }}>
+                {pinError && pin.length > 0 && (
+                  <div style={{ fontSize: 11, color: S.red, fontFamily: S.font }}>{pinError}</div>
+                )}
+                {!pinError && pin.length >= 4 && (
+                  <div style={{ fontSize: 11, color: S.grn, fontFamily: S.font }}>✓ Pin set</div>
+                )}
                 {step === STEPS.ERROR && error && (
                   <div style={{ fontSize: 11, color: S.red, fontFamily: S.font }}>⚠ {error}</div>
                 )}
@@ -213,17 +241,16 @@ export default function Register() {
 
               <button
                 onClick={handleRegister}
-                disabled={!available || !!inputError}
+                disabled={!canSubmit}
                 style={{
                   width: "100%", padding: "14px", border: "none", borderRadius: 6,
-                  background: available && !inputError
+                  background: canSubmit
                     ? `linear-gradient(135deg, ${S.acc}, #d97706)`
                     : "rgba(255,255,255,0.05)",
-                  color: available && !inputError ? "#000" : S.dim,
+                  color: canSubmit ? "#000" : S.dim,
                   fontFamily: S.font, fontSize: 14, fontWeight: 700,
-                  cursor: available && !inputError ? "pointer" : "not-allowed",
-                  letterSpacing: 1,
-                  transition: "all 0.2s",
+                  cursor: canSubmit ? "pointer" : "not-allowed",
+                  letterSpacing: 1, transition: "all 0.2s",
                 }}
               >
                 🆔 CREATE IDENTITY
@@ -232,13 +259,12 @@ export default function Register() {
               <div style={{ marginTop: 16, textAlign: "center" }}>
                 <div style={{ fontSize: 10, color: S.dim, fontFamily: S.font, lineHeight: 1.6 }}>
                   This creates a SubID on the Verus testnet blockchain.
-                  <br />One account per device. Free on testnet.
+                  <br />Remember your pin — you'll need it to log back in.
                 </div>
               </div>
             </>
           )}
 
-          {/* Step: Processing */}
           {isProcessing && (
             <div style={{ textAlign: "center", padding: "20px 0" }}>
               <div style={{ fontSize: 32, marginBottom: 16, animation: "pulse 1.5s infinite" }}>⛓</div>
@@ -248,14 +274,9 @@ export default function Register() {
               }}>
                 {gamertag.toLowerCase()}.Verus Arcade@
               </div>
-              <div style={{
-                fontSize: 12, color: S.acc, fontFamily: S.font,
-                letterSpacing: 1,
-              }}>
+              <div style={{ fontSize: 12, color: S.acc, fontFamily: S.font, letterSpacing: 1 }}>
                 {STEP_LABELS[step] || "Processing..."}
               </div>
-
-              {/* Progress dots */}
               <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 20 }}>
                 {[STEPS.COMMITTING, STEPS.WAITING_BLOCK, STEPS.REGISTERING].map((s, i) => (
                   <div key={i} style={{
@@ -265,14 +286,12 @@ export default function Register() {
                   }} />
                 ))}
               </div>
-
               <div style={{ fontSize: 10, color: S.dim, fontFamily: S.font, marginTop: 16 }}>
                 Reserving your name... This should only take a few seconds.
               </div>
             </div>
           )}
 
-          {/* Step: Done */}
           {step === STEPS.DONE && result && (
             <div style={{ textAlign: "center", padding: "12px 0" }}>
               <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
@@ -298,7 +317,7 @@ export default function Register() {
             onClick={() => navigate("/login")}
             style={{ fontSize: 11, color: S.dim, cursor: "pointer", fontFamily: S.font }}
           >
-            Already have a VerusID? Login →
+            Already have an account? Login →
           </span>
           <span
             onClick={() => navigate("/")}
@@ -308,7 +327,6 @@ export default function Register() {
           </span>
         </div>
 
-        {/* Pulse animation */}
         <style>{`
           @keyframes pulse {
             0%, 100% { opacity: 1; transform: scale(1); }

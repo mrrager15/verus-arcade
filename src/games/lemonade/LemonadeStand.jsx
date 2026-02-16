@@ -661,6 +661,10 @@ export default function LemonadeStand() {
           </div>
         </div>
         <button onClick={resetGame} style={{ ...BN(true), width: "100%", padding: 14, fontSize: 14 }}>🍋 New Game</button>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button onClick={() => navigate('/')} style={{ ...BN(), flex: 1, padding: 10, fontSize: 12, borderColor: "#5a6a7e", color: "#5a6a7e" }}>← Arcade</button>
+            {user && <button onClick={() => navigate('/profile')} style={{ ...BN(), flex: 1, padding: 10, fontSize: 12, borderColor: acc, color: acc }}>👤 Profile</button>}
+          </div>
         <ChainPanel verusId={state.verusId} actionLog={state.actionLog} genesisHash={state.genesisHash} verifyResult={state.verifyResult} />
         <div style={{
           marginTop: 12, padding: "10px 14px", background: "#0a0e14", borderRadius: 6,

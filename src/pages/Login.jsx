@@ -1,17 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../verus/AuthContext.jsx';
-import { getLoginChallenge, verifyLogin, getIdentity, custodialLogin } from '../verus/api.js';
+import { custodialLogin } from '../verus/api.js';
 
 export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
-  const [mode, setMode] = useState('custodial'); // 'custodial' or 'verusid'
-  const [step, setStep] = useState('enter'); // enter → sign → verify
-  const [identity, setIdentity] = useState('');
   const [gamertag, setGamertag] = useState('');
-  const [challenge, setChallenge] = useState(null);
-  const [signature, setSignature] = useState('');
+  const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -43,80 +39,36 @@ export default function Login() {
     fontFamily: S.font, fontWeight: 700, marginBottom: 6,
   };
 
-  // Custodial login — just gamertag
+  const canSubmit = gamertag.trim().length > 0 && pin.length >= 4;
+
   const handleCustodialLogin = async () => {
     setError('');
     setLoading(true);
     try {
-      const result = await custodialLogin(gamertag.trim());
+      const result = await custodialLogin(gamertag.trim(), pin);
       if (result.verified) {
         login({
           identity: result.identity,
           address: result.identityaddress,
           fullname: result.fullyqualifiedname,
-          custodial: true,
+          custodial: !result.claimed,
+          claimed: result.claimed,
         });
         navigate('/');
       } else {
-        setError(result.error || 'Gamertag not found. Did you register first?');
+        setError(result.error || 'Login failed.');
       }
     } catch (e) {
-      setError('Could not connect to server. Try again later.');
+      // Try to parse error response
+      try {
+        const errData = await e.json?.();
+        setError(errData?.error || 'Could not connect to server.');
+      } catch {
+        setError('Could not connect to server. Try again later.');
+      }
     }
     setLoading(false);
   };
-
-  // VerusID login — Step 1: Check identity exists, get challenge
-  const handleIdentitySubmit = async () => {
-    setError('');
-    setLoading(true);
-    const name = identity.trim().replace(/@$/, '') + '@';
-    try {
-      const idInfo = await getIdentity(name);
-      if (!idInfo || idInfo.error) {
-        setError('Identity not found on testnet. Make sure you have a registered VerusID.');
-        setLoading(false);
-        return;
-      }
-      const ch = await getLoginChallenge();
-      setChallenge(ch);
-      setStep('sign');
-    } catch (e) {
-      setError('Could not connect to backend.');
-    }
-    setLoading(false);
-  };
-
-  // VerusID login — Step 2: Verify signature
-  const handleVerify = async () => {
-    setError('');
-    setLoading(true);
-    const name = identity.trim().replace(/@$/, '') + '@';
-    try {
-      const result = await verifyLogin(name, challenge.message, signature.trim());
-      if (result.verified) {
-        login({
-          identity: result.identity,
-          address: result.identityaddress,
-          fullname: result.fullyqualifiedname,
-        });
-        navigate('/');
-      } else {
-        setError('Signature verification failed. Make sure you signed the exact message with the correct identity.');
-      }
-    } catch (e) {
-      setError('Verification error. Check backend connection.');
-    }
-    setLoading(false);
-  };
-
-  const tabStyle = (active) => ({
-    flex: 1, padding: '10px 0', textAlign: 'center', cursor: 'pointer',
-    fontFamily: S.font, fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase',
-    color: active ? S.acc : S.dim,
-    borderBottom: active ? `2px solid ${S.acc}` : `1px solid ${S.border}`,
-    transition: 'all 0.2s',
-  });
 
   return (
     <div style={{
@@ -138,127 +90,44 @@ export default function Login() {
           </p>
         </div>
 
-        {/* Mode Tabs */}
-        <div style={{ display: 'flex', marginBottom: 16 }}>
-          <div
-            style={tabStyle(mode === 'custodial')}
-            onClick={() => { setMode('custodial'); setError(''); }}
-          >
-            Gamertag
-          </div>
-          <div
-            style={tabStyle(mode === 'verusid')}
-            onClick={() => { setMode('verusid'); setStep('enter'); setError(''); }}
-          >
-            VerusID
-          </div>
-        </div>
-
-        {/* Custodial Login */}
-        {mode === 'custodial' && (
-          <div style={cd}>
-            <div style={lb}>Your Gamertag</div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-              <input
-                type="text"
-                value={gamertag}
-                onChange={(e) => setGamertag(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && gamertag.trim() && handleCustodialLogin()}
-                placeholder="yourname"
-                style={{ ...input, flex: 1 }}
-              />
-              <span style={{ fontSize: 11, color: S.dim, fontFamily: S.font, whiteSpace: 'nowrap' }}>.Verus Arcade@</span>
-            </div>
-            <p style={{ fontSize: 11, color: S.dim, fontFamily: S.font, margin: '0 0 16px', lineHeight: 1.5 }}>
-              Enter the gamertag you created when you registered.
-            </p>
-            <button
-              onClick={handleCustodialLogin}
-              disabled={!gamertag.trim() || loading}
-              style={bn(!loading && gamertag.trim(), !gamertag.trim() || loading)}
-            >
-              {loading ? 'Logging in...' : 'Log In'}
-            </button>
-          </div>
-        )}
-
-        {/* VerusID Login — Step 1 */}
-        {mode === 'verusid' && step === 'enter' && (
-          <div style={cd}>
-            <div style={lb}>Your VerusID (testnet)</div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-              <input
-                type="text"
-                value={identity}
-                onChange={(e) => setIdentity(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleIdentitySubmit()}
-                placeholder="yourname"
-                style={{ ...input, flex: 1 }}
-              />
-              <span style={{ fontSize: 12, color: S.dim, fontFamily: S.font, whiteSpace: 'nowrap' }}>@</span>
-            </div>
-            <p style={{ fontSize: 11, color: S.dim, fontFamily: S.font, margin: '0 0 16px', lineHeight: 1.5 }}>
-              Requires a running verusd node and CLI access to sign a challenge.
-            </p>
-            <button
-              onClick={handleIdentitySubmit}
-              disabled={!identity.trim() || loading}
-              style={bn(!loading && identity.trim(), !identity.trim() || loading)}
-            >
-              {loading ? 'Checking...' : 'Generate Challenge'}
-            </button>
-          </div>
-        )}
-
-        {/* VerusID Login — Step 2: Sign Challenge */}
-        {mode === 'verusid' && step === 'sign' && challenge && (
-          <div style={cd}>
-            <div style={lb}>Step 1 — Copy this command</div>
-            <p style={{ fontSize: 11, color: S.dim, marginBottom: 10, lineHeight: 1.6 }}>
-              Open a terminal and run this command to sign the challenge with your VerusID:
-            </p>
-            <div
-              onClick={() => {
-                const cmd = `verus -chain=vrsctest signmessage "${identity.trim().replace(/@$/, '')}@" "${challenge.message}"`;
-                navigator.clipboard.writeText(cmd);
-              }}
-              style={{
-                background: 'rgba(0,0,0,0.5)', border: `1px solid ${S.border}`, borderRadius: 4,
-                padding: '12px 14px', fontFamily: S.font, fontSize: 11, color: S.green,
-                cursor: 'pointer', wordBreak: 'break-all', lineHeight: 1.6, marginBottom: 16,
-                position: 'relative',
-              }}
-            >
-              <div style={{ position: 'absolute', top: 4, right: 8, fontSize: 9, color: S.dim }}>
-                click to copy
-              </div>
-              verus -chain=vrsctest signmessage "{identity.trim().replace(/@$/, '')}@" "{challenge.message}"
-            </div>
-
-            <div style={lb}>Step 2 — Paste the signature</div>
-            <textarea
-              value={signature}
-              onChange={(e) => setSignature(e.target.value)}
-              placeholder="Paste the signature output here..."
-              rows={3}
-              style={{ ...input, resize: 'vertical', marginBottom: 16 }}
+        {/* Login Card */}
+        <div style={cd}>
+          <div style={lb}>Your Gamertag</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 }}>
+            <input
+              type="text"
+              value={gamertag}
+              onChange={(e) => { setGamertag(e.target.value); setError(''); }}
+              onKeyDown={(e) => e.key === 'Enter' && canSubmit && handleCustodialLogin()}
+              placeholder="yourname"
+              style={{ ...input, flex: 1 }}
             />
-            <button
-              onClick={handleVerify}
-              disabled={!signature.trim() || loading}
-              style={bn(!loading && signature.trim(), !signature.trim() || loading)}
-            >
-              {loading ? 'Verifying...' : 'Verify Signature'}
-            </button>
-
-            <button
-              onClick={() => { setStep('enter'); setChallenge(null); setSignature(''); setError(''); }}
-              style={{ ...bn(), marginTop: 8, background: 'transparent', borderColor: S.dim, color: S.dim }}
-            >
-              Back
-            </button>
+            <span style={{ fontSize: 11, color: S.dim, fontFamily: S.font, whiteSpace: 'nowrap' }}>.Verus Arcade@</span>
           </div>
-        )}
+
+          <div style={lb}>Pin Code</div>
+          <input
+            type="password"
+            inputMode="numeric"
+            value={pin}
+            onChange={(e) => { setPin(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+            onKeyDown={(e) => e.key === 'Enter' && canSubmit && handleCustodialLogin()}
+            placeholder="••••"
+            maxLength={6}
+            style={{
+              ...input, fontSize: 20, letterSpacing: 8, textAlign: 'center',
+              marginBottom: 16,
+            }}
+          />
+
+          <button
+            onClick={handleCustodialLogin}
+            disabled={!canSubmit || loading}
+            style={bn(canSubmit && !loading, !canSubmit || loading)}
+          >
+            {loading ? 'Logging in...' : 'Log In'}
+          </button>
+        </div>
 
         {/* Error */}
         {error && (

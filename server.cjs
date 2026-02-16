@@ -1,6 +1,37 @@
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+// ── Player Storage (persistent across restarts) ──
+const PLAYERS_FILE = path.join(__dirname, 'players.json');
+
+function loadPlayers() {
+  try {
+    if (fs.existsSync(PLAYERS_FILE)) {
+      return JSON.parse(fs.readFileSync(PLAYERS_FILE, 'utf8'));
+    }
+  } catch (e) {
+    console.error('[STORAGE] Error loading players.json:', e.message);
+  }
+  return {};
+}
+
+function savePlayers() {
+  try {
+    fs.writeFileSync(PLAYERS_FILE, JSON.stringify(players, null, 2));
+  } catch (e) {
+    console.error('[STORAGE] Error saving players.json:', e.message);
+  }
+}
+
+function hashPin(pin) {
+  return crypto.createHash('sha256').update(pin.toString()).digest('hex');
+}
+
+const players = loadPlayers(); // { gamertag: { pinHash, address, registeredAt, claimed, claimedAddress, freeSavesLeft } }
 
 const app = express();
 app.use(cors({
@@ -139,6 +170,16 @@ app.post('/api/game/save', async (req, res) => {
   }
   try {
     const idName = identity.replace(/@$/, '').replace(/\.vrsctest$/i, '');
+    const shortName = idName.split('.')[0];
+
+    // Check if this ID has been claimed (server can no longer save for them)
+    const player = players[shortName];
+    if (player && player.claimed) {
+      return res.status(403).json({
+        error: 'This ID has been claimed. You now control your own identity — saves must be signed by your wallet.',
+        claimed: true,
+      });
+    }
 
     console.log('[SAVE] Identity:', identity, '| Game:', game, '| Score:', score, '| NewHigh:', isNewHigh);
 
@@ -410,12 +451,20 @@ async function completeRegistration(name, address, commitment) {
 
 // ── Register new player (fast response, background processing) ──
 app.post('/api/register', async (req, res) => {
-  const { gamertag } = req.body;
+  const { gamertag, pin } = req.body;
   const ip = getClientIP(req);
 
   // Validate name
   const nameError = validateGamertag(gamertag);
   if (nameError) return res.status(400).json({ error: nameError });
+
+  // Validate pin
+  if (!pin || pin.toString().length < 4 || pin.toString().length > 6) {
+    return res.status(400).json({ error: 'Pin must be 4-6 digits' });
+  }
+  if (!/^\d{4,6}$/.test(pin.toString())) {
+    return res.status(400).json({ error: 'Pin must contain only digits' });
+  }
 
   const name = gamertag.trim().toLowerCase();
 
@@ -464,6 +513,17 @@ app.post('/api/register', async (req, res) => {
     // Record IP immediately
     registeredIPs.set(ip, { gamertag: name, timestamp: Date.now() });
 
+    // Store player with hashed pin
+    players[name] = {
+      pinHash: hashPin(pin),
+      address,
+      registeredAt: Date.now(),
+      claimed: false,
+      claimedAddress: null,
+      freeSavesLeft: 0,
+    };
+    savePlayers();
+
     // Track pending registration
     pendingRegistrations.set(name, {
       status: 'committed',
@@ -510,11 +570,21 @@ app.get('/api/register/status/:name', (req, res) => {
 
 // ── Custodial Login (for subID players) ──
 app.post('/api/login/custodial', async (req, res) => {
-  const { gamertag } = req.body;
+  const { gamertag, pin } = req.body;
   if (!gamertag) return res.status(400).json({ error: 'Missing gamertag' });
+  if (!pin) return res.status(400).json({ error: 'Missing pin' });
 
   const name = gamertag.trim().toLowerCase();
   const fullName = name + '.Verus Arcade@';
+
+  // Verify pin
+  const player = players[name];
+  if (!player) {
+    return res.status(404).json({ verified: false, error: 'Gamertag not found. Register first!' });
+  }
+  if (player.pinHash !== hashPin(pin)) {
+    return res.status(401).json({ verified: false, error: 'Incorrect pin.' });
+  }
 
   try {
     const idInfo = await rpcCall('getidentity', [fullName]);
@@ -526,10 +596,100 @@ app.post('/api/login/custodial', async (req, res) => {
       identity: id.name,
       identityaddress: id.identityaddress,
       fullyqualifiedname: id.fullyqualifiedname || fullName,
-      custodial: true,
+      custodial: !player.claimed,
+      claimed: player.claimed,
     });
   } catch (e) {
-    res.status(404).json({ verified: false, error: 'Gamertag not found. Register first!' });
+    res.status(404).json({ verified: false, error: 'Identity not found on-chain.' });
+  }
+});
+
+// ── Claim SubID (transfer ownership to player's R-address) ──
+const claimChallenges = new Map(); // gamertag → { message, timestamp }
+
+app.post('/api/claim/challenge', async (req, res) => {
+  const { gamertag, pin, raddress } = req.body;
+  if (!gamertag || !pin || !raddress) {
+    return res.status(400).json({ error: 'Missing gamertag, pin, or raddress' });
+  }
+
+  const name = gamertag.trim().toLowerCase();
+  const player = players[name];
+
+  if (!player) return res.status(404).json({ error: 'Gamertag not found' });
+  if (player.pinHash !== hashPin(pin)) return res.status(401).json({ error: 'Incorrect pin' });
+  if (player.claimed) return res.status(400).json({ error: 'ID already claimed' });
+
+  // Validate R-address format (starts with R, 34 chars)
+  if (!/^R[a-zA-Z0-9]{33}$/.test(raddress)) {
+    return res.status(400).json({ error: 'Invalid R-address format' });
+  }
+
+  // Generate challenge
+  const message = `claim:${name}:${Date.now()}:${crypto.randomBytes(16).toString('hex')}`;
+  claimChallenges.set(name, { message, raddress, timestamp: Date.now() });
+
+  console.log(`[CLAIM] Challenge generated for ${name} → ${raddress}`);
+  res.json({
+    message,
+    instructions: `Sign this message with your R-address using: verus -chain=vrsctest signmessage "${raddress}" "${message}"`,
+  });
+});
+
+app.post('/api/claim/verify', async (req, res) => {
+  const { gamertag, signature } = req.body;
+  if (!gamertag || !signature) {
+    return res.status(400).json({ error: 'Missing gamertag or signature' });
+  }
+
+  const name = gamertag.trim().toLowerCase();
+  const challenge = claimChallenges.get(name);
+  if (!challenge) return res.status(400).json({ error: 'No pending claim. Request a challenge first.' });
+
+  // Check timeout (15 minutes)
+  if (Date.now() - challenge.timestamp > 15 * 60 * 1000) {
+    claimChallenges.delete(name);
+    return res.status(400).json({ error: 'Challenge expired. Request a new one.' });
+  }
+
+  try {
+    // Verify the signature against the R-address
+    const verified = await rpcCall('verifymessage', [challenge.raddress, signature.trim(), challenge.message]);
+    if (!verified) {
+      return res.status(401).json({ error: 'Signature verification failed' });
+    }
+
+    const fullName = name + '.Verus Arcade@';
+    const FREE_SAVES = 20;
+
+    // Update identity: change primary address to player's R-address
+    const updateData = {
+      name: name,
+      parent: 'iBrnBWkYJvzH6z1SB2TDnxk5mbPc781z1P',
+      primaryaddresses: [challenge.raddress],
+      minimumsignatures: 1,
+    };
+
+    const txid = await rpcCall('updateidentity', [updateData]);
+    console.log(`[CLAIM] ✅ ${fullName} claimed by ${challenge.raddress} | txid: ${txid}`);
+
+    // Update player record
+    players[name].claimed = true;
+    players[name].claimedAddress = challenge.raddress;
+    players[name].freeSavesLeft = FREE_SAVES;
+    savePlayers();
+
+    claimChallenges.delete(name);
+
+    res.json({
+      success: true,
+      txid,
+      message: `Your identity ${fullName} is now yours! You have ${FREE_SAVES} free saves remaining.`,
+      freeSaves: FREE_SAVES,
+    });
+  } catch (e) {
+    console.error('[CLAIM] Error:', e);
+    res.status(500).json({ error: e.message || 'Claim failed' });
   }
 });
 

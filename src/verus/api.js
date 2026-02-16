@@ -1,4 +1,4 @@
-const API = window.location.hostname === 'localhost' 
+const API = window.location.hostname === 'localhost'
   ? 'http://localhost:3001/api'
   : 'https://api.verusarcade.com/api';
 
@@ -51,22 +51,26 @@ export async function checkGamertag(name) {
   return res.json();
 }
 
-export async function registerPlayer(gamertag) {
+export async function registerPlayer(gamertag, pin) {
   const res = await fetch(`${API}/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ gamertag }),
+    body: JSON.stringify({ gamertag, pin }),
   });
   return res.json();
 }
 
-export async function custodialLogin(gamertag) {
+export async function custodialLogin(gamertag, pin) {
   const res = await fetch(`${API}/login/custodial`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ gamertag }),
+    body: JSON.stringify({ gamertag, pin }),
   });
-  return res.json();
+  const data = await res.json();
+  if (!res.ok) {
+    return { verified: false, error: data.error || 'Login failed' };
+  }
+  return data;
 }
 
 export async function getRegistrationStatus(name) {

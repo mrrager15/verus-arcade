@@ -26,7 +26,8 @@ const STEP_LABELS = {
 export default function Register() {
   const navigate = useNavigate();
   const { user, loginDirect } = useAuth();
-  const [mode, setMode] = useState("custodial");
+  const defaultMode = new URLSearchParams(window.location.search).get('mode') === 'ownid' ? 'ownid' : 'custodial';
+  const [mode, setMode] = useState(defaultMode);
 
   // ── Tier 3 (custodial) state ──
   const [gamertag, setGamertag] = useState("");

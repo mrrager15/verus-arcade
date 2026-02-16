@@ -905,12 +905,51 @@ app.post('/api/login/tier2/callback', cors(), async (req, res) => {
       ch.fullname = fullName;
       ch.freeSavesLeft = matchedPlayer.freeSavesLeft;
 
-      console.log(`[QR-LOGIN] ✅ Login verified: ${fullName}`);
+      console.log(`[QR-LOGIN] ✅ Login verified (existing player): ${fullName}`);
+    } else if (identityInfo && identityInfo.identity) {
+      // Auto-register: any valid VerusID can log in
+      const id = identityInfo.identity;
+      const fqn = identityInfo.fullyqualifiedname || id.name + '@';
+      const primaryAddr = id.primaryaddresses?.[0] || null;
+      
+      // Use a unique key: the identity's i-address (guaranteed unique)
+      const playerKey = 'ext:' + id.identityaddress;
+      
+      if (!players[playerKey]) {
+        const FREE_SAVES = 10;
+        players[playerKey] = {
+          pinHash: null,
+          address: null,
+          playerAddress: primaryAddr,
+          tier: 2,
+          registeredAt: Date.now(),
+          claimed: true,
+          claimedAddress: primaryAddr,
+          freeSavesLeft: FREE_SAVES,
+          externalId: true,
+          identityAddress: id.identityaddress,
+          fullyQualifiedName: fqn,
+        };
+        savePlayers();
+        console.log(`[QR-LOGIN] ✅ Auto-registered external VerusID: ${fqn} (${id.identityaddress})`);
+      }
+
+      const player = players[playerKey];
+      const ch = qrLoginChallenges.get(challenge_id);
+      ch.status = 'verified';
+      ch.gamertag = playerKey;
+      ch.identity = id.identityaddress;
+      ch.raddress = primaryAddr;
+      ch.fullname = fqn;
+      ch.freeSavesLeft = player.freeSavesLeft;
+      ch.identityAddress = id.identityaddress;
+
+      console.log(`[QR-LOGIN] ✅ Login verified (external ID): ${fqn}`);
     } else {
       const ch = qrLoginChallenges.get(challenge_id);
       ch.status = 'no_account';
       ch.identity = signingId;
-      console.log(`[QR-LOGIN] ✗ No matching Verus Arcade account found for ${signingId}`);
+      console.log(`[QR-LOGIN] ✗ Could not resolve identity for ${signingId}`);
     }
 
     res.json({ success: true });

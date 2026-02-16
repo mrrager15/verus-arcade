@@ -8,13 +8,18 @@ const GAMES = [
     icon: '🍋',
     path: '/lemonade',
     color: '#d4a017',
-    colorDim: '#92600a',
-    bg: 'linear-gradient(135deg, #fdf6e3 0%, #f5e6b8 100%)',
     description: 'Run a lemonade stand for 14 days. Buy supplies, set prices, manage the weather. Classic economic sim.',
     tags: ['Economy', '14 Days', 'Easy'],
     status: 'BETA',
   },
 ];
+
+const S = {
+  bg: '#060a10', card: 'rgba(12,20,33,0.8)', border: '#1a2a3e',
+  acc: '#f59e0b', grn: '#22c55e', red: '#ef4444', indigo: '#6366f1',
+  text: '#c8d6e5', dim: '#5a6a7e', bright: '#e8f0fc',
+  font: "'Courier New', monospace",
+};
 
 function StarField() {
   const stars = Array.from({ length: 80 }, (_, i) => {
@@ -40,51 +45,148 @@ function StarField() {
   );
 }
 
+function EntryCard({ icon, iconBg, iconBorder, accentColor, title, badge, description, onClick }) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: S.card, border: `1px solid ${S.border}`, borderRadius: 10,
+        padding: '20px 24px', cursor: 'pointer', transition: 'all 0.2s',
+        display: 'flex', alignItems: 'center', gap: 20,
+      }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = S.border; e.currentTarget.style.transform = 'none'; }}
+    >
+      <div style={{
+        width: 52, height: 52, borderRadius: 10,
+        background: iconBg, border: `1px solid ${iconBorder}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 24, flexShrink: 0,
+      }}>
+        {icon}
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{
+            fontSize: 15, fontWeight: 800, color: S.bright,
+            fontFamily: S.font, letterSpacing: 1,
+          }}>
+            {title}
+          </span>
+          {badge && (
+            <span style={{
+              fontSize: 9, fontWeight: 700, fontFamily: S.font, letterSpacing: 1,
+              color: accentColor, background: `${accentColor}15`,
+              border: `1px solid ${accentColor}30`, borderRadius: 3,
+              padding: '2px 6px',
+            }}>
+              {badge}
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: S.dim, fontFamily: S.font, lineHeight: 1.5, marginTop: 4 }}>
+          {description}
+        </div>
+      </div>
+      <div style={{ color: accentColor, fontSize: 18 }}>→</div>
+    </div>
+  );
+}
+
+function GameCard({ game, onClick }) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: S.card, border: `1px solid ${S.border}`, borderRadius: 12,
+        padding: '24px 28px', cursor: 'pointer', transition: 'all 0.2s',
+        position: 'relative', overflow: 'hidden',
+      }}
+      onMouseEnter={e => {
+        e.currentTarget.style.borderColor = game.color;
+        e.currentTarget.style.transform = 'translateY(-2px)';
+        e.currentTarget.style.boxShadow = `0 8px 30px ${game.color}15`;
+      }}
+      onMouseLeave={e => {
+        e.currentTarget.style.borderColor = S.border;
+        e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.boxShadow = 'none';
+      }}
+    >
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+        <div style={{ fontSize: 44, lineHeight: 1, filter: `drop-shadow(0 0 8px ${game.color}40)` }}>
+          {game.icon}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <h2 style={{
+              fontSize: 22, fontWeight: 800, color: S.bright,
+              fontFamily: S.font, letterSpacing: 1, margin: 0,
+            }}>
+              {game.title}
+            </h2>
+            <span style={{
+              fontSize: 9, fontWeight: 700, fontFamily: S.font, letterSpacing: 2,
+              color: game.color, background: `${game.color}15`,
+              border: `1px solid ${game.color}30`, borderRadius: 3, padding: '2px 8px',
+            }}>
+              {game.status}
+            </span>
+          </div>
+          <p style={{ fontSize: 13, color: '#7a8a9e', lineHeight: 1.6, marginBottom: 10, marginTop: 0 }}>
+            {game.description}
+          </p>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {game.tags.map(tag => (
+              <span key={tag} style={{
+                fontSize: 10, fontFamily: S.font, color: S.dim,
+                background: 'rgba(255,255,255,0.04)', border: `1px solid ${S.border}`,
+                borderRadius: 3, padding: '3px 8px', fontWeight: 600,
+              }}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div style={{ fontSize: 20, color: '#2a3a4e', alignSelf: 'center' }}>→</div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#060a10',
-      position: 'relative',
-      overflow: 'hidden',
-    }}>
+    <div style={{ minHeight: '100vh', background: S.bg, position: 'relative', overflow: 'hidden' }}>
       <StarField />
 
-      <div style={{
-        maxWidth: 700,
-        margin: '0 auto',
-        padding: '40px 20px',
-        position: 'relative',
-        zIndex: 1,
-      }}>
-        {/* User Bar */}
+      <div style={{ maxWidth: 700, margin: '0 auto', padding: '40px 20px', position: 'relative', zIndex: 1 }}>
+
+        {/* User Bar (top-right) */}
         <div style={{
           display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
-          marginBottom: 12, gap: 12,
-          animation: 'fadeIn 0.4s ease',
+          marginBottom: 12, gap: 12, animation: 'fadeIn 0.4s ease',
         }}>
           {user ? (
             <>
               <div
                 onClick={() => navigate('/profile')}
                 style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)',
-                borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
-              }}>
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e' }} />
-                <span
-                style={{ fontFamily: "'Courier New', monospace", fontSize: 12, color: '#22c55e', fontWeight: 700 }}
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)',
+                  borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
+                }}
               >
-                {user.fullname || user.identity + '@'}
-              </span>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: S.grn }} />
+                <span style={{ fontFamily: S.font, fontSize: 12, color: S.grn, fontWeight: 700 }}>
+                  {user.fullname || user.identity + '@'}
+                </span>
               </div>
               <span
                 onClick={logout}
-                style={{ fontSize: 11, color: '#5a6a7e', cursor: 'pointer', fontFamily: "'Courier New', monospace" }}
+                style={{ fontSize: 11, color: S.dim, cursor: 'pointer', fontFamily: S.font }}
               >
                 Logout
               </span>
@@ -93,237 +195,140 @@ export default function Home() {
             <span
               onClick={() => navigate('/login')}
               style={{
-                fontFamily: "'Courier New', monospace", fontSize: 12, color: '#f59e0b',
+                fontFamily: S.font, fontSize: 12, color: S.acc,
                 cursor: 'pointer', fontWeight: 700, letterSpacing: 1,
                 padding: '6px 16px', border: '1px solid rgba(245,158,11,0.3)',
                 borderRadius: 6, background: 'rgba(245,158,11,0.06)',
               }}
             >
-              🆔 LOGIN WITH VERUSID
+              Log In
             </span>
           )}
         </div>
 
         {/* Header */}
-        <div style={{
-          textAlign: 'center',
-          marginBottom: 48,
-          animation: 'fadeIn 0.6s ease',
-        }}>
+        <div style={{ textAlign: 'center', marginBottom: 40, animation: 'fadeIn 0.6s ease' }}>
           <div style={{
-            fontSize: 14,
-            letterSpacing: 6,
-            color: '#f59e0b',
-            fontFamily: "'Courier New', monospace",
-            fontWeight: 700,
-            marginBottom: 12,
-            textTransform: 'uppercase',
+            fontSize: 12, letterSpacing: 6, color: S.acc,
+            fontFamily: S.font, fontWeight: 700, marginBottom: 12, textTransform: 'uppercase',
           }}>
             ⛓ Powered by Verus Blockchain
           </div>
-
           <h1 style={{
-            fontSize: 52,
-            fontWeight: 900,
-            color: '#e8f0fc',
+            fontSize: 52, fontWeight: 900, color: S.bright,
             fontFamily: "'Courier New', 'Lucida Console', monospace",
-            letterSpacing: 6,
-            margin: '0 0 8px',
+            letterSpacing: 6, margin: '0 0 8px',
             textShadow: '0 0 40px rgba(245,158,11,0.15)',
           }}>
             VERUS ARCADE
           </h1>
-
-          <p style={{
-            fontSize: 15,
-            color: '#5a6a7e',
-            maxWidth: 480,
-            margin: '0 auto',
-            lineHeight: 1.7,
-          }}>
-            Serverless blockchain games with proof-of-gameplay.
-            Your VerusID is your account, your save file, and your proof.
+          <p style={{ fontSize: 14, color: S.dim, maxWidth: 460, margin: '0 auto', lineHeight: 1.7 }}>
+            Blockchain games with proof-of-gameplay.
+            Your identity is your account, your save file, and your proof.
           </p>
         </div>
 
-        {/* Game Cards */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 16,
-          marginBottom: 40,
-        }}>
-          {GAMES.map((game, idx) => (
-            <div
-              key={game.id}
-              onClick={() => navigate(game.path)}
-              style={{
-                background: 'rgba(12, 20, 33, 0.8)',
-                border: '1px solid #1a2a3e',
-                borderRadius: 12,
-                padding: '24px 28px',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                animation: 'fadeIn 0.5s ease',
-                animationDelay: `${0.2 + idx * 0.15}s`,
-                animationFillMode: 'both',
-                position: 'relative',
-                overflow: 'hidden',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = game.color;
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = `0 8px 30px ${game.color}15`;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = '#1a2a3e';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = 'none';
-              }}
-            >
-              <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
-                <div style={{
-                  fontSize: 44,
-                  lineHeight: 1,
-                  filter: `drop-shadow(0 0 8px ${game.color}40)`,
-                }}>
-                  {game.icon}
-                </div>
-
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                    <h2 style={{
-                      fontSize: 22,
-                      fontWeight: 800,
-                      color: '#e8f0fc',
-                      fontFamily: "'Courier New', monospace",
-                      letterSpacing: 1,
-                    }}>
-                      {game.title}
-                    </h2>
-                    <span style={{
-                      fontSize: 9,
-                      fontWeight: 700,
-                      fontFamily: "'Courier New', monospace",
-                      letterSpacing: 2,
-                      color: game.color,
-                      background: `${game.color}15`,
-                      border: `1px solid ${game.color}30`,
-                      borderRadius: 3,
-                      padding: '2px 8px',
-                    }}>
-                      {game.status}
-                    </span>
-                  </div>
-
-                  <p style={{
-                    fontSize: 13,
-                    color: '#7a8a9e',
-                    lineHeight: 1.6,
-                    marginBottom: 10,
-                  }}>
-                    {game.description}
-                  </p>
-
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    {game.tags.map(tag => (
-                      <span key={tag} style={{
-                        fontSize: 10,
-                        fontFamily: "'Courier New', monospace",
-                        color: '#5a6a7e',
-                        background: 'rgba(255,255,255,0.04)',
-                        border: '1px solid #1a2a3e',
-                        borderRadius: 3,
-                        padding: '3px 8px',
-                        fontWeight: 600,
-                      }}>
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{
-                  fontSize: 20,
-                  color: '#2a3a4e',
-                  alignSelf: 'center',
-                }}>
-                  →
-                </div>
-              </div>
+        {/* ═══════════ NOT LOGGED IN: Three Entry Paths ═══════════ */}
+        {!user && (
+          <div style={{
+            display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 32,
+            animation: 'fadeIn 0.5s ease', animationDelay: '0.15s', animationFillMode: 'both',
+          }}>
+            <div style={{
+              fontSize: 9, fontFamily: S.font, letterSpacing: 3, color: S.dim,
+              fontWeight: 700, textTransform: 'uppercase', marginBottom: 4, paddingLeft: 4,
+            }}>
+              Get Started
             </div>
+
+            <EntryCard
+              icon="🆔" accentColor={S.grn}
+              iconBg="rgba(34,197,94,0.1)" iconBorder="rgba(34,197,94,0.2)"
+              title="I have a VerusID"
+              description="Sign in with Verus Mobile — scan a QR code to prove your identity. Works with any VerusID."
+              onClick={() => navigate('/login')}
+            />
+
+            <EntryCard
+              icon="📱" accentColor={S.acc}
+              iconBg="rgba(245,158,11,0.1)" iconBorder="rgba(245,158,11,0.2)"
+              title="Get a VerusID"
+              description="Create your own on-chain identity with Verus Mobile. Own your data, own your progress — forever."
+              onClick={() => navigate('/register?mode=ownid')}
+            />
+
+            <EntryCard
+              icon="⚡" accentColor={S.indigo}
+              iconBg="rgba(99,102,241,0.1)" iconBorder="rgba(99,102,241,0.2)"
+              title="Just try it" badge="NO APP NEEDED"
+              description="Pick a gamertag and start playing instantly. 10 free saves — upgrade to a VerusID anytime."
+              onClick={() => navigate('/register')}
+            />
+          </div>
+        )}
+
+        {/* ═══════════ GAME CARDS (always visible) ═══════════ */}
+        <div style={{
+          display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 32,
+          animation: 'fadeIn 0.5s ease', animationDelay: user ? '0.15s' : '0.35s', animationFillMode: 'both',
+        }}>
+          <div style={{
+            fontSize: 9, fontFamily: S.font, letterSpacing: 3, color: S.dim,
+            fontWeight: 700, textTransform: 'uppercase', paddingLeft: 4,
+          }}>
+            {user ? 'Your Games' : 'Available Games'}
+          </div>
+
+          {GAMES.map(game => (
+            <GameCard key={game.id} game={game} onClick={() => navigate(game.path)} />
           ))}
         </div>
 
-        {/* Info Section */}
+        {/* How it Works */}
         <div style={{
-          background: 'rgba(12, 20, 33, 0.6)',
-          border: '1px solid #1a2a3e',
-          borderRadius: 8,
-          padding: '20px 24px',
-          marginBottom: 24,
-          animation: 'fadeIn 0.5s ease',
-          animationDelay: '0.5s',
-          animationFillMode: 'both',
+          background: 'rgba(12,20,33,0.6)', border: `1px solid ${S.border}`,
+          borderRadius: 8, padding: '20px 24px', marginBottom: 24,
+          animation: 'fadeIn 0.5s ease', animationDelay: user ? '0.3s' : '0.5s', animationFillMode: 'both',
         }}>
           <h3 style={{
-            fontSize: 11,
-            fontFamily: "'Courier New', monospace",
-            letterSpacing: 3,
-            color: '#f59e0b',
-            fontWeight: 700,
-            marginBottom: 12,
-            textTransform: 'uppercase',
+            fontSize: 11, fontFamily: S.font, letterSpacing: 3, color: S.acc,
+            fontWeight: 700, marginBottom: 12, marginTop: 0, textTransform: 'uppercase',
           }}>
             How it works
           </h3>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr 1fr',
-            gap: 16,
-          }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
             {[
-              { icon: '🆔', title: 'VerusID = You', desc: 'Your identity is your account. No passwords, no email. Self-sovereign.' },
-              { icon: '🎲', title: 'Deterministic', desc: 'Same ID = same world. Every game is seeded by your identity.' },
-              { icon: '⛓', title: 'Proof-of-Play', desc: 'Actions are hash-chained. Scores are mathematically verifiable.' },
-            ].map(item => (
-              <div key={item.title} style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 24, marginBottom: 6 }}>{item.icon}</div>
-                <div style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: '#c8d6e5',
-                  marginBottom: 4,
-                  fontFamily: "'Courier New', monospace",
-                }}>
-                  {item.title}
-                </div>
-                <div style={{ fontSize: 11, color: '#5a6a7e', lineHeight: 1.5 }}>
-                  {item.desc}
-                </div>
+              { icon: '🆔', t: 'VerusID = You', d: 'Your identity is your account. No passwords, no email. Self-sovereign.' },
+              { icon: '🎲', t: 'Deterministic', d: 'Same ID = same world. Every game is seeded by your identity.' },
+              { icon: '⛓', t: 'Proof-of-Play', d: 'Actions are hash-chained. Scores are mathematically verifiable.' },
+            ].map(x => (
+              <div key={x.t} style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 24, marginBottom: 6 }}>{x.icon}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: S.text, marginBottom: 4, fontFamily: S.font }}>{x.t}</div>
+                <div style={{ fontSize: 11, color: S.dim, lineHeight: 1.5 }}>{x.d}</div>
               </div>
             ))}
           </div>
         </div>
 
         {/* Footer */}
-        <div style={{
-          textAlign: 'center',
-          padding: '16px 0',
-          animation: 'fadeIn 0.5s ease',
-          animationDelay: '0.6s',
-          animationFillMode: 'both',
-        }}>
-          <div style={{
-            fontFamily: "'Courier New', monospace",
-            fontSize: 10,
-            color: '#2a3a4e',
-            letterSpacing: 2,
-          }}>
+        <div style={{ textAlign: 'center', padding: '16px 0' }}>
+          <div style={{ fontFamily: S.font, fontSize: 10, color: '#1a2a3e', letterSpacing: 2 }}>
             TESTNET BETA · VERUS ARCADE@
           </div>
         </div>
       </div>
+
+      <style>{`
+        @keyframes twinkle {
+          0%, 100% { opacity: 0.3; }
+          50% { opacity: 1; }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
     </div>
   );
 }

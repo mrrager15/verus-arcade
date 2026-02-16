@@ -170,8 +170,10 @@ const mkInit = () => ({
   actionLog: [], genesisHash: "",
   pendingBuys: null, verifyResult: null,
   // On-chain integration
-  chainSaveStatus: null, // null | "saving" | "saved" | "error"
+  chainSaveStatus: null, // null | "saving" | "saved" | "error" | "no_saves"
   chainSaveTxid: null,
+  chainSaveError: null,
+  freeSavesLeft: null,
   chainStats: null, // { gamesPlayed, highscore, totalPoints, bestGrade, lastPlayed }
   loadingChainData: false,
 });
@@ -281,7 +283,7 @@ export default function LemonadeStand() {
     const prevHigh = state.chainStats?.highscore || 0;
     const isNewHigh = score > prevHigh;
 
-    up({ chainSaveStatus: "saving" });
+    up({ chainSaveStatus: "saving", chainSaveError: null });
     const body = {
       identity: user.fullname || user.identity + "@",
       game: "lemonade",
@@ -297,19 +299,22 @@ export default function LemonadeStand() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     })
-      .then(r => r.json())
-      .then(result => {
+      .then(async r => {
+        const result = await r.json();
         if (result.success) {
           up({
             chainSaveStatus: "saved",
             chainSaveTxid: result.txid,
             chainStats: result.stats || state.chainStats,
+            freeSavesLeft: result.freeSavesLeft,
           });
+        } else if (r.status === 403) {
+          up({ chainSaveStatus: "no_saves", chainSaveError: result.error, freeSavesLeft: 0 });
         } else {
-          up({ chainSaveStatus: "error" });
+          up({ chainSaveStatus: "error", chainSaveError: result.error || "Save failed" });
         }
       })
-      .catch(() => up({ chainSaveStatus: "error" }));
+      .catch(() => up({ chainSaveStatus: "error", chainSaveError: "Network error" }));
   };
 
   const resetGame = () => {
@@ -566,11 +571,11 @@ export default function LemonadeStand() {
             <div style={{
               padding: "10px 14px", borderRadius: 6, marginBottom: 12,
               background: state.chainSaveStatus === "saved" ? "rgba(58,125,68,0.08)"
-                : state.chainSaveStatus === "error" ? "rgba(192,57,43,0.08)"
+                : state.chainSaveStatus === "error" || state.chainSaveStatus === "no_saves" ? "rgba(192,57,43,0.08)"
                 : "rgba(212,160,23,0.06)",
               border: `1px solid ${
                 state.chainSaveStatus === "saved" ? grn
-                : state.chainSaveStatus === "error" ? red
+                : state.chainSaveStatus === "error" || state.chainSaveStatus === "no_saves" ? red
                 : bdr
               }`,
             }}>
@@ -587,11 +592,38 @@ export default function LemonadeStand() {
                   <div style={{ fontSize: 10, color: tM, marginTop: 2, fontFamily: "'Courier New', monospace", wordBreak: "break-all", textAlign: "center" }}>
                     txid: {state.chainSaveTxid}
                   </div>
+                  {state.freeSavesLeft !== null && state.freeSavesLeft >= 0 && (
+                    <div style={{ fontSize: 10, color: state.freeSavesLeft <= 2 ? acc : tM, fontFamily: "'Courier New', monospace", textAlign: "center", marginTop: 4 }}>
+                      {state.freeSavesLeft === 0
+                        ? "⚠ That was your last free save!"
+                        : `${state.freeSavesLeft} free save${state.freeSavesLeft === 1 ? "" : "s"} remaining`
+                      }
+                    </div>
+                  )}
+                </div>
+              )}
+              {state.chainSaveStatus === "no_saves" && (
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 12, color: red, fontWeight: 700, fontFamily: "'Courier New', monospace", marginBottom: 8 }}>
+                    ✗ No free saves remaining
+                  </div>
+                  <div style={{ fontSize: 11, color: tM, fontFamily: "'Courier New', monospace", lineHeight: 1.6, marginBottom: 12 }}>
+                    To keep saving with this account, claim your ID by linking a Verus wallet.
+                    Or create a new account (progress won't carry over).
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => navigate("/profile")} style={{ ...BN(true, false), flex: 1, padding: "8px", fontSize: 11 }}>
+                      👤 Claim ID
+                    </button>
+                    <button onClick={() => navigate("/register")} style={{ ...BN(false, false), flex: 1, padding: "8px", fontSize: 11, borderColor: "#5a6a7e", color: "#5a6a7e" }}>
+                      New Account
+                    </button>
+                  </div>
                 </div>
               )}
               {state.chainSaveStatus === "error" && (
                 <div style={{ fontSize: 12, color: red, fontFamily: "'Courier New', monospace", textAlign: "center" }}>
-                  ✗ Save failed — try again later
+                  ✗ {state.chainSaveError || "Save failed — try again later"}
                 </div>
               )}
               {!state.chainSaveStatus && isNewHigh && (
@@ -661,10 +693,6 @@ export default function LemonadeStand() {
           </div>
         </div>
         <button onClick={resetGame} style={{ ...BN(true), width: "100%", padding: 14, fontSize: 14 }}>🍋 New Game</button>
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <button onClick={() => navigate('/')} style={{ ...BN(), flex: 1, padding: 10, fontSize: 12, borderColor: "#5a6a7e", color: "#5a6a7e" }}>← Arcade</button>
-            {user && <button onClick={() => navigate('/profile')} style={{ ...BN(), flex: 1, padding: 10, fontSize: 12, borderColor: acc, color: acc }}>👤 Profile</button>}
-          </div>
         <ChainPanel verusId={state.verusId} actionLog={state.actionLog} genesisHash={state.genesisHash} verifyResult={state.verifyResult} />
         <div style={{
           marginTop: 12, padding: "10px 14px", background: "#0a0e14", borderRadius: 6,

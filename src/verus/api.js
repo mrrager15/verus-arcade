@@ -51,11 +51,14 @@ export async function checkGamertag(name) {
   return res.json();
 }
 
-export async function registerPlayer(gamertag, pin) {
+export async function registerPlayer(gamertag, pin, raddress) {
+  const body = { gamertag };
+  if (pin) body.pin = pin;
+  if (raddress) body.raddress = raddress;
   const res = await fetch(`${API}/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ gamertag, pin }),
+    body: JSON.stringify(body),
   });
   return res.json();
 }
@@ -67,9 +70,31 @@ export async function custodialLogin(gamertag, pin) {
     body: JSON.stringify({ gamertag, pin }),
   });
   const data = await res.json();
-  if (!res.ok) {
-    return { verified: false, error: data.error || 'Login failed' };
-  }
+  if (!res.ok) return { verified: false, error: data.error || 'Login failed' };
+  return data;
+}
+
+// Tier 2: request a challenge to sign with wallet
+export async function tier2LoginChallenge(gamertag) {
+  const res = await fetch(`${API}/login/tier2/challenge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gamertag }),
+  });
+  const data = await res.json();
+  if (!res.ok) return { error: data.error || 'Failed to get challenge' };
+  return data;
+}
+
+// Tier 2: verify signature
+export async function tier2LoginVerify(gamertag, signature) {
+  const res = await fetch(`${API}/login/tier2/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gamertag, signature }),
+  });
+  const data = await res.json();
+  if (!res.ok) return { verified: false, error: data.error || 'Verification failed' };
   return data;
 }
 

@@ -6,5 +6,45 @@
     "claimed": false,
     "claimedAddress": null,
     "freeSavesLeft": 0
+  },
+  "mrrager": {
+    "pinHash": null,
+    "address": "RQ3ESzig4sB6esSggHGRP1RfoRDZQqGUQE",
+    "playerAddress": "RN35TfcrPQvodCv2BMd9tEHT8m786WDddT",
+    "tier": 2,
+    "registeredAt": 1771277520821,
+    "claimed": true,
+    "claimedAddress": "RN35TfcrPQvodCv2BMd9tEHT8m786WDddT",
+    "freeSavesLeft": 10
+  },
+  "mrrager2": {
+    "pinHash": null,
+    "address": "RBYPywNPhrgptT1Y4eT6mW3osPZZcGK9Jt",
+    "playerAddress": "RN35TfcrPQvodCv2BMd9tEHT8m786WDddT",
+    "tier": 2,
+    "registeredAt": 1771278663706,
+    "claimed": true,
+    "claimedAddress": "RN35TfcrPQvodCv2BMd9tEHT8m786WDddT",
+    "freeSavesLeft": 10
+  },
+  "mrrager3": {
+    "pinHash": null,
+    "address": "RAayax52WAp2RzceeVX2qr8xvMzzgrUjPJ",
+    "playerAddress": "RN35TfcrPQvodCv2BMd9tEHT8m786WDddT",
+    "tier": 2,
+    "registeredAt": 1771279904682,
+    "claimed": true,
+    "claimedAddress": "RN35TfcrPQvodCv2BMd9tEHT8m786WDddT",
+    "freeSavesLeft": 10
+  },
+  "mrrager4": {
+    "pinHash": null,
+    "address": "RUqHM6meaMQh41xtx5TxReFAyccH5HP6BC",
+    "playerAddress": "RN35TfcrPQvodCv2BMd9tEHT8m786WDddT",
+    "tier": 2,
+    "registeredAt": 1771280733822,
+    "claimed": true,
+    "claimedAddress": "RN35TfcrPQvodCv2BMd9tEHT8m786WDddT",
+    "freeSavesLeft": 10
   }
 }

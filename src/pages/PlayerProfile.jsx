@@ -5,7 +5,6 @@ import { getProfile } from "../verus/api.js";
 
 const GAME_INFO = {
   lemonade: { title: "Lemonade Stand", icon: "🍋", color: "#d4a017" },
-  colony: { title: "Colony One", icon: "🪐", color: "#f59e0b" },
 };
 
 const GRADE_COLOR = { S: "#d4a017", A: "#3a7d44", B: "#5a9bd5", C: "#5a4630", D: "#c97932", F: "#c0392b" };
@@ -220,7 +219,7 @@ export default function PlayerProfile() {
                   )}
                 </>
               ) : (
-                <button onClick={() => navigate(`/${gameId === "lemonade" ? "lemonade" : "colony"}`)} style={{
+                <button onClick={() => navigate(`/${gameId}`)} style={{
                   width: "100%", padding: "10px", border: `1px solid ${S.border}`, borderRadius: 6,
                   background: "rgba(20,30,48,0.6)", color: info.color, fontFamily: S.font,
                   fontSize: 12, fontWeight: 700, cursor: "pointer", letterSpacing: 1,

@@ -14,18 +14,6 @@ const GAMES = [
     tags: ['Economy', '14 Days', 'Easy'],
     status: 'BETA',
   },
-  {
-    id: 'colony',
-    title: 'Colony One',
-    icon: '🪐',
-    path: '/colony',
-    color: '#f59e0b',
-    colorDim: '#b45309',
-    bg: 'linear-gradient(135deg, #0c1420 0%, #1a2a3e 100%)',
-    description: 'Land on a procedurally generated planet. Build structures, manage resources, survive 30 sols.',
-    tags: ['Survival', '30 Sols', 'Medium'],
-    status: 'BETA',
-  },
 ];
 
 function StarField() {

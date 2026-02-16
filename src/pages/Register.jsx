@@ -2,7 +2,9 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../verus/AuthContext.jsx";
 
-const API = "http://localhost:3001/api";
+const API = window.location.hostname === 'localhost'
+  ? 'http://localhost:3001/api'
+  : 'https://api.verusarcade.com/api';
 
 const STEPS = {
   INPUT: 0,

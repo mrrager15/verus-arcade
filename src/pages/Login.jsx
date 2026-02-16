@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../verus/AuthContext.jsx';
-import { getLoginChallenge, verifyLogin, getIdentity } from '../verus/api.js';
+import { getLoginChallenge, verifyLogin, getIdentity, custodialLogin } from '../verus/api.js';
 
 export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
+  const [mode, setMode] = useState('custodial'); // 'custodial' or 'verusid'
   const [step, setStep] = useState('enter'); // enter → sign → verify
   const [identity, setIdentity] = useState('');
+  const [gamertag, setGamertag] = useState('');
   const [challenge, setChallenge] = useState(null);
   const [signature, setSignature] = useState('');
   const [error, setError] = useState('');
@@ -41,7 +43,30 @@ export default function Login() {
     fontFamily: S.font, fontWeight: 700, marginBottom: 6,
   };
 
-  // Step 1: Check identity exists, get challenge
+  // Custodial login — just gamertag
+  const handleCustodialLogin = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const result = await custodialLogin(gamertag.trim());
+      if (result.verified) {
+        login({
+          identity: result.identity,
+          address: result.identityaddress,
+          fullname: result.fullyqualifiedname,
+          custodial: true,
+        });
+        navigate('/');
+      } else {
+        setError(result.error || 'Gamertag not found. Did you register first?');
+      }
+    } catch (e) {
+      setError('Could not connect to server. Try again later.');
+    }
+    setLoading(false);
+  };
+
+  // VerusID login — Step 1: Check identity exists, get challenge
   const handleIdentitySubmit = async () => {
     setError('');
     setLoading(true);
@@ -57,12 +82,12 @@ export default function Login() {
       setChallenge(ch);
       setStep('sign');
     } catch (e) {
-      setError('Could not connect to backend. Is the server running on port 3001?');
+      setError('Could not connect to backend.');
     }
     setLoading(false);
   };
 
-  // Step 2: Verify signature
+  // VerusID login — Step 2: Verify signature
   const handleVerify = async () => {
     setError('');
     setLoading(true);
@@ -85,6 +110,14 @@ export default function Login() {
     setLoading(false);
   };
 
+  const tabStyle = (active) => ({
+    flex: 1, padding: '10px 0', textAlign: 'center', cursor: 'pointer',
+    fontFamily: S.font, fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase',
+    color: active ? S.acc : S.dim,
+    borderBottom: active ? `2px solid ${S.acc}` : `1px solid ${S.border}`,
+    transition: 'all 0.2s',
+  });
+
   return (
     <div style={{
       minHeight: '100vh', background: S.bg, display: 'flex',
@@ -92,24 +125,68 @@ export default function Login() {
     }}>
       <div style={{ maxWidth: 480, width: '100%' }}>
         {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>🆔</div>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <div style={{ fontSize: 36, marginBottom: 8 }}>🎮</div>
           <h1 style={{
             fontSize: 24, fontWeight: 900, color: S.bright,
             fontFamily: S.font, letterSpacing: 3, margin: '0 0 6px',
           }}>
-            VERUSID LOGIN
+            WELCOME BACK
           </h1>
           <p style={{ fontSize: 12, color: S.dim, fontFamily: S.font }}>
-            Prove identity ownership via cryptographic signature
+            Log in to continue playing
           </p>
         </div>
 
-        {/* Step 1: Enter Identity */}
-        {step === 'enter' && (
+        {/* Mode Tabs */}
+        <div style={{ display: 'flex', marginBottom: 16 }}>
+          <div
+            style={tabStyle(mode === 'custodial')}
+            onClick={() => { setMode('custodial'); setError(''); }}
+          >
+            Gamertag
+          </div>
+          <div
+            style={tabStyle(mode === 'verusid')}
+            onClick={() => { setMode('verusid'); setStep('enter'); setError(''); }}
+          >
+            VerusID
+          </div>
+        </div>
+
+        {/* Custodial Login */}
+        {mode === 'custodial' && (
+          <div style={cd}>
+            <div style={lb}>Your Gamertag</div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+              <input
+                type="text"
+                value={gamertag}
+                onChange={(e) => setGamertag(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && gamertag.trim() && handleCustodialLogin()}
+                placeholder="yourname"
+                style={{ ...input, flex: 1 }}
+              />
+              <span style={{ fontSize: 11, color: S.dim, fontFamily: S.font, whiteSpace: 'nowrap' }}>.Verus Arcade@</span>
+            </div>
+            <p style={{ fontSize: 11, color: S.dim, fontFamily: S.font, margin: '0 0 16px', lineHeight: 1.5 }}>
+              Enter the gamertag you created when you registered.
+            </p>
+            <button
+              onClick={handleCustodialLogin}
+              disabled={!gamertag.trim() || loading}
+              style={bn(!loading && gamertag.trim(), !gamertag.trim() || loading)}
+            >
+              {loading ? 'Logging in...' : 'Log In'}
+            </button>
+          </div>
+        )}
+
+        {/* VerusID Login — Step 1 */}
+        {mode === 'verusid' && step === 'enter' && (
           <div style={cd}>
             <div style={lb}>Your VerusID (testnet)</div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
               <input
                 type="text"
                 value={identity}
@@ -120,18 +197,21 @@ export default function Login() {
               />
               <span style={{ fontSize: 12, color: S.dim, fontFamily: S.font, whiteSpace: 'nowrap' }}>@</span>
             </div>
+            <p style={{ fontSize: 11, color: S.dim, fontFamily: S.font, margin: '0 0 16px', lineHeight: 1.5 }}>
+              Requires a running verusd node and CLI access to sign a challenge.
+            </p>
             <button
               onClick={handleIdentitySubmit}
               disabled={!identity.trim() || loading}
               style={bn(!loading && identity.trim(), !identity.trim() || loading)}
             >
-              {loading ? 'Checking...' : '→ Generate Challenge'}
+              {loading ? 'Checking...' : 'Generate Challenge'}
             </button>
           </div>
         )}
 
-        {/* Step 2: Sign Challenge */}
-        {step === 'sign' && challenge && (
+        {/* VerusID Login — Step 2: Sign Challenge */}
+        {mode === 'verusid' && step === 'sign' && challenge && (
           <div style={cd}>
             <div style={lb}>Step 1 — Copy this command</div>
             <p style={{ fontSize: 11, color: S.dim, marginBottom: 10, lineHeight: 1.6 }}>
@@ -168,14 +248,14 @@ export default function Login() {
               disabled={!signature.trim() || loading}
               style={bn(!loading && signature.trim(), !signature.trim() || loading)}
             >
-              {loading ? 'Verifying...' : '⛓ Verify Signature'}
+              {loading ? 'Verifying...' : 'Verify Signature'}
             </button>
 
             <button
               onClick={() => { setStep('enter'); setChallenge(null); setSignature(''); setError(''); }}
               style={{ ...bn(), marginTop: 8, background: 'transparent', borderColor: S.dim, color: S.dim }}
             >
-              ← Back
+              Back
             </button>
           </div>
         )}
@@ -191,7 +271,7 @@ export default function Login() {
           </div>
         )}
 
-        {/* Back to Arcade */}
+        {/* Footer links */}
         <div style={{ textAlign: 'center', marginTop: 20, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
           <span
             onClick={() => navigate('/register')}

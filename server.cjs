@@ -770,6 +770,186 @@ app.post('/api/login/tier2/verify', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// ── QR LOGIN (Tier 2 — Verus Mobile scans QR to prove identity) ──
+// ═══════════════════════════════════════════════════════════════════
+
+const qrLoginChallenges = new Map(); // challenge_id → { status, identity, raddress, timestamp }
+
+// Step 1: Frontend requests a QR login deeplink
+app.post('/api/login/tier2/qr', async (req, res) => {
+  if (!VerusId || !primitives) {
+    return res.status(503).json({ error: 'QR login not available — verusid-ts-client not installed' });
+  }
+
+  try {
+    const challenge_id = generateChallengeID();
+
+    const response = await VerusId.createLoginConsentRequest(
+      VERUS_ARCADE_IADDRESS,
+      new primitives.LoginConsentChallenge({
+        challenge_id: challenge_id,
+        requested_access: [
+          new primitives.RequestedPermission(primitives.IDENTITY_VIEW.vdxfid),
+        ],
+        redirect_uris: [
+          new primitives.RedirectUri(
+            `${PROVISIONING_BASE_URL}/login/tier2/callback`,
+            primitives.LOGIN_CONSENT_WEBHOOK_VDXF_KEY.vdxfid
+          ),
+        ],
+        subject: [],
+        provisioning_info: [],
+        created_at: Number((Date.now() / 1000).toFixed(0)),
+      }),
+      VERUS_ARCADE_WIF
+    );
+
+    const deeplink = response.toWalletDeeplinkUri();
+
+    qrLoginChallenges.set(challenge_id, {
+      status: 'pending',
+      identity: null,
+      raddress: null,
+      gamertag: null,
+      timestamp: Date.now(),
+    });
+
+    console.log(`[QR-LOGIN] Challenge created: ${challenge_id}`);
+    res.json({ deeplink, challenge_id });
+  } catch (e) {
+    console.error('[QR-LOGIN] Error generating deeplink:', e);
+    res.status(500).json({ error: e.message || 'Failed to generate login QR' });
+  }
+});
+
+// Step 2: Verus Mobile posts signed login consent response here
+app.post('/api/login/tier2/callback', cors(), async (req, res) => {
+  console.log('[QR-LOGIN] ═══════════════════════════════════════');
+  console.log('[QR-LOGIN] Received login response from Verus Mobile');
+  console.log('[QR-LOGIN] Body:', JSON.stringify(req.body, null, 2));
+  console.log('[QR-LOGIN] ═══════════════════════════════════════');
+
+  try {
+    const body = req.body;
+
+    // Extract identity info from the login consent response
+    const challenge_id = body.decision?.request?.challenge?.challenge_id
+      || body.challenge?.challenge_id;
+    const signingId = body.signing_id;
+    const signingAddress = body.decision?.request?.signing_id || signingId;
+
+    console.log(`[QR-LOGIN] challenge_id: ${challenge_id}, signing_id: ${signingId}`);
+
+    if (!challenge_id || !qrLoginChallenges.has(challenge_id)) {
+      console.log('[QR-LOGIN] Unknown or missing challenge');
+      return res.status(400).json({ error: 'Unknown challenge' });
+    }
+
+    // Verify the login consent response
+    let verified = false;
+    try {
+      const loginResponse = new primitives.LoginConsentResponse(body);
+      verified = await VerusId.verifyLoginConsentResponse(loginResponse);
+      console.log(`[QR-LOGIN] Signature verification: ${verified}`);
+    } catch (verifyErr) {
+      console.log(`[QR-LOGIN] Verification error: ${verifyErr.message}`);
+      // Try to continue even if verification fails — we can match by identity
+    }
+
+    // Get identity info from signing_id
+    let matchedGamertag = null;
+    let matchedPlayer = null;
+    let identityInfo = null;
+
+    if (signingId) {
+      try {
+        identityInfo = await rpcCall('getidentity', [signingId]);
+        const primaryAddresses = identityInfo.identity?.primaryaddresses || [];
+        console.log(`[QR-LOGIN] Signing identity: ${identityInfo.identity?.name}, addresses: ${primaryAddresses.join(', ')}`);
+
+        // Check if this identity or any of its primary addresses match a registered Tier 2 player
+        for (const [name, player] of Object.entries(players)) {
+          if (player.tier !== 2) continue;
+
+          // Match by identity address
+          const fullName = name + '.Verus Arcade@';
+          try {
+            const playerIdInfo = await rpcCall('getidentity', [fullName]);
+            if (playerIdInfo.identity?.identityaddress === identityInfo.identity?.identityaddress) {
+              matchedGamertag = name;
+              matchedPlayer = player;
+              break;
+            }
+          } catch { /* identity not found */ }
+
+          // Match by R-address
+          if (player.playerAddress && primaryAddresses.includes(player.playerAddress)) {
+            matchedGamertag = name;
+            matchedPlayer = player;
+            break;
+          }
+        }
+      } catch (e) {
+        console.log(`[QR-LOGIN] Could not get identity info: ${e.message}`);
+      }
+    }
+
+    if (matchedGamertag && matchedPlayer) {
+      const fullName = matchedGamertag + '.Verus Arcade@';
+      const ch = qrLoginChallenges.get(challenge_id);
+      ch.status = 'verified';
+      ch.gamertag = matchedGamertag;
+      ch.identity = signingId;
+      ch.raddress = matchedPlayer.playerAddress;
+      ch.fullname = fullName;
+      ch.freeSavesLeft = matchedPlayer.freeSavesLeft;
+
+      console.log(`[QR-LOGIN] ✅ Login verified: ${fullName}`);
+    } else {
+      const ch = qrLoginChallenges.get(challenge_id);
+      ch.status = 'no_account';
+      ch.identity = signingId;
+      console.log(`[QR-LOGIN] ✗ No matching Verus Arcade account found for ${signingId}`);
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[QR-LOGIN] Error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Step 3: Frontend polls this to check login status
+app.get('/api/login/tier2/status/:challengeId', (req, res) => {
+  const ch = qrLoginChallenges.get(req.params.challengeId);
+  if (!ch) return res.json({ status: 'unknown' });
+
+  if (Date.now() - ch.timestamp > 15 * 60 * 1000) {
+    qrLoginChallenges.delete(req.params.challengeId);
+    return res.json({ status: 'expired' });
+  }
+
+  const result = { status: ch.status };
+  if (ch.status === 'verified') {
+    result.gamertag = ch.gamertag;
+    result.fullname = ch.fullname;
+    result.identity = ch.identity;
+    result.raddress = ch.raddress;
+    result.freeSavesLeft = ch.freeSavesLeft;
+  }
+
+  res.json(result);
+});
+
+// Cleanup old login challenges
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, ch] of qrLoginChallenges) {
+    if (now - ch.timestamp > 30 * 60 * 1000) qrLoginChallenges.delete(id);
+  }
+}, 5 * 60 * 1000);
+
 // ── Claim SubID (transfer ownership to player's R-address) ──
 const claimChallenges = new Map(); // gamertag → { message, timestamp }
 

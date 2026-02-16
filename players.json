@@ -46,5 +46,15 @@
     "claimed": true,
     "claimedAddress": "RN35TfcrPQvodCv2BMd9tEHT8m786WDddT",
     "freeSavesLeft": 10
+  },
+  "mrrager5": {
+    "pinHash": null,
+    "address": "RKHugZzApLKZtAzay7vGQ2aaTdXmMNLi8e",
+    "playerAddress": "RN35TfcrPQvodCv2BMd9tEHT8m786WDddT",
+    "tier": 2,
+    "registeredAt": 1771281852132,
+    "claimed": true,
+    "claimedAddress": "RN35TfcrPQvodCv2BMd9tEHT8m786WDddT",
+    "freeSavesLeft": 10
   }
 }

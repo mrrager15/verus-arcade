@@ -292,7 +292,7 @@ export default function LemonadeStand() {
       isNewHigh,
     };
 
-    fetch("http://localhost:3001/api/game/save", {
+    fetch((window.location.hostname === 'localhost' ? 'http://localhost:3001' : 'https://api.verusarcade.com') + '/api/game/save', {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

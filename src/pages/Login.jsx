@@ -11,7 +11,8 @@ const API = window.location.hostname === 'localhost'
 export default function Login() {
   const navigate = useNavigate();
   const { user, login, loginDirect } = useAuth();
-  const [mode, setMode] = useState('pin');
+  const defaultMode = new URLSearchParams(window.location.search).get('mode') === 'qr' ? 'qr' : 'pin';
+  const [mode, setMode] = useState(defaultMode);
 
   // ── Tier 3 (pin) state ──
   const [gamertag, setGamertag] = useState('');
@@ -189,11 +190,11 @@ export default function Login() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', marginBottom: 16 }}>
-          <div style={tabStyle(mode === 'pin')} onClick={() => { setMode('pin'); setError(''); }}>
-            Gamertag + Pin
-          </div>
           <div style={tabStyle(mode === 'qr')} onClick={() => { setMode('qr'); setError(''); setQrStatus('idle'); }}>
             Sign with Wallet
+          </div>
+          <div style={tabStyle(mode === 'pin')} onClick={() => { setMode('pin'); setError(''); }}>
+            Gamertag + Pin
           </div>
         </div>
 

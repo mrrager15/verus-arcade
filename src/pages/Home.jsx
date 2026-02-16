@@ -246,7 +246,7 @@ export default function Home() {
               iconBg="rgba(34,197,94,0.1)" iconBorder="rgba(34,197,94,0.2)"
               title="I have a VerusID"
               description="Sign in with Verus Mobile — scan a QR code to prove your identity. Works with any VerusID."
-              onClick={() => navigate('/login')}
+              onClick={() => navigate('/login?mode=qr')}
             />
 
             <EntryCard

@@ -8,6 +8,10 @@ Your VerusID is your account, your save file, and your proof. No passwords, no e
 
 ---
 
+> ⚠️ **TESTNET BETA** — This is an early beta running on vrsctest. Things may break, scores may reset, and features are still being built. Play for free, have fun, and please report any bugs!
+
+---
+
 ## What is this?
 
 Verus Arcade is a collection of browser-based games where every score is **verifiable on-chain**. Each game uses deterministic logic seeded by the player's identity — same player, same world, every time. Actions are hash-chained into a proof-of-gameplay that anyone can replay and verify.
@@ -25,19 +29,21 @@ Game data (scores, stats, and cryptographic proofs) is stored directly on the pl
 
 ## Games
 
-### 🍋 Lemonade Stand
+### 🍋 Lemonade Stand ✅
 Run a lemonade stand for 14 days. Buy supplies, set recipes, choose prices, and react to the weather. Classic economic sim with a blockchain twist.
 
 - **Genre:** Economy / Simulation
 - **Length:** 14 days
 - **Difficulty:** Easy
+- **Status:** Playable
 
-### 🪐 Colony One
+### 🪐 Colony One 🚧
 Land on a procedurally generated planet. Build structures, manage resources, and survive 30 sols on an alien world.
 
 - **Genre:** Survival / Strategy
 - **Length:** 30 sols
 - **Difficulty:** Medium
+- **Status:** Work in progress — not yet fully functional
 
 ---
 
@@ -51,13 +57,36 @@ Visit [verusarcade.com](https://www.verusarcade.com) and create a free account. 
 - **Quick start** — Choose a gamertag, we create a SubID for you automatically (e.g. `yourname.Verus Arcade@`)
 - **VerusID login** — Already have a VerusID on testnet? Sign in with a cryptographic signature
 
-### For developers
+### Known beta limitations
 
-#### Prerequisites
+- 🔄 Refreshing the page during a game will restart the game (your saved stats are safe on-chain)
+- 🪐 Colony One is still under development
+- 📱 Mobile experience may have rough edges
+- ⏳ Account creation takes ~1-2 minutes (waiting for blockchain confirmation)
+
+---
+
+## Feedback & Bug Reports
+
+**This is a beta — your feedback is invaluable!**
+
+If you find bugs, have suggestions, or just want to share your experience:
+
+- 🐛 **Bugs:** [Open an issue](https://github.com/mrrager15/verus-arcade/issues) on GitHub
+- 💡 **Ideas & tips:** Open an issue tagged `suggestion`
+- 💬 **General feedback:** Drop a message in the issues or reach out directly
+
+All feedback — positive or negative — helps make this better. Don't hold back!
+
+---
+
+## For Developers
+
+### Prerequisites
 - [Node.js](https://nodejs.org/) (v18+)
 - [Verus daemon](https://verus.io) running on `vrsctest` (testnet)
 
-#### Setup
+### Setup
 
 ```bash
 # Clone the repo
@@ -160,32 +189,17 @@ To verify a score: replay all actions with the same seed. If the resulting `chai
 
 ---
 
-## The Verus Arcade Token
-
-A custom currency launched on vrsctest that enables player SubID creation:
-
-| Property | Value |
-|---|---|
-| **Name** | Verus Arcade |
-| **Currency ID** | `iBrnBWkYJvzH6z1SB2TDnxk5mbPc781z1P` |
-| **Type** | Simple token (options: 32) |
-| **ProofProtocol** | 2 (controller can mint + create SubIDs) |
-| **SubID cost** | 1 Verus Arcade token + 0.02 VRSCTEST |
-| **Supply** | 1,000,000 (preallocated) |
-
----
-
-## Status
-
-🚧 **Testnet Beta** — Running on vrsctest. Play for free, scores are real but on testnet.
+## Roadmap
 
 - [x] VerusID login (signature-based)
 - [x] Custodial onboarding (instant gamertag → SubID)
 - [x] Proof-of-gameplay hash chain
 - [x] On-chain save/load via contentmultimap
 - [x] Player profiles with XP/level system
-- [x] Lemonade Stand (complete)
-- [x] Colony One (complete)
+- [x] Lemonade Stand (playable)
+- [x] Verus Arcade token launch
+- [x] Live on verusarcade.com
+- [ ] Colony One (finish & polish)
 - [ ] Leaderboard
 - [ ] More games
 - [ ] Mainnet deployment

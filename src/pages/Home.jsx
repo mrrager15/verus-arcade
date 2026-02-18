@@ -14,7 +14,7 @@ const GAMES = [
   },
   {
     id: 'catan',
-    title: 'Colony of Catan',
+    title: 'Colony of Verus',
     icon: '🏝️',
     path: '/catan',
     color: '#4a90e2',

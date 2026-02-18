@@ -491,7 +491,7 @@ export default function CatanGame({ identity, onExit }) {
     return (
       <div className="catan-name-entry">
         <div className="catan-splash">
-          <h1 className="catan-title">Colony of Catan</h1>
+          <h1 className="catan-title">Colony of Verus</h1>
           <p className="catan-subtitle">Build. Trade. Conquer.</p>
           {identity && <p className="catan-id-info">Playing as: <strong>{identity}</strong></p>}
           <div className="catan-name-form">

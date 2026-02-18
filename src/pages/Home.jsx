@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../verus/AuthContext.jsx'
+import React from 'react';
 
 const GAMES = [
   {
@@ -15,7 +16,7 @@ const GAMES = [
   {
     id: 'catan',
     title: 'Colony of Verus',
-    icon: '🏝️',
+    icon: <img src="/verus-logo.png" style={{ width: 32, height: 32 }} alt="Verus" />,
     path: '/catan',
     color: '#4a90e2',
     description: 'Build settlements, collect resources, and race to 10 Victory Points. You vs 3 NPC opponents.',

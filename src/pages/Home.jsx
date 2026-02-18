@@ -16,7 +16,7 @@ const GAMES = [
   {
     id: 'catan',
     title: 'Colony of Verus',
-    icon: <img src="/verus-logo.png" style={{ width: 32, height: 32 }} alt="Verus" />,
+    icon: <img src="/verus-logo.png" style={{ width: 48, height: 48 }} alt="Verus" />,
     path: '/catan',
     color: '#4a90e2',
     description: 'Build settlements, collect resources, and race to 10 Victory Points. You vs 3 NPC opponents.',

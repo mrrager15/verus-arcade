@@ -12,6 +12,16 @@ const GAMES = [
     tags: ['Economy', '14 Days', 'Easy'],
     status: 'BETA',
   },
+  {
+    id: 'catan',
+    title: 'Colony of Catan',
+    icon: '🏝️',
+    path: '/catan',
+    color: '#4a90e2',
+    description: 'Build settlements, collect resources, and race to 10 Victory Points. You vs 3 NPC opponents.',
+    tags: ['Strategy', 'vs NPCs', 'Medium'],
+    status: 'BETA',
+  },
 ];
 
 const S = {

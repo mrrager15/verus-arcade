@@ -7,6 +7,7 @@ import PlayerProfile from './pages/PlayerProfile.jsx'
 import Leaderboard from './pages/Leaderboard.jsx'
 import Achievements from './pages/Achievements.jsx'
 import LemonadeStand from './games/lemonade/LemonadeStand.jsx'
+import CatanGame from './games/catan/CatanGame';
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/achievements" element={<Achievements />} />
         <Route path="/lemonade" element={<LemonadeStand />} />
+        <Route path="/catan" element={<CatanGame />} />
       </Routes>
     </AuthProvider>
   )

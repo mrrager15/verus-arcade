@@ -131,6 +131,414 @@ function gameKey(game) {
   return bytes.slice(0, 20).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// ═══════════════════════════════════════════════════════════════
+// LEMONADE STAND — SERVER-SIDE REPLAY ENGINE
+// Mirrors the deterministic game engine from the frontend
+// ═══════════════════════════════════════════════════════════════
+function gameFnv(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return h >>> 0;
+}
+function gameRng(id, day, salt = '') { return gameFnv(`${id}::day${day}::${salt}`) / 0xffffffff; }
+
+function getWeather(id, day) {
+  const r = gameRng(id, day, 'weather');
+  if (r < 0.15) return { type: 'storm', label: '⛈ Thunderstorm', tempBase: 55, modifier: 0.05 };
+  if (r < 0.30) return { type: 'rain', label: '🌧 Rainy', tempBase: 60, modifier: 0.25 };
+  if (r < 0.50) return { type: 'cloudy', label: '☁ Cloudy', tempBase: 68, modifier: 0.55 };
+  if (r < 0.75) return { type: 'sunny', label: '☀ Sunny', tempBase: 78, modifier: 0.85 };
+  return { type: 'hot', label: '🔥 Hot & Dry', tempBase: 92, modifier: 1.0 };
+}
+function getTemp(id, day, weather) { return Math.round(weather.tempBase + (gameRng(id, day, 'temp') - 0.5) * 16); }
+function getEvent(id, day) {
+  const r = gameRng(id, day, 'event');
+  if (r < 0.08) return { label: '🚧 Street closed!', salesMod: 0.3 };
+  if (r < 0.14) return { label: '🎪 Festival — huge crowds!', salesMod: 1.8 };
+  if (r < 0.20) return { label: '📰 Featured in local paper!', salesMod: 1.5 };
+  if (r < 0.25) return { label: '🐝 Bees swarmed your stand!', salesMod: 0.4 };
+  return null;
+}
+const GAME_RECIPES = [
+  { name: 'Sour & Watery', lemons: 0.5, sugar: 1, ice: 2, quality: 0.3 },
+  { name: 'Light & Tangy', lemons: 1, sugar: 2, ice: 3, quality: 0.55 },
+  { name: 'Classic', lemons: 1.5, sugar: 3, ice: 4, quality: 0.75 },
+  { name: 'Sweet & Lemony', lemons: 2, sugar: 4, ice: 5, quality: 1.0 },
+];
+const GAME_SUPPLY_PRICES = { lemons: 0.50, sugar: 0.25, cups: 0.10, ice: 0.15 };
+
+function calcDemand(id, day, weather, temp, price, quality, event) {
+  const base = 30 + temp * 0.8;
+  const wd = base * weather.modifier;
+  const pf = Math.max(0, 1.3 - price / 3.0);
+  const qf = 0.5 + quality * 0.6;
+  const noise = 0.8 + gameRng(id, day, 'noise') * 0.4;
+  let d = wd * pf * qf * noise;
+  if (event) d *= event.salesMod;
+  return Math.max(0, Math.round(d));
+}
+
+function calcScore(cash, reputation, history) {
+  const profit = cash - 20;
+  const totalSold = history.reduce((s, h) => s + h.sold, 0);
+  return Math.round(profit * 10 + reputation * 2 + totalSold);
+}
+
+// Replay a full game from seed + actionLog, returning detailed per-day results
+function replayGameServer(seed, actionLog) {
+  let state = { cash: 20, reputation: 50, inventory: { lemons: 0, sugar: 0, cups: 0, ice: 0 } };
+  const dayResults = [];
+
+  for (const entry of actionLog) {
+    const { day, buys, recipeIndex, price } = entry;
+    const buyCost = buys.lemons*GAME_SUPPLY_PRICES.lemons + buys.sugar*GAME_SUPPLY_PRICES.sugar +
+                    buys.cups*GAME_SUPPLY_PRICES.cups + buys.ice*GAME_SUPPLY_PRICES.ice;
+    state.cash -= buyCost;
+    state.inventory.lemons += buys.lemons; state.inventory.sugar += buys.sugar;
+    state.inventory.cups += buys.cups; state.inventory.ice += buys.ice;
+
+    const recipe = GAME_RECIPES[recipeIndex];
+    const weather = getWeather(seed, day);
+    const temp = getTemp(seed, day, weather);
+    const event = getEvent(seed, day);
+    const canMake = Math.min(
+      Math.floor(state.inventory.lemons/recipe.lemons),
+      Math.floor(state.inventory.sugar/recipe.sugar),
+      Math.floor(state.inventory.ice/recipe.ice),
+      state.inventory.cups
+    );
+    const demand = calcDemand(seed, day, weather, temp, price, recipe.quality, event);
+    const sold = Math.min(canMake, demand);
+    const revenue = sold * price;
+
+    state.inventory.lemons -= sold*recipe.lemons;
+    state.inventory.sugar -= sold*recipe.sugar;
+    state.inventory.ice -= sold*recipe.ice;
+    state.inventory.cups -= sold;
+    const melt = 0.5 + gameRng(seed, day, 'melt') * 0.3;
+    state.inventory.ice = Math.floor(state.inventory.ice * (1 - melt));
+    Object.keys(state.inventory).forEach(k => { state.inventory[k] = Math.max(0, state.inventory[k]); });
+
+    let repD = 0;
+    if (sold > 0 && recipe.quality >= 0.7) repD += 3;
+    if (sold > 0 && recipe.quality < 0.5) repD -= 2;
+    if (price > 2.5) repD -= 2;
+    if (price <= 1.0 && recipe.quality >= 0.7) repD += 2;
+    if (demand > canMake) repD -= 1;
+    state.reputation = Math.max(0, Math.min(100, state.reputation + repD));
+    state.cash += revenue;
+
+    dayResults.push({
+      day, weather: weather.type, temp, event: event?.label || null,
+      demand, canMake, sold, revenue, price, recipeIndex,
+      buys: { ...buys }, repD,
+      cashAfter: state.cash, repAfter: state.reputation,
+    });
+  }
+
+  const profit = state.cash - 20;
+  const totalSold = dayResults.reduce((s, d) => s + d.sold, 0);
+  const score = calcScore(state.cash, state.reputation, dayResults);
+  const grade = profit > 40 ? 'S' : profit > 25 ? 'A' : profit > 15 ? 'B' : profit > 5 ? 'C' : profit > 0 ? 'D' : 'F';
+
+  return { state, dayResults, score, grade, profit, totalSold };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ACHIEVEMENT SYSTEM — Lemonade Stand (1000 points, 40 achievements)
+// ═══════════════════════════════════════════════════════════════
+const ACHIEVEMENTS = {
+  lemonade: [
+    // ── Score Milestones (115 pts) ──
+    { id: 'LS01', name: 'First Squeeze',    desc: 'Complete your first game',               points: 5,  secret: false, icon: '🍋' },
+    { id: 'LS02', name: 'Pocket Change',    desc: 'Score 100 or more points',               points: 10, secret: false, icon: '🪙' },
+    { id: 'LS03', name: 'Lemonade Mogul',   desc: 'Score 500 or more points',               points: 20, secret: false, icon: '💰' },
+    { id: 'LS04', name: 'Golden Pitcher',   desc: 'Score 750 or more points',               points: 30, secret: false, icon: '🏆' },
+    { id: 'LS05', name: 'Legendary Stand',  desc: 'Score 1000 or more points',              points: 50, secret: false, icon: '⭐' },
+
+    // ── Grades (95 pts) ──
+    { id: 'LS06', name: 'Passing Grade',    desc: 'Earn a C grade or better',               points: 5,  secret: false, icon: '📝' },
+    { id: 'LS07', name: 'Honor Roll',       desc: 'Earn a B grade or better',               points: 15, secret: false, icon: '📜' },
+    { id: 'LS08', name: 'Top of the Class', desc: 'Earn an A grade',                        points: 25, secret: false, icon: '🎓' },
+    { id: 'LS09', name: 'Perfection',       desc: 'Earn an S grade',                        points: 50, secret: false, icon: '💎' },
+
+    // ── Profit (80 pts) ──
+    { id: 'LS10', name: 'In the Black',     desc: 'End a game with positive profit',        points: 10, secret: false, icon: '📈' },
+    { id: 'LS11', name: 'Big Earner',       desc: 'End a game with $50 or more',            points: 30, secret: false, icon: '💵' },
+    { id: 'LS12', name: 'Fat Stacks',       desc: 'End a game with $80 or more',            points: 40, secret: false, icon: '🤑' },
+
+    // ── Sales (90 pts) ──
+    { id: 'LS13', name: 'Open for Business',desc: 'Sell your first cup of lemonade',        points: 5,  secret: false, icon: '🥤' },
+    { id: 'LS14', name: 'Crowd Pleaser',    desc: 'Sell 20 or more cups in a single day',   points: 15, secret: false, icon: '👥' },
+    { id: 'LS15', name: 'Rush Hour',        desc: 'Sell 35 or more cups in a single day',   points: 30, secret: false, icon: '🏃' },
+    { id: 'LS16', name: 'Volume Dealer',    desc: 'Sell 200 or more cups in a single game', points: 40, secret: false, icon: '📦' },
+
+    // ── Reputation (100 pts) ──
+    { id: 'LS17', name: 'Respected',        desc: 'End a game with 70 or more reputation',  points: 10, secret: false, icon: '👍' },
+    { id: 'LS18', name: 'Beloved',          desc: 'End a game with 90 or more reputation',  points: 30, secret: false, icon: '❤️' },
+    { id: 'LS19', name: 'Icon',             desc: 'End a game with 100 reputation',         points: 50, secret: false, icon: '👑' },
+    { id: 'LS20', name: 'Rock Bottom',      desc: 'End a game with 0 reputation',           points: 10, secret: true,  icon: '💀' },
+
+    // ── Recipe (60 pts) ──
+    { id: 'LS21', name: 'Quality First',    desc: 'Use Sweet & Lemony for all 14 days',     points: 25, secret: false, icon: '✨' },
+    { id: 'LS22', name: 'Budget Brewer',    desc: 'Use Sour & Watery for all 14 days',      points: 20, secret: true,  icon: '🫗' },
+    { id: 'LS23', name: 'Variety Pack',     desc: 'Use all 4 recipes in a single game',     points: 15, secret: false, icon: '🎨' },
+
+    // ── Pricing (45 pts) ──
+    { id: 'LS24', name: 'Penny Pincher',    desc: 'Sell at $0.25 for all 14 days',          points: 15, secret: true,  icon: '🪙' },
+    { id: 'LS25', name: 'Price Gouger',     desc: 'Set your price to $5.00',                points: 10, secret: false, icon: '🔥' },
+    { id: 'LS26', name: 'Sweet Spot',       desc: 'Average price between $1.50 and $2.00',  points: 25, secret: false, icon: '🎯' },
+
+    // ── Strategy (140 pts) ──
+    { id: 'LS27', name: 'Weatherproof',     desc: 'Make a profit on a thunderstorm day',    points: 25, secret: false, icon: '⛈️' },
+    { id: 'LS28', name: 'Perfect Day',      desc: 'Meet 100% of customer demand in a day',  points: 15, secret: false, icon: '💯' },
+    { id: 'LS29', name: 'Unstoppable',      desc: 'Meet all demand on all 14 days',         points: 50, secret: true,  icon: '🔮' },
+    { id: 'LS30', name: 'Festival King',    desc: 'Sell 25 or more cups on a festival day', points: 25, secret: true,  icon: '🎪' },
+    { id: 'LS31', name: 'Stocked Up',       desc: 'End a game with 50+ of each supply',     points: 35, secret: false, icon: '📦' },
+
+    // ── Persistence (155 pts) ──
+    { id: 'LS32', name: 'Hot Streak',       desc: 'Score 500+ three games in a row',        points: 30, secret: false, icon: '🔥' },
+    { id: 'LS33', name: 'Consistency',      desc: 'Score 300+ five games in a row',         points: 40, secret: false, icon: '📊' },
+    { id: 'LS34', name: 'Marathon Runner',  desc: 'Play 10 games',                          points: 15, secret: false, icon: '🏅' },
+    { id: 'LS35', name: 'Veteran',          desc: 'Play 25 games',                          points: 30, secret: false, icon: '🎖️' },
+    { id: 'LS36', name: 'Arcade Legend',    desc: 'Play 50 games',                          points: 50, secret: false, icon: '👾' },
+
+    // ── Secret / Fun (120 pts) ──
+    { id: 'LS37', name: 'Bankruptcy',       desc: 'End a game with less than $1',           points: 15, secret: true,  icon: '📉' },
+    { id: 'LS38', name: 'Ice Age',          desc: 'Buy 50 or more ice in a single purchase',points: 15, secret: true,  icon: '🧊' },
+    { id: 'LS39', name: 'Ghost Town',       desc: 'Have zero sales on a day (after day 1)', points: 15, secret: true,  icon: '👻' },
+    { id: 'LS40', name: 'The Comeback',     desc: 'Losing money at day 7, profit by day 14',points: 50, secret: true,  icon: '🔄' },
+  ],
+};
+
+// Check achievements for a lemonade game
+function checkLemonadeAchievements(replay, actionLog, history, existingAchievements) {
+  const unlocked = new Set(existingAchievements || []);
+  const newlyUnlocked = [];
+
+  function tryUnlock(id) {
+    if (!unlocked.has(id)) {
+      unlocked.add(id);
+      newlyUnlocked.push(id);
+    }
+  }
+
+  const { state, dayResults, score, grade, profit, totalSold } = replay;
+  const gradeRank = { S: 6, A: 5, B: 4, C: 3, D: 2, F: 1 };
+  const gamesPlayed = history.length; // includes current game
+
+  // ── Score ──
+  tryUnlock('LS01'); // completed a game
+  if (score >= 100) tryUnlock('LS02');
+  if (score >= 500) tryUnlock('LS03');
+  if (score >= 750) tryUnlock('LS04');
+  if (score >= 1000) tryUnlock('LS05');
+
+  // ── Grade ──
+  if (gradeRank[grade] >= gradeRank['C']) tryUnlock('LS06');
+  if (gradeRank[grade] >= gradeRank['B']) tryUnlock('LS07');
+  if (gradeRank[grade] >= gradeRank['A']) tryUnlock('LS08');
+  if (grade === 'S') tryUnlock('LS09');
+
+  // ── Profit ──
+  if (profit > 0) tryUnlock('LS10');
+  if (state.cash >= 50) tryUnlock('LS11');
+  if (state.cash >= 80) tryUnlock('LS12');
+
+  // ── Sales ──
+  if (totalSold > 0) tryUnlock('LS13');
+  for (const d of dayResults) {
+    if (d.sold >= 20) tryUnlock('LS14');
+    if (d.sold >= 35) tryUnlock('LS15');
+  }
+  if (totalSold >= 200) tryUnlock('LS16');
+
+  // ── Reputation ──
+  if (state.reputation >= 70) tryUnlock('LS17');
+  if (state.reputation >= 90) tryUnlock('LS18');
+  if (state.reputation >= 100) tryUnlock('LS19');
+  if (state.reputation <= 0) tryUnlock('LS20');
+
+  // ── Recipe ──
+  const recipesUsed = new Set(dayResults.map(d => d.recipeIndex));
+  if (dayResults.length === 14 && dayResults.every(d => d.recipeIndex === 3)) tryUnlock('LS21');
+  if (dayResults.length === 14 && dayResults.every(d => d.recipeIndex === 0)) tryUnlock('LS22');
+  if (recipesUsed.size === 4) tryUnlock('LS23');
+
+  // ── Pricing ──
+  if (dayResults.length === 14 && dayResults.every(d => d.price === 0.25)) tryUnlock('LS24');
+  if (dayResults.some(d => d.price >= 5.0)) tryUnlock('LS25');
+  const avgPrice = dayResults.reduce((s, d) => s + d.price, 0) / dayResults.length;
+  if (avgPrice >= 1.50 && avgPrice <= 2.00) tryUnlock('LS26');
+
+  // ── Strategy ──
+  for (const d of dayResults) {
+    if (d.weather === 'storm' && d.revenue > d.buys.lemons*0.50 + d.buys.sugar*0.25 + d.buys.cups*0.10 + d.buys.ice*0.15) {
+      tryUnlock('LS27');
+    }
+    if (d.demand > 0 && d.sold >= d.demand) tryUnlock('LS28');
+    if (d.event && d.event.includes('Festival') && d.sold >= 25) tryUnlock('LS30');
+  }
+  if (dayResults.length === 14 && dayResults.every(d => d.demand === 0 || d.sold >= d.demand)) tryUnlock('LS29');
+  const inv = state.inventory;
+  if (inv.lemons >= 50 && inv.sugar >= 50 && inv.cups >= 50 && inv.ice >= 50) tryUnlock('LS31');
+
+  // ── Persistence (uses full history including past games) ──
+  if (gamesPlayed >= 10) tryUnlock('LS34');
+  if (gamesPlayed >= 25) tryUnlock('LS35');
+  if (gamesPlayed >= 50) tryUnlock('LS36');
+
+  // Streaks: check consecutive scores from history (most recent games)
+  if (history.length >= 3) {
+    const last3 = history.slice(-3);
+    if (last3.every(h => h.s >= 500)) tryUnlock('LS32');
+  }
+  if (history.length >= 5) {
+    const last5 = history.slice(-5);
+    if (last5.every(h => h.s >= 300)) tryUnlock('LS33');
+  }
+
+  // ── Fun / Secret ──
+  if (state.cash < 1) tryUnlock('LS37');
+  for (const entry of actionLog) {
+    if (entry.buys && entry.buys.ice >= 50) tryUnlock('LS38');
+  }
+  for (const d of dayResults) {
+    if (d.day > 1 && d.sold === 0) tryUnlock('LS39');
+  }
+  // Comeback: losing money at day 7, profitable by day 14
+  if (dayResults.length === 14) {
+    const day7 = dayResults[6]; // index 6 = day 7
+    const day14 = dayResults[13];
+    if (day7.cashAfter < 20 && day14.cashAfter > 20) tryUnlock('LS40');
+  }
+
+  return { all: Array.from(unlocked), newlyUnlocked };
+}
+
+// Also retroactively check persistence achievements from history
+function checkRetroAchievements(history, existingAchievements) {
+  const unlocked = new Set(existingAchievements || []);
+  const newlyUnlocked = [];
+  function tryUnlock(id) {
+    if (!unlocked.has(id)) { unlocked.add(id); newlyUnlocked.push(id); }
+  }
+
+  const gamesPlayed = history.length;
+  if (gamesPlayed >= 1) tryUnlock('LS01');
+  if (gamesPlayed >= 10) tryUnlock('LS34');
+  if (gamesPlayed >= 25) tryUnlock('LS35');
+  if (gamesPlayed >= 50) tryUnlock('LS36');
+
+  // Check all scores in history for score/grade achievements
+  for (const h of history) {
+    if (h.s >= 100) tryUnlock('LS02');
+    if (h.s >= 500) tryUnlock('LS03');
+    if (h.s >= 750) tryUnlock('LS04');
+    if (h.s >= 1000) tryUnlock('LS05');
+  }
+
+  // Streaks
+  for (let i = 2; i < history.length; i++) {
+    if (history[i].s >= 500 && history[i-1].s >= 500 && history[i-2].s >= 500) tryUnlock('LS32');
+  }
+  for (let i = 4; i < history.length; i++) {
+    if ([0,1,2,3,4].every(j => history[i-j].s >= 300)) tryUnlock('LS33');
+  }
+
+  return { all: Array.from(unlocked), newlyUnlocked };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LEADERBOARD — In-memory cache rebuilt from on-chain data
+// ═══════════════════════════════════════════════════════════════
+const leaderboardCache = {
+  lemonade: { allTime: [], weekly: [], daily: [], lastUpdated: 0 },
+};
+
+// Update leaderboard entry for a player after save
+function updateLeaderboardEntry(game, playerName, fullName, history) {
+  if (!leaderboardCache[game]) return;
+  const board = leaderboardCache[game];
+
+  // Remove existing entry
+  board.allTime = board.allTime.filter(e => e.player !== playerName);
+
+  if (history.length >= 5) {
+    const avgScore = Math.round(history.reduce((s, h) => s + h.s, 0) / history.length);
+    const highscore = Math.max(...history.map(h => h.s));
+    board.allTime.push({
+      player: playerName,
+      fullName: fullName,
+      avgScore,
+      highscore,
+      gamesPlayed: history.length,
+    });
+    board.allTime.sort((a, b) => b.avgScore - a.avgScore);
+    board.allTime = board.allTime.slice(0, 100); // top 100
+  }
+
+  // Weekly + daily from timestamps
+  const now = Math.floor(Date.now() / 1000);
+  const weekAgo = now - 7 * 24 * 3600;
+  const dayAgo = now - 24 * 3600;
+
+  const weeklyGames = history.filter(h => h.t >= weekAgo);
+  const dailyGames = history.filter(h => h.t >= dayAgo);
+
+  board.weekly = board.weekly.filter(e => e.player !== playerName);
+  if (weeklyGames.length >= 5) {
+    const avg = Math.round(weeklyGames.reduce((s, h) => s + h.s, 0) / weeklyGames.length);
+    const high = Math.max(...weeklyGames.map(h => h.s));
+    board.weekly.push({ player: playerName, fullName, avgScore: avg, highscore: high, gamesPlayed: weeklyGames.length });
+    board.weekly.sort((a, b) => b.avgScore - a.avgScore);
+    board.weekly = board.weekly.slice(0, 100);
+  }
+
+  board.daily = board.daily.filter(e => e.player !== playerName);
+  if (dailyGames.length >= 5) {
+    const avg = Math.round(dailyGames.reduce((s, h) => s + h.s, 0) / dailyGames.length);
+    const high = Math.max(...dailyGames.map(h => h.s));
+    board.daily.push({ player: playerName, fullName, avgScore: avg, highscore: high, gamesPlayed: dailyGames.length });
+    board.daily.sort((a, b) => b.avgScore - a.avgScore);
+    board.daily = board.daily.slice(0, 100);
+  }
+
+  board.lastUpdated = Date.now();
+}
+
+// Rebuild leaderboard from all known players at startup
+async function rebuildLeaderboard() {
+  console.log('[LEADERBOARD] Rebuilding from on-chain data...');
+  let count = 0;
+  for (const [key, player] of Object.entries(players)) {
+    try {
+      const idName = key.startsWith('ext:') ? player.fullyQualifiedName : key + '.Verus Arcade';
+      if (!idName) continue;
+      const fqn = idName.replace(/@$/, '') + (idName.endsWith('@') ? '' : '@');
+      const idInfo = await rpcCall('getidentity', [fqn]);
+      const idAddress = idInfo.identity.identityaddress;
+      const cmm = idInfo.identity.contentmultimap || {};
+      const entries = cmm[idAddress] ? (Array.isArray(cmm[idAddress]) ? cmm[idAddress] : [cmm[idAddress]]) : [];
+
+      for (const hexEntry of entries) {
+        try {
+          const entry = JSON.parse(fromHex(hexEntry));
+          if (entry.game && entry.history && entry.history.length >= 5) {
+            const displayName = idInfo.identity.fullyqualifiedname || fqn;
+            updateLeaderboardEntry(entry.game, key, displayName, entry.history);
+            count++;
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+  console.log(`[LEADERBOARD] Rebuilt with ${count} entries`);
+}
+
+// Rebuild on startup (delayed to not block server start)
+setTimeout(() => rebuildLeaderboard(), 5000);
+
 // ── API Routes ──
 app.get('/api/health', async (req, res) => {
   try {
@@ -200,43 +608,32 @@ app.post('/api/game/save', async (req, res) => {
     const idName = identity.replace(/@$/, '').replace(/\.vrsctest$/i, '');
     const shortName = idName.split('.')[0];
 
-    // Check save permissions based on free saves
+    // Check save permissions
     const player = players[shortName];
-    if (player) {
-      if (player.freeSavesLeft <= 0) {
-        const msg = player.tier === 2
-          ? 'No free saves remaining. You own this ID — fund saves from your own wallet.'
-          : 'No free saves remaining. Claim your ID to keep playing, or create a new account.';
-        return res.status(403).json({
-          error: msg,
-          freeSavesLeft: 0,
-          tier: player.tier,
-          canClaim: player.tier === 3 && !player.claimed,
-        });
+    // Also check if this is an external ID (stored as ext:iAddress)
+    let externalPlayer = null;
+    if (!player) {
+      for (const [key, p] of Object.entries(players)) {
+        if (key.startsWith('ext:') && p.fullyQualifiedName && 
+            identity.toLowerCase().includes(p.fullyQualifiedName.split('.')[0].toLowerCase())) {
+          externalPlayer = p;
+          break;
+        }
       }
-      // Decrement free saves
-      player.freeSavesLeft--;
-      savePlayers();
-      console.log(`[SAVE] Tier ${player.tier} player ${shortName}: ${player.freeSavesLeft} free saves remaining`);
+    }
 
-      // If Tier 2 and free saves just hit 0, remove server as co-signer
-      if (player.tier === 2 && player.freeSavesLeft === 0 && player.playerAddress) {
-        console.log(`[SAVE] Tier 2 player ${shortName}: free saves exhausted — removing server co-signer`);
-        setTimeout(async () => {
-          try {
-            const updateData = {
-              name: shortName,
-              parent: 'iBrnBWkYJvzH6z1SB2TDnxk5mbPc781z1P',
-              primaryaddresses: [player.playerAddress],
-              minimumsignatures: 1,
-            };
-            const txid = await rpcCall('updateidentity', [updateData]);
-            console.log(`[SAVE] ✅ Server removed as co-signer for ${shortName}.Verus Arcade@ | txid: ${txid}`);
-          } catch (e) {
-            console.error(`[SAVE] Failed to remove server co-signer for ${shortName}:`, e);
-          }
-        }, 5000);
-      }
+    // Block saves for external IDs (keys not in server wallet)
+    if (externalPlayer || (!player && !shortName)) {
+      return res.status(403).json({
+        error: 'On-chain saves for external VerusIDs are coming soon. For now, use a Verus Arcade account (gamertag + pin) to save your progress.',
+        externalId: true,
+      });
+    }
+
+    // Custodial and provisioned players: unlimited saves (no decrement)
+    if (player) {
+      console.log(`[SAVE] Tier ${player.tier} player ${shortName}: saving`);
+
     }
 
     console.log('[SAVE] Identity:', identity, '| Game:', game, '| Score:', score, '| NewHigh:', isNewHigh);
@@ -285,33 +682,87 @@ app.post('/api/game/save', async (req, res) => {
     // Build updated stats
     const prevStats = existingGameData?.stats || { gamesPlayed: 0, highscore: 0, totalPoints: 0, bestGrade: "F" };
     const gradeRank = { S: 6, A: 5, B: 4, C: 3, D: 2, F: 1 };
+
+    // Replay game server-side for achievement checking
+    // IMPORTANT: use shortName as seed — that's what the client game engine uses
+    let replay = null;
+    try {
+      replay = replayGameServer(shortName, actionLog || []);
+    } catch (e) {
+      console.log('[SAVE] Replay failed (non-fatal):', e.message);
+    }
+
+    // Use replay-derived score/grade if available, otherwise use client values
+    const finalScore = replay ? replay.score : score;
+    const finalGrade = replay ? replay.grade : grade;
+
+    // Warn if replay score differs significantly from client-reported score
+    if (replay && Math.abs(replay.score - score) > 5) {
+      console.log(`[SAVE] ⚠ Score mismatch! Client: ${score}, Replay: ${replay.score} (seed: ${shortName})`);
+    }
+
     const newStats = {
       gamesPlayed: prevStats.gamesPlayed + 1,
-      highscore: Math.max(prevStats.highscore, score),
-      totalPoints: prevStats.totalPoints + score,
-      bestGrade: (gradeRank[grade] || 0) > (gradeRank[prevStats.bestGrade] || 0) ? grade : prevStats.bestGrade,
+      highscore: Math.max(prevStats.highscore, finalScore),
+      totalPoints: prevStats.totalPoints + finalScore,
+      bestGrade: (gradeRank[finalGrade] || 0) > (gradeRank[prevStats.bestGrade] || 0) ? finalGrade : prevStats.bestGrade,
       lastPlayed: Math.floor(Date.now() / 1000),
     };
 
-    // Build new game entry
-    const gameData = { game, stats: newStats };
+    // Build history array (compact format: s=score, g=grade, t=timestamp)
+    const existingHistory = existingGameData?.history || [];
+    const newHistoryEntry = { s: finalScore, g: finalGrade, t: Math.floor(Date.now() / 1000) };
+    const updatedHistory = [...existingHistory, newHistoryEntry];
 
-    // Only update proof if new highscore
-    if (isNewHigh) {
+    // Check achievements
+    let existingAchievements = existingGameData?.achievements || [];
+    let achievementResult = { all: existingAchievements, newlyUnlocked: [] };
+    if (replay) {
+      achievementResult = checkLemonadeAchievements(replay, actionLog || [], updatedHistory, existingAchievements);
+      // Also check retro achievements from history
+      const retro = checkRetroAchievements(updatedHistory, achievementResult.all);
+      achievementResult.all = retro.all;
+      achievementResult.newlyUnlocked = [...achievementResult.newlyUnlocked, ...retro.newlyUnlocked];
+    }
+
+    if (achievementResult.newlyUnlocked.length > 0) {
+      console.log('[SAVE] 🏆 Achievements unlocked:', achievementResult.newlyUnlocked.join(', '));
+    }
+
+    // Build new game entry
+    const gameData = { game, stats: newStats, history: updatedHistory, achievements: achievementResult.all };
+
+    // Store all actionLogs for full replay capability
+    const existingReplays = existingGameData?.replays || [];
+    const newReplay = { t: Math.floor(Date.now() / 1000), a: actionLog || [] };
+    gameData.replays = [...existingReplays, newReplay];
+
+    // Always keep the highscore proof separately
+    if (finalScore > prevStats.highscore) {
       gameData.proof = {
-        seed: idName,
+        seed: shortName,
         actions: actionLog || [],
         chainHead: chainHead,
       };
       console.log('[SAVE] Including proof (new highscore) | Actions:', (actionLog || []).length);
     } else if (existingGameData?.proof) {
-      // Keep existing proof from previous highscore
       gameData.proof = existingGameData.proof;
       console.log('[SAVE] Keeping existing proof (not a new highscore)');
     }
 
+    // Trim oldest replays if data exceeds ~800KB hex (400KB raw) to stay under 999KB limit
+    const MAX_HEX_SIZE = 800000;
+    let hexData = toHex(JSON.stringify(gameData));
+    while (hexData.length > MAX_HEX_SIZE && gameData.replays.length > 1) {
+      gameData.replays.shift(); // remove oldest replay
+      hexData = toHex(JSON.stringify(gameData));
+      console.log(`[SAVE] Trimmed oldest replay — ${gameData.replays.length} replays remaining (${Math.round(hexData.length/1024)}KB hex)`);
+    }
+
+    console.log(`[SAVE] Storing ${gameData.replays.length} replays (${Math.round(hexData.length/1024)}KB hex)`);
+
     // Build new array: other games + updated game
-    const newEntries = [...otherGames, toHex(JSON.stringify(gameData))];
+    const newEntries = [...otherGames, hexData];
 
     // For subIDs (name contains dot), use separate parent field
     const updateData = { contentmultimap: {} };
@@ -326,8 +777,32 @@ app.post('/api/game/save', async (req, res) => {
 
     const txid = await rpcCall('updateidentity', [updateData]);
     console.log('[SAVE] Success! txid:', txid, '| Stats:', JSON.stringify(newStats));
+
+    // Update leaderboard cache
+    const fullName = (await rpcCall('getidentity', [identity]).catch(() => null))?.identity?.fullyqualifiedname || identity;
+    updateLeaderboardEntry(game, shortName, fullName, updatedHistory);
+
+    // Build achievement details for newly unlocked
+    const newAchievementDetails = achievementResult.newlyUnlocked.map(id => {
+      const def = ACHIEVEMENTS[game]?.find(a => a.id === id);
+      return def ? { id: def.id, name: def.name, desc: def.desc, points: def.points, icon: def.icon } : { id };
+    });
+
     const updatedPlayer = players[shortName];
-    res.json({ success: true, txid, stats: newStats, freeSavesLeft: updatedPlayer ? updatedPlayer.freeSavesLeft : null });
+    res.json({
+      success: true,
+      txid,
+      stats: newStats,
+      freeSavesLeft: updatedPlayer ? updatedPlayer.freeSavesLeft : null,
+      achievements: {
+        total: achievementResult.all.length,
+        totalPoints: achievementResult.all.reduce((sum, id) => {
+          const def = ACHIEVEMENTS[game]?.find(a => a.id === id);
+          return sum + (def?.points || 0);
+        }, 0),
+        newlyUnlocked: newAchievementDetails,
+      },
+    });
   } catch (e) {
     console.error('[SAVE] Error:', e);
     res.status(500).json({ error: e.message || JSON.stringify(e) });
@@ -389,11 +864,24 @@ app.get('/api/profile/:identity', async (req, res) => {
       try {
         const entry = JSON.parse(fromHex(hexEntry));
         if (entry.game && entry.stats) {
+          const gameDefs = ACHIEVEMENTS[entry.game] || [];
+          const unlockedIds = entry.achievements || [];
+          const achievementPoints = unlockedIds.reduce((s, aid) => {
+            const def = gameDefs.find(a => a.id === aid);
+            return s + (def?.points || 0);
+          }, 0);
+
           games[entry.game] = {
             stats: entry.stats,
             hasProof: !!entry.proof,
             proofActions: entry.proof?.actions?.length || 0,
             proofChainHead: entry.proof?.chainHead || null,
+            achievements: {
+              unlocked: unlockedIds.length,
+              total: gameDefs.length,
+              points: achievementPoints,
+              maxPoints: gameDefs.reduce((s, a) => s + a.points, 0),
+            },
           };
           totalXP += entry.stats.totalPoints || 0;
           totalGames += entry.stats.gamesPlayed || 0;
@@ -414,6 +902,95 @@ app.get('/api/profile/:identity', async (req, res) => {
     });
   } catch (e) {
     console.error('[PROFILE] Error:', e);
+    res.status(500).json({ error: e.message || e });
+  }
+});
+
+// ── Leaderboard API ──
+app.get('/api/leaderboard/:game', (req, res) => {
+  const { game } = req.params;
+  const period = req.query.period || 'allTime'; // allTime, weekly, daily
+  const board = leaderboardCache[game];
+  if (!board) return res.status(404).json({ error: 'Game not found' });
+
+  const data = board[period] || board.allTime;
+  res.json({
+    game,
+    period,
+    minGames: 5,
+    entries: data,
+    lastUpdated: board.lastUpdated,
+  });
+});
+
+// ── Achievement Definitions API ──
+app.get('/api/achievements/:game', (req, res) => {
+  const { game } = req.params;
+  const defs = ACHIEVEMENTS[game];
+  if (!defs) return res.status(404).json({ error: 'Game not found' });
+
+  // Return definitions (secrets show as locked unless the player has unlocked them)
+  res.json({
+    game,
+    maxPoints: defs.reduce((s, a) => s + a.points, 0),
+    count: defs.length,
+    achievements: defs.map(a => ({
+      id: a.id, name: a.secret ? null : a.name, desc: a.secret ? null : a.desc,
+      points: a.points, secret: a.secret, icon: a.secret ? '🔒' : a.icon,
+    })),
+  });
+});
+
+// ── Player Achievement Progress API ──
+app.get('/api/achievements/:game/:identity', async (req, res) => {
+  const { game, identity } = req.params;
+  const defs = ACHIEVEMENTS[game];
+  if (!defs) return res.status(404).json({ error: 'Game not found' });
+
+  try {
+    const idInfo = await rpcCall('getidentity', [identity]);
+    const idAddress = idInfo.identity.identityaddress;
+    const cmm = idInfo.identity.contentmultimap || {};
+    const entries = cmm[idAddress] ? (Array.isArray(cmm[idAddress]) ? cmm[idAddress] : [cmm[idAddress]]) : [];
+
+    let unlockedIds = [];
+    for (const hexEntry of entries) {
+      try {
+        const entry = JSON.parse(fromHex(hexEntry));
+        if (entry.game === game && entry.achievements) {
+          unlockedIds = entry.achievements;
+          break;
+        }
+      } catch {}
+    }
+
+    const unlockedSet = new Set(unlockedIds);
+    const totalPoints = unlockedIds.reduce((s, id) => {
+      const def = defs.find(a => a.id === id);
+      return s + (def?.points || 0);
+    }, 0);
+
+    res.json({
+      game,
+      identity: idInfo.identity.fullyqualifiedname || identity,
+      unlocked: unlockedIds.length,
+      total: defs.length,
+      points: totalPoints,
+      maxPoints: defs.reduce((s, a) => s + a.points, 0),
+      achievements: defs.map(a => {
+        const isUnlocked = unlockedSet.has(a.id);
+        return {
+          id: a.id,
+          name: (a.secret && !isUnlocked) ? '???' : a.name,
+          desc: (a.secret && !isUnlocked) ? 'This is a secret achievement' : a.desc,
+          points: a.points,
+          secret: a.secret,
+          icon: (a.secret && !isUnlocked) ? '🔒' : a.icon,
+          unlocked: isUnlocked,
+        };
+      }),
+    });
+  } catch (e) {
     res.status(500).json({ error: e.message || e });
   }
 });

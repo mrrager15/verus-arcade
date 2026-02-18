@@ -217,6 +217,29 @@ export default function PlayerProfile() {
                       </div>
                     </div>
                   )}
+
+                  {data.achievements && (
+                    <div style={{
+                      marginTop: 8, padding: "8px 12px", borderRadius: 4,
+                      background: "rgba(245,166,35,0.06)", border: "1px solid rgba(245,166,35,0.15)",
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                        <div style={{ fontSize: 10, color: "#f5a623", fontFamily: S.font, fontWeight: 700 }}>
+                          🏆 {data.achievements.unlocked}/{data.achievements.total} achievements
+                        </div>
+                        <div style={{ fontSize: 10, color: S.dim, fontFamily: S.font }}>
+                          {data.achievements.points}/{data.achievements.maxPoints} pts
+                        </div>
+                      </div>
+                      <div style={{ height: 4, background: "rgba(255,255,255,0.05)", borderRadius: 2, overflow: "hidden" }}>
+                        <div style={{
+                          height: "100%", borderRadius: 2,
+                          width: `${Math.round((data.achievements.points / data.achievements.maxPoints) * 100)}%`,
+                          background: "linear-gradient(90deg, #00cccc, #f5a623)",
+                        }} />
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <button onClick={() => navigate(`/${gameId}`)} style={{

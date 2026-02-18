@@ -175,6 +175,7 @@ const mkInit = () => ({
   chainSaveError: null,
   freeSavesLeft: null,
   chainStats: null, // { gamesPlayed, highscore, totalPoints, bestGrade, lastPlayed }
+  newAchievements: null, // [{ id, name, desc, points, icon }]
   loadingChainData: false,
 });
 
@@ -307,9 +308,14 @@ export default function LemonadeStand() {
             chainSaveTxid: result.txid,
             chainStats: result.stats || state.chainStats,
             freeSavesLeft: result.freeSavesLeft,
+            newAchievements: result.achievements?.newlyUnlocked || [],
           });
         } else if (r.status === 403) {
-          up({ chainSaveStatus: "no_saves", chainSaveError: result.error, freeSavesLeft: 0 });
+          if (result.externalId) {
+            up({ chainSaveStatus: "external_blocked", chainSaveError: result.error });
+          } else {
+            up({ chainSaveStatus: "no_saves", chainSaveError: result.error, freeSavesLeft: 0 });
+          }
         } else {
           up({ chainSaveStatus: "error", chainSaveError: result.error || "Save failed" });
         }
@@ -571,11 +577,11 @@ export default function LemonadeStand() {
             <div style={{
               padding: "10px 14px", borderRadius: 6, marginBottom: 12,
               background: state.chainSaveStatus === "saved" ? "rgba(58,125,68,0.08)"
-                : state.chainSaveStatus === "error" || state.chainSaveStatus === "no_saves" ? "rgba(192,57,43,0.08)"
+                : state.chainSaveStatus === "error" || state.chainSaveStatus === "no_saves" || state.chainSaveStatus === "external_blocked" ? "rgba(192,57,43,0.08)"
                 : "rgba(212,160,23,0.06)",
               border: `1px solid ${
                 state.chainSaveStatus === "saved" ? grn
-                : state.chainSaveStatus === "error" || state.chainSaveStatus === "no_saves" ? red
+                : state.chainSaveStatus === "error" || state.chainSaveStatus === "no_saves" || state.chainSaveStatus === "external_blocked" ? red
                 : bdr
               }`,
             }}>
@@ -600,6 +606,29 @@ export default function LemonadeStand() {
                       }
                     </div>
                   )}
+                  {state.newAchievements && state.newAchievements.length > 0 && (
+                    <div style={{ marginTop: 10, borderTop: `1px solid ${bdr}`, paddingTop: 10 }}>
+                      <div style={{ fontSize: 11, color: acc, fontFamily: "'Courier New', monospace", textAlign: "center", fontWeight: 700, marginBottom: 6 }}>
+                        🏆 ACHIEVEMENTS UNLOCKED
+                      </div>
+                      {state.newAchievements.map(a => (
+                        <div key={a.id} style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          padding: "6px 8px", marginBottom: 3, borderRadius: 4,
+                          background: "rgba(212,160,23,0.08)", border: `1px solid ${acc}22`,
+                        }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 16 }}>{a.icon}</span>
+                            <div>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: tD, fontFamily: "'Courier New', monospace" }}>{a.name}</div>
+                              <div style={{ fontSize: 9, color: tM }}>{a.desc}</div>
+                            </div>
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 900, color: acc, fontFamily: "'Courier New', monospace" }}>+{a.points}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               {state.chainSaveStatus === "no_saves" && (
@@ -619,6 +648,20 @@ export default function LemonadeStand() {
                       New Account
                     </button>
                   </div>
+                </div>
+              )}
+              {state.chainSaveStatus === "external_blocked" && (
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 12, color: acc, fontWeight: 700, fontFamily: "'Courier New', monospace", marginBottom: 8 }}>
+                    ⛓ On-chain saves coming soon
+                  </div>
+                  <div style={{ fontSize: 11, color: tM, fontFamily: "'Courier New', monospace", lineHeight: 1.6 }}>
+                    External VerusID saves require wallet signing, which is still being developed.
+                    For now, use a Verus Arcade account (gamertag + pin) to save your progress.
+                  </div>
+                  <button onClick={() => navigate("/register")} style={{ ...BN(false, false), marginTop: 10, padding: "8px 16px", fontSize: 11, borderColor: acc, color: accD }}>
+                    Create Arcade Account
+                  </button>
                 </div>
               )}
               {state.chainSaveStatus === "error" && (

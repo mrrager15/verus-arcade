@@ -282,6 +282,30 @@ export default function Home() {
           {GAMES.map(game => (
             <GameCard key={game.id} game={game} onClick={() => navigate(game.path)} />
           ))}
+
+          {/* Quick links */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+            <div onClick={() => navigate('/leaderboard')} style={{
+              background: 'rgba(12,20,33,0.6)', border: `1px solid ${S.border}`,
+              borderRadius: 8, padding: '14px 16px', cursor: 'pointer',
+              transition: 'border-color 0.2s',
+            }} onMouseEnter={e => e.currentTarget.style.borderColor = '#f5a623'}
+               onMouseLeave={e => e.currentTarget.style.borderColor = S.border}>
+              <div style={{ fontSize: 18, marginBottom: 4 }}>🏆</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#f5a623', fontFamily: S.font }}>Leaderboard</div>
+              <div style={{ fontSize: 10, color: S.dim }}>Top players ranked by average score</div>
+            </div>
+            <div onClick={() => navigate('/achievements')} style={{
+              background: 'rgba(12,20,33,0.6)', border: `1px solid ${S.border}`,
+              borderRadius: 8, padding: '14px 16px', cursor: 'pointer',
+              transition: 'border-color 0.2s',
+            }} onMouseEnter={e => e.currentTarget.style.borderColor = '#00cccc'}
+               onMouseLeave={e => e.currentTarget.style.borderColor = S.border}>
+              <div style={{ fontSize: 18, marginBottom: 4 }}>⭐</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#00cccc', fontFamily: S.font }}>Achievements</div>
+              <div style={{ fontSize: 10, color: S.dim }}>40 challenges, 1000 points per game</div>
+            </div>
+          </div>
         </div>
 
         {/* How it Works */}

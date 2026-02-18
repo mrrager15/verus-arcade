@@ -102,3 +102,18 @@ export async function getRegistrationStatus(name) {
   const res = await fetch(`${API}/register/status/${encodeURIComponent(name)}`);
   return res.json();
 }
+
+export async function getLeaderboard(game, period = 'allTime') {
+  const res = await fetch(`${API}/leaderboard/${game}?period=${period}`);
+  return res.json();
+}
+
+export async function getAchievementDefs(game) {
+  const res = await fetch(`${API}/achievements/${game}`);
+  return res.json();
+}
+
+export async function getPlayerAchievements(game, identity) {
+  const res = await fetch(`${API}/achievements/${game}/${encodeURIComponent(identity)}`);
+  return res.json();
+}

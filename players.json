@@ -1,4 +1,14 @@
 {
+  "6598881": {
+    "pinHash": "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
+    "address": "RBgEwYXjkEsAkZDkrSJfALSHndUs5mxJLr",
+    "playerAddress": null,
+    "tier": 3,
+    "registeredAt": 1771361231859,
+    "claimed": false,
+    "claimedAddress": null,
+    "freeSavesLeft": 10
+  },
   "test123": {
     "pinHash": "41c991eb6a66242c0454191244278183ce58cf4a6bcd372f799e4b9cc01886af",
     "address": "RAAdfhuPqEduBzznQFDS3L2fhAPALm7rCo",
@@ -15,7 +25,7 @@
     "registeredAt": 1771277520821,
     "claimed": true,
     "claimedAddress": "RN35TfcrPQvodCv2BMd9tEHT8m786WDddT",
-    "freeSavesLeft": 10
+    "freeSavesLeft": 9
   },
   "mrrager2": {
     "pinHash": null,
@@ -55,6 +65,65 @@
     "registeredAt": 1771281852132,
     "claimed": true,
     "claimedAddress": "RN35TfcrPQvodCv2BMd9tEHT8m786WDddT",
+    "freeSavesLeft": 10
+  },
+  "ext:i46DSxQV6VwA6xZYvcVrAdENrZCVi3Gc8g": {
+    "pinHash": null,
+    "address": null,
+    "playerAddress": "RPF3kWdJ5LW2B9v4nddcTRiRfv6ZvudmVs",
+    "tier": 2,
+    "registeredAt": 1771285861777,
+    "claimed": true,
+    "claimedAddress": "RPF3kWdJ5LW2B9v4nddcTRiRfv6ZvudmVs",
+    "freeSavesLeft": 10,
+    "externalId": true,
+    "identityAddress": "i46DSxQV6VwA6xZYvcVrAdENrZCVi3Gc8g",
+    "fullyQualifiedName": "mrrager.VRSCTEST@"
+  },
+  "test12345": {
+    "pinHash": "3d0a234093378eaffc3fe01cd6edbc3cd4302a37457b0c3bb3dd464a52c5a070",
+    "address": "RVzuhQtS31wsAxK79wqwnoM5gL6xRmMEje",
+    "playerAddress": null,
+    "tier": 3,
+    "registeredAt": 1771292709016,
+    "claimed": false,
+    "claimedAddress": null,
+    "freeSavesLeft": 10
+  },
+  "ext:iBnLTKtJhp2LHoSNQyM8afFv5Ccqsa613T": {
+    "pinHash": null,
+    "address": null,
+    "playerAddress": "RK5JUJQfFTSuUNKhnaJiwiNemrQzP5fasD",
+    "tier": 2,
+    "registeredAt": 1771355136858,
+    "claimed": true,
+    "claimedAddress": "RK5JUJQfFTSuUNKhnaJiwiNemrQzP5fasD",
+    "freeSavesLeft": 10,
+    "externalId": true,
+    "identityAddress": "iBnLTKtJhp2LHoSNQyM8afFv5Ccqsa613T",
+    "fullyQualifiedName": "auto.agentplatform.VRSCTEST@"
+  },
+  "ext:iQ18U7oU9c9NU2Weh87ER3a4D7ZRQq1PwE": {
+    "pinHash": null,
+    "address": null,
+    "playerAddress": "RYEfeSLNky48w6kb3uLLqSMtjAhDeHZw4P",
+    "tier": 2,
+    "registeredAt": 1771355678917,
+    "claimed": true,
+    "claimedAddress": "RYEfeSLNky48w6kb3uLLqSMtjAhDeHZw4P",
+    "freeSavesLeft": 10,
+    "externalId": true,
+    "identityAddress": "iQ18U7oU9c9NU2Weh87ER3a4D7ZRQq1PwE",
+    "fullyQualifiedName": "third.testidx.VRSCTEST@"
+  },
+  "asdqwe": {
+    "pinHash": "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4",
+    "address": "RFEqmjsTydkHnBwciJ64H1Ns6hXRpi1gn4",
+    "playerAddress": null,
+    "tier": 3,
+    "registeredAt": 1771362573452,
+    "claimed": false,
+    "claimedAddress": null,
     "freeSavesLeft": 10
   }
 }

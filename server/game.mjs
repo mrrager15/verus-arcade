@@ -46,12 +46,30 @@ const state = loadState();
 
 const todayUTC = () => new Date().toISOString().slice(0, 10);
 
-// ── Sessions (in-memory; issued by the login flow in auth.mjs) ───────────────
+// ── Sessions (issued by the login flow in auth.mjs) ──────────────────────────
+// Persisted to disk so a server restart doesn't log everyone out. Tokens are
+// bearer secrets; the file lives in the gitignored data dir.
 
-const sessions = new Map();
+const SESSIONS_PATH = path.join(DATA_DIR, 'sessions.json');
+
+function loadSessions() {
+  try {
+    return new Map(Object.entries(JSON.parse(fs.readFileSync(SESSIONS_PATH, 'utf8'))));
+  } catch {
+    return new Map();
+  }
+}
+
+const sessions = loadSessions();
+
+function saveSessions() {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(SESSIONS_PATH, JSON.stringify(Object.fromEntries(sessions), null, 2));
+}
 
 export function registerSession(token, user) {
   sessions.set(token, user);
+  saveSessions();
 }
 
 // Dev convenience: ARCADE_DEV_TOKEN=xyz node server/auth.mjs registers a fixed
@@ -211,6 +229,7 @@ gameRouter.get('/state', (req, res) => {
     const play = playFor(cur.round, user.iAddress);
     base.you = {
       friendlyName: user.friendlyName,
+      iAddress: user.iAddress,
       guesses: play?.guesses ?? [],
       solved: play?.solved ?? false,
     };

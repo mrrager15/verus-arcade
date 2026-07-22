@@ -1,15 +1,42 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import QRCode from 'qrcode';
 	import Game from '$lib/Game.svelte';
 
-	type LoginStatus = 'idle' | 'waiting' | 'verified' | 'error';
+	type LoginStatus = 'restoring' | 'idle' | 'waiting' | 'verified' | 'error';
 
-	let status: LoginStatus = $state('idle');
+	let status: LoginStatus = $state('restoring');
 	let qrDataUrl = $state('');
 	let deepLink = $state('');
 	let error = $state('');
 	let sessionToken = $state('');
 	let user = $state<{ friendlyName: string; iAddress: string; chainName: string } | null>(null);
+
+	const TOKEN_KEY = 'arcade-session-token';
+
+	// Restore a previous session: the backend recognises the stored token and
+	// /api/state answers with a `you` block — no wallet interaction needed.
+	onMount(async () => {
+		const stored = localStorage.getItem(TOKEN_KEY);
+		if (!stored) {
+			status = 'idle';
+			return;
+		}
+		try {
+			const r = await fetch('/api/state', { headers: { Authorization: `Bearer ${stored}` } });
+			const body = await r.json();
+			if (r.ok && body.you) {
+				sessionToken = stored;
+				user = { friendlyName: body.you.friendlyName, iAddress: body.you.iAddress, chainName: 'VRSCTEST' };
+				status = 'verified';
+				return;
+			}
+		} catch {
+			/* fall through to login */
+		}
+		localStorage.removeItem(TOKEN_KEY);
+		status = 'idle';
+	});
 
 	async function login() {
 		status = 'waiting';
@@ -45,6 +72,7 @@
 			if (data.status === 'verified') {
 				user = data;
 				sessionToken = data.data?.sessionToken ?? '';
+				if (sessionToken) localStorage.setItem(TOKEN_KEY, sessionToken);
 				status = 'verified';
 				return;
 			}
@@ -58,6 +86,7 @@
 		user = null;
 		error = '';
 		sessionToken = '';
+		localStorage.removeItem(TOKEN_KEY);
 	}
 </script>
 
@@ -65,7 +94,9 @@
 	<h1>🕹️ Verus Arcade</h1>
 	<p class="tagline">Provably fair skill games — your name, streak and rating on-chain forever.</p>
 
-	{#if status === 'idle'}
+	{#if status === 'restoring'}
+		<p class="hint">Restoring session…</p>
+	{:else if status === 'idle'}
 		<button onclick={login}>Login with VerusID</button>
 		<p class="hint">Scan the QR with Verus Mobile (testnet mode) to log in.</p>
 	{:else if status === 'waiting'}

@@ -90,6 +90,26 @@
 		}
 	}
 
+	let copied = $state(false);
+
+	function shareText() {
+		const emoji = { g: '🟩', y: '🟨', x: '⬛' } as const;
+		const grid = guesses.map((row) => row.pattern.map((p) => emoji[p]).join('')).join('\n');
+		const score = solved ? `${guesses.length}/${maxGuesses}` : `X/${maxGuesses}`;
+		return `Verus Arcade #${round} ${score}\n\n${grid}\n\nprovably fair on @VerusCoin · commit ${commitSha256.slice(0, 12)}…`;
+	}
+
+	async function share() {
+		try {
+			await navigator.clipboard.writeText(shareText());
+			copied = true;
+			setTimeout(() => (copied = false), 2000);
+		} catch {
+			// Clipboard can be unavailable (http origin) — show the text instead
+			alert(shareText());
+		}
+	}
+
 	function onKeydown(e: KeyboardEvent) {
 		if (e.ctrlKey || e.metaKey || e.altKey) return;
 		const k = e.key.toLowerCase();
@@ -150,6 +170,7 @@
 				<h3>Out of guesses — the word was <strong>{answer.toUpperCase()}</strong></h3>
 			{/if}
 			<p class="hint">Come back tomorrow for round #{(round ?? 0) + 1}.</p>
+			<button class="share" onclick={share}>{copied ? '✓ Copied!' : '📋 Share result'}</button>
 		</div>
 	{:else}
 		<div class="keyboard">
@@ -189,7 +210,7 @@
 		{/if}
 		<p>
 			After the round ends, word + salt are revealed on-chain so anyone can verify the hash.
-			{#if round}<a href={`/api/verify/${round}`} target="_blank">Verification data →</a>{/if}
+			{#if round}<a href={`/verify/${round}`}>Verify this round →</a>{/if}
 		</p>
 	</details>
 </section>
@@ -287,6 +308,19 @@
 	}
 	.result h3 {
 		margin: 0.5rem 0 0.2rem;
+	}
+	.share {
+		margin-top: 0.5rem;
+		padding: 0.5rem 1.2rem;
+		border: none;
+		border-radius: 0.4rem;
+		background: #3165d4;
+		color: white;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.share:hover {
+		background: #2851a8;
 	}
 	.hint {
 		color: #888;

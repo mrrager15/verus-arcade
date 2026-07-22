@@ -18,23 +18,26 @@ import { gameRouter, registerSession } from './game.mjs';
 const LAN_IP = process.env.ARCADE_LAN_IP ?? '192.168.0.235';
 const PORT = Number(process.env.ARCADE_AUTH_PORT ?? 8100);
 
-// Testnet identity from phase 0 (see fase0-runbook.md in the Brainstorm folder)
-const ARCADE_ID_VRSCTEST = 'i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp'; // Arcade@
-
 const app = express();
 
 app.use(
   '/verus',
   verusAuth({
     mode: 'daemon',
-    iAddress: ARCADE_ID_VRSCTEST,
+    // Friendly name on purpose: Arcade@ has a different i-address per chain
+    // (mainnet iPHq3sb1..., testnet i4hktkkr...) and verus-connect resolves
+    // the name against whichever chain the login runs on.
+    iAddress: 'Arcade@',
     // Verus Mobile on the phone POSTs the signed response here —
     // must be the LAN IP, not localhost.
     callbackUrl: `http://${LAN_IP}:${PORT}/verus/verusidlogin`,
-    chains: ['vrsctest'],
-    defaultChain: 'vrsctest',
+    // Mainnet login works for anyone with a regular VerusID (login is a free,
+    // off-chain signature); vrsctest stays available for testnet identities.
+    chains: ['vrsc', 'vrsctest'],
+    defaultChain: 'vrsc',
     confPathOverrides: {
-      // Windows datadir; verus-connect only knows the Linux default paths
+      // Windows datadirs; verus-connect only knows the Linux default paths
+      vrsc: `${process.env.APPDATA}\\Komodo\\VRSC\\VRSC.conf`,
       vrsctest: `${process.env.APPDATA}\\Komodo\\vrsctest\\vrsctest.conf`,
     },
     debug: true,

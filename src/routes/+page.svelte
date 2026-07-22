@@ -38,15 +38,18 @@
 		status = 'idle';
 	});
 
+	let chain = $state(localStorage?.getItem('arcade-chain') ?? 'vrsc');
+
 	async function login() {
 		status = 'waiting';
 		error = '';
 		user = null;
+		localStorage.setItem('arcade-chain', chain);
 		try {
 			const r = await fetch('/verus/login', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ chain: 'vrsctest' })
+				body: JSON.stringify({ chain })
 			});
 			const body = await r.json();
 			if (!r.ok) throw new Error(body.error ?? r.statusText);
@@ -98,7 +101,11 @@
 		<p class="hint">Restoring session…</p>
 	{:else if status === 'idle'}
 		<button onclick={login}>Login with VerusID</button>
-		<p class="hint">Scan the QR with Verus Mobile (testnet mode) to log in.</p>
+		<p class="chain-pick">
+			<label><input type="radio" bind:group={chain} value="vrsc" /> VRSC (mainnet)</label>
+			<label><input type="radio" bind:group={chain} value="vrsctest" /> VRSCTEST</label>
+		</p>
+		<p class="hint">Scan the QR with Verus Mobile to log in — any VerusID works, login is free and off-chain.</p>
 	{:else if status === 'waiting'}
 		{#if qrDataUrl}
 			<img src={qrDataUrl} alt="Login QR code" />
@@ -161,6 +168,13 @@
 	.hint {
 		color: #888;
 		font-size: 0.9rem;
+	}
+	.chain-pick {
+		display: flex;
+		gap: 1.2rem;
+		justify-content: center;
+		font-size: 0.9rem;
+		color: #555;
 	}
 	.error {
 		color: #c0392b;

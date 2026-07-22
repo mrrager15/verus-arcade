@@ -1,5 +1,6 @@
 <script lang="ts">
 	import QRCode from 'qrcode';
+	import Game from '$lib/Game.svelte';
 
 	type LoginStatus = 'idle' | 'waiting' | 'verified' | 'error';
 
@@ -7,6 +8,7 @@
 	let qrDataUrl = $state('');
 	let deepLink = $state('');
 	let error = $state('');
+	let sessionToken = $state('');
 	let user = $state<{ friendlyName: string; iAddress: string; chainName: string } | null>(null);
 
 	async function login() {
@@ -42,6 +44,7 @@
 			const data = await r.json();
 			if (data.status === 'verified') {
 				user = data;
+				sessionToken = data.data?.sessionToken ?? '';
 				status = 'verified';
 				return;
 			}
@@ -54,6 +57,7 @@
 		deepLink = '';
 		user = null;
 		error = '';
+		sessionToken = '';
 	}
 </script>
 
@@ -77,11 +81,7 @@
 		{/if}
 		<button class="secondary" onclick={reset}>Cancel</button>
 	{:else if status === 'verified' && user}
-		<div class="welcome">
-			<h2>Welcome, {user.friendlyName}</h2>
-			<p class="mono">{user.iAddress}</p>
-			<p>Signed in via {user.chainName} — cryptographically verified, no password.</p>
-		</div>
+		<Game token={sessionToken} friendlyName={user.friendlyName} />
 		<button class="secondary" onclick={reset}>Log out</button>
 	{:else if status === 'error'}
 		<p class="error">⚠ {error}</p>
@@ -130,17 +130,6 @@
 	.hint {
 		color: #888;
 		font-size: 0.9rem;
-	}
-	.mono {
-		font-family: monospace;
-		font-size: 0.85rem;
-		color: #666;
-		word-break: break-all;
-	}
-	.welcome {
-		border: 1px solid #e0e0e0;
-		border-radius: 0.75rem;
-		padding: 1.5rem;
 	}
 	.error {
 		color: #c0392b;

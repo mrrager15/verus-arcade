@@ -1,0 +1,81 @@
+/**
+ * Daemon mode signer — all crypto delegated to local verusd via RPC.
+ */
+
+import type { Signer } from './types.js';
+
+export class DaemonSigner implements Signer {
+  // Holds RPC credentials in the URL userinfo — kept private so it can't be
+  // logged or serialised by accident.
+  private rpcUrl: string;
+
+  constructor(rpcUrl: string) {
+    this.rpcUrl = rpcUrl;
+  }
+
+  private async rpc(method: string, params: any[] = []): Promise<any> {
+    const body = JSON.stringify({ jsonrpc: '1.0', id: Date.now(), method, params });
+
+    // Extract auth from URL if present (http://user:pass@host:port)
+    const url = new URL(this.rpcUrl);
+    const headers: Record<string, string> = { 'Content-Type': 'text/plain' };
+    if (url.username) {
+      headers['Authorization'] = 'Basic ' + Buffer.from(`${url.username}:${url.password}`).toString('base64');
+      url.username = '';
+      url.password = '';
+    }
+
+    const resp = await fetch(url.toString(), { method: 'POST', headers, body });
+    const json = await resp.json();
+    if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
+    return json.result;
+  }
+
+  async sign(address: string, dataHex: string): Promise<string> {
+    const result = await this.rpc('signdata', [{ address, datahash: dataHex }]);
+    if (!result?.signature) throw new Error('Daemon signing failed');
+    return result.signature;
+  }
+
+  async verify(address: string, signature: string, dataHash: string): Promise<boolean> {
+    try {
+      const result = await this.rpc('verifysignature', [{ address, signature, datahash: dataHash }]);
+      return result?.signaturestatus === 'verified';
+    } catch {
+      return false;
+    }
+  }
+
+  async verifyMessage(address: string, signature: string, messageHex: string): Promise<boolean> {
+    try {
+      const result = await this.rpc('verifysignature', [{ address, signature, messagehex: messageHex }]);
+      return result?.signaturestatus === 'verified';
+    } catch {
+      return false;
+    }
+  }
+
+  async getBlockHeight(): Promise<number> {
+    return this.rpc('getblockcount');
+  }
+
+  async getIdentity(nameOrId: string): Promise<any> {
+    return this.rpc('getidentity', [nameOrId]);
+  }
+
+  async getSignatureInfo(identityId: string, signature: string): Promise<{ height: number }> {
+    const result = await this.rpc('getsignatureinfo', [{ address: identityId, signature }]);
+    return { height: Number(result?.height ?? result?.blockheight ?? 0) };
+  }
+
+  async checkSynced(): Promise<{ synced: boolean; blocks: number; longestchain: number }> {
+    const info = await this.rpc('getinfo');
+    const blocks = info.blocks || 0;
+    const longestchain = info.longestchain || 0;
+    // verusid-ts-client uses a 3600s (1 hour) time threshold for signature validity.
+    // The daemon rejects only future blocks (>1 ahead). So we need to be within ~1 hour
+    // of the tip. At ~60s/block, that's ~60 blocks. Use 50 as a safe margin.
+    const MAX_BEHIND = 50;
+    return { synced: (longestchain - blocks) <= MAX_BEHIND && longestchain > 0, blocks, longestchain };
+  }
+}

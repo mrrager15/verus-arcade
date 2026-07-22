@@ -1,0 +1,13 @@
+{
+  "name": "verus-signin-lite-example",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "verus-connect": "file:../.."
+  }
+}

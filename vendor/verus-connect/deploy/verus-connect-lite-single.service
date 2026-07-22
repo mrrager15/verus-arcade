@@ -1,0 +1,31 @@
+[Unit]
+Description=verus-connect sidecar (lite mode, single chain)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/verus-connect
+
+# Per-app env: copy env.lite-single.example to /etc/verus-connect/<app>.env,
+# chmod 600, and update the path below to match. The unit itself is generic.
+EnvironmentFile=/etc/verus-connect/CHANGEME.env
+
+ExecStart=/usr/bin/node dist/cli.cjs start
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/verus-connect
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

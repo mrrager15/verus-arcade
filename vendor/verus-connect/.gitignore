@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+*.log
+yarn.lock
+examples/**/.vrsc-rpc-url
+examples/**/.verifiers.json

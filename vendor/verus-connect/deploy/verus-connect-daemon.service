@@ -1,0 +1,35 @@
+[Unit]
+Description=verus-connect sidecar (daemon mode)
+# Wait for the local verusd(s) to be up before starting. Adjust if your
+# verus daemons run as different unit names.
+After=network-online.target verusd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/verus-connect
+
+# Per-app env: copy env.daemon.example to /etc/verus-connect/<app>.env,
+# chmod 600, and update the path below to match. The local verusd's wallet
+# MUST hold the primary private key for SIGNING_IADDRESS — daemon mode
+# delegates all signing to the daemon. If you don't want to import the key,
+# use lite mode instead.
+EnvironmentFile=/etc/verus-connect/CHANGEME.env
+
+ExecStart=/usr/bin/node dist/cli.cjs start
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/verus-connect
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

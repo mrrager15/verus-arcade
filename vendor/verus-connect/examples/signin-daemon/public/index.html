@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sign in with Verus — Daemon mode demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 20px; line-height: 1.5; }
+  h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+  .sub { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  button { background: #1a73e8; color: white; border: 0; padding: 12px 20px; border-radius: 6px; font-size: 1rem; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #qrWrap { margin-top: 24px; padding: 20px; border: 1px solid #ccc; border-radius: 8px; display: none; }
+  #qr { background: white; padding: 12px; display: inline-block; }
+  #status { margin-top: 16px; font-family: ui-monospace, monospace; font-size: 0.85rem; white-space: pre-wrap; }
+  #openWallet { display: inline-block; margin-top: 12px; padding: 10px 16px; background: #1a73e8; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; }
+  #openWallet:hover { background: #1557b0; }
+  #openHint { color: #888; font-size: 0.8rem; margin-top: 6px; }
+  #deepLink { margin-top: 12px; font-size: 0.7rem; word-break: break-all; color: #aaa; }
+  details#linkDetails { margin-top: 8px; font-size: 0.8rem; }
+  .success { color: #1a8a3f; font-weight: 600; }
+  .error { color: #c5221f; }
+  pre { background: #f5f5f5; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1a1a1a; color: #eee; }
+    #qrWrap { border-color: #444; }
+    pre, #qr { background: #2a2a2a; }
+  }
+</style>
+<script src="/qrcode.min.js"></script>
+</head>
+<body>
+  <h1>Sign in with Verus <span style="color:#888;font-weight:normal">(Daemon mode)</span></h1>
+  <p class="sub">verus-connect daemon mode — signs and verifies via local verusd RPC. Supports multiple chains. Your VerusID brand appears in the wallet prompt.</p>
+
+  <button id="signin">Sign in with Verus</button>
+
+  <div id="qrWrap">
+    <div id="qr"></div>
+    <a id="openWallet" href="#" style="display:none">Open in Verus Mobile</a>
+    <div id="openHint" style="display:none">On your phone? Tap the button above. On desktop? Scan the QR with Verus Mobile.</div>
+    <div id="status">Waiting for wallet…</div>
+    <details id="linkDetails" style="display:none"><summary>Raw deep link</summary><div id="deepLink"></div></details>
+  </div>
+
+  <div id="result"></div>
+
+<script>
+const btn = document.getElementById('signin');
+const wrap = document.getElementById('qrWrap');
+const qrDiv = document.getElementById('qr');
+const statusEl = document.getElementById('status');
+const deepLinkEl = document.getElementById('deepLink');
+const linkDetails = document.getElementById('linkDetails');
+const openWallet = document.getElementById('openWallet');
+const openHint = document.getElementById('openHint');
+const resultEl = document.getElementById('result');
+
+let pollTimer = null;
+let pollCount = 0;
+const POLL_MAX = 150; // ~5 min at 2s interval
+
+async function startLogin() {
+  btn.disabled = true;
+  wrap.style.display = 'block';
+  statusEl.textContent = 'Requesting challenge from your server…';
+  resultEl.innerHTML = '';
+
+  let challenge;
+  try {
+    const r = await fetch('/verus/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    challenge = await r.json();
+    if (!r.ok) throw new Error(challenge.error || `HTTP ${r.status}`);
+  } catch (err) {
+    statusEl.innerHTML = `<span class="error">Challenge request failed: ${err.message}</span>`;
+    btn.disabled = false;
+    return;
+  }
+
+  const { challengeId, deepLink, chainName } = challenge;
+  deepLinkEl.textContent = deepLink;
+  linkDetails.style.display = '';
+  openWallet.href = deepLink;
+  openWallet.style.display = '';
+  openHint.style.display = '';
+
+  qrDiv.innerHTML = '';
+  try {
+    if (typeof QRCode === 'undefined') {
+      throw new Error('QRCode library failed to load');
+    }
+    new QRCode(qrDiv, {
+      text: deepLink,
+      width: 280,
+      height: 280,
+      correctLevel: QRCode.CorrectLevel.L,
+    });
+    statusEl.textContent = `Challenge created for ${chainName || 'VRSC'}.\nID: ${challengeId}\n\nScan with Verus Mobile…`;
+  } catch (err) {
+    qrDiv.innerHTML = `<a href="${deepLink}" style="word-break:break-all">${deepLink}</a>`;
+    statusEl.innerHTML = `<span class="error">QR render failed: ${escapeHtml(err.message)}</span>\nTap the link above on your phone instead.`;
+  }
+
+  pollCount = 0;
+  pollTimer = setInterval(() => pollResult(challengeId), 2000);
+}
+
+async function pollResult(id) {
+  pollCount++;
+  if (pollCount > POLL_MAX) {
+    clearInterval(pollTimer);
+    statusEl.innerHTML = '<span class="error">Timed out waiting for wallet response.</span>';
+    btn.disabled = false;
+    return;
+  }
+  try {
+    const r = await fetch(`/verus/result/${id}`);
+    const data = await r.json();
+    if (r.status === 404) {
+      clearInterval(pollTimer);
+      statusEl.innerHTML = '<span class="error">Challenge expired.</span>';
+      btn.disabled = false;
+      return;
+    }
+    if (data.status === 'verified') {
+      clearInterval(pollTimer);
+      statusEl.innerHTML = '<span class="success">✓ Verified by server</span>';
+      renderResult(data);
+      btn.disabled = false;
+      return;
+    }
+    statusEl.textContent = `Waiting for wallet response… (poll ${pollCount}/${POLL_MAX})`;
+  } catch (err) {
+    statusEl.innerHTML = `<span class="error">Poll error: ${err.message}</span>`;
+  }
+}
+
+// Caller-side map of canonical systemIds → display names.
+// Server returns the canonical i-address; the website chooses the brand.
+const CHAIN_NAMES = {
+  'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV': 'VRSC',
+  'iExBJfZYK7KREDpuhj6PzZBzqMAKaFg7d2': 'vARRR',
+  'iHog9UCTrn95qpUBFCZ7kKz7qWdMA8MQ6N': 'vDEX',
+  'iJ3WZocnjG9ufv7GKUA4LijQno5gTMb7tP': 'CHIPS',
+};
+const chainLabel = sysId => CHAIN_NAMES[sysId] || sysId || 'unknown';
+
+function renderResult(data) {
+  const hasEvidence = data.evidence && data.evidence.decisionSignature;
+  const sysId = data.evidence?.systemId;
+  const chain = chainLabel(sysId);
+  const evidenceBlock = hasEvidence
+    ? `<h3>Cryptographic evidence</h3>
+       <p style="color:#888;font-size:0.85rem">Receipt the relying party can independently re-verify against any Verus node's <code>verifysignature</code> RPC. See <a href="https://github.com/Fried333/verus-connect#evidence-schema">README → Evidence schema</a>.</p>
+       <pre>${escapeHtml(JSON.stringify(data.evidence, null, 2))}</pre>`
+    : `<p class="error">Server returned no <code>evidence</code> field — your verus-connect build may be out of date.</p>`;
+
+  resultEl.innerHTML = `
+    <h2>Welcome, ${escapeHtml(data.friendlyName || 'unknown')}${chain && chain !== 'unknown' ? ` <span style="color:#888;font-weight:normal">(${escapeHtml(chain)})</span>` : ''}</h2>
+    <p>iAddress: <code>${escapeHtml(data.iAddress)}</code></p>
+    <p>Chain: <code>${escapeHtml(chain)}</code>${sysId ? ` <small style="color:#888">(${escapeHtml(sysId)})</small>` : ''}</p>
+    <details><summary>Full server response</summary><pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre></details>
+    ${evidenceBlock}
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+btn.addEventListener('click', startLogin);
+</script>
+</body>
+</html>

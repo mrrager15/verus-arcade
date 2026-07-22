@@ -17,6 +17,8 @@
 	// Restore a previous session: the backend recognises the stored token and
 	// /api/state answers with a `you` block — no wallet interaction needed.
 	onMount(async () => {
+		const savedChain = localStorage.getItem('arcade-chain');
+		if (savedChain) chain = savedChain;
 		const stored = localStorage.getItem(TOKEN_KEY);
 		if (!stored) {
 			status = 'idle';
@@ -38,7 +40,7 @@
 		status = 'idle';
 	});
 
-	let chain = $state(localStorage?.getItem('arcade-chain') ?? 'vrsc');
+	let chain = $state('vrsc');
 
 	async function login() {
 		status = 'waiting';

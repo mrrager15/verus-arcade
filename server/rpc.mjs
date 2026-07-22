@@ -4,6 +4,8 @@
  */
 import fs from 'node:fs';
 
+// Which daemon the round engine writes to (updateidentity for commit/reveal).
+// Dev default: local vrsctest. Prod (VPS): set ARCADE_CONF=/root/.komodo/VRSC/VRSC.conf
 const CONF_PATH =
   process.env.ARCADE_CONF ?? `${process.env.APPDATA}\\Komodo\\vrsctest\\vrsctest.conf`;
 

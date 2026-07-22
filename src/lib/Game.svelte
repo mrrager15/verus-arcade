@@ -61,7 +61,7 @@
 				headers: { ...headers(), 'Content-Type': 'application/json' },
 				body: JSON.stringify({ guess: current })
 			});
-			const body = await r.json();
+			const body = await r.json().catch(() => ({ error: `Server error (HTTP ${r.status})` }));
 			if (!r.ok) {
 				message = body.error ?? 'Something went wrong';
 				return;

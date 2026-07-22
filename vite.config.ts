@@ -7,7 +7,8 @@ export default defineConfig({
 		// Frontend (5173) praat via deze proxy met de auth-server (8100);
 		// de wallet-callback gaat rechtstreeks naar 8100 via het LAN-IP.
 		proxy: {
-			'/verus': 'http://localhost:8100'
+			'/verus': 'http://localhost:8100',
+			'/api': 'http://localhost:8100'
 		}
 	},
 	plugins: [

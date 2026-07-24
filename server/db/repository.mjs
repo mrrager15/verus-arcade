@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 
+import { buildResultSet, createInclusionProof } from '../result-set.mjs';
+
 function hashToken(token) {
   return crypto.createHash('sha256').update(token, 'utf8').digest('hex');
 }
@@ -410,6 +412,197 @@ export class ArcadeRepository {
         );
       return { replayed: false, response };
     });
+  }
+
+  finalizeRoundResults({ roundRecordId, now }) {
+    return inImmediateTransaction(this.database, () => {
+      const existing = this.getRoundResultSet(roundRecordId);
+      if (existing) return { created: false, resultSet: existing };
+
+      const round = this.database
+        .prepare('SELECT * FROM rounds WHERE id = ?')
+        .get(roundRecordId);
+      if (!round) {
+        throw new RepositoryConflictError('ROUND_NOT_FOUND', 'Round does not exist');
+      }
+      if (!['open', 'closed'].includes(round.status) || now < Number(round.closes_at_ms)) {
+        throw new RepositoryConflictError(
+          'ROUND_NOT_FINALIZABLE',
+          'Round must be open and past its close time',
+        );
+      }
+
+      this.database
+        .prepare(`
+          UPDATE attempts
+          SET status = 'abandoned', updated_at_ms = ?
+          WHERE chain_id = ?
+            AND game_id = ?
+            AND game_version = ?
+            AND round_id = ?
+            AND mode = 'daily'
+            AND status IN ('reserved', 'active')
+        `)
+        .run(
+          now,
+          round.chain_id,
+          round.game_id,
+          round.game_version,
+          round.round_id,
+        );
+      this.database
+        .prepare(`UPDATE rounds SET status = 'closed' WHERE id = ? AND status = 'open'`)
+        .run(roundRecordId);
+
+      const attempts = this.database
+        .prepare(`
+          SELECT *
+          FROM attempts
+          WHERE chain_id = ?
+            AND game_id = ?
+            AND game_version = ?
+            AND round_id = ?
+            AND mode = 'daily'
+          ORDER BY player_i_address
+        `)
+        .all(
+          round.chain_id,
+          round.game_id,
+          round.game_version,
+          round.round_id,
+        );
+      const records = attempts.map((attempt) => {
+        const actions = this.database
+          .prepare(`
+            SELECT sequence, canonical_action, response_json
+            FROM attempt_actions
+            WHERE attempt_id = ?
+            ORDER BY sequence
+          `)
+          .all(attempt.id);
+        const guesses = actions.map((action) => {
+          const canonicalAction = JSON.parse(action.canonical_action);
+          return {
+            sequence: Number(action.sequence),
+            word: canonicalAction.payload?.word ?? canonicalAction.guess,
+          };
+        });
+        const finalResponse =
+          actions.length === 0
+            ? null
+            : JSON.parse(actions.at(-1).response_json);
+        const solved = attempt.status === 'completed' && finalResponse?.solved === true;
+        const status =
+          attempt.status === 'completed' ? (solved ? 'solved' : 'unsolved') : 'abandoned';
+        return {
+          schemaVersion: 1,
+          roundId: round.round_id,
+          chainId: round.chain_id,
+          gameId: round.game_id,
+          gameVersion: round.game_version,
+          playerIAddress: attempt.player_i_address,
+          status,
+          guesses,
+          score: { solved, guessesUsed: guesses.length },
+        };
+      });
+      const built = buildResultSet(records);
+      const statusCounts = built.bundle.reduce((counts, record) => {
+        counts[record.status]++;
+        return counts;
+      }, { solved: 0, unsolved: 0, abandoned: 0 });
+      this.database
+        .prepare(`
+          INSERT INTO round_result_sets (
+            round_record_id, algorithm, root_sha256, leaf_count, bundle_json,
+            bundle_sha256, status_counts_json, created_at_ms
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          roundRecordId,
+          built.algorithm,
+          built.rootSha256,
+          built.leafCount,
+          built.bundleJson,
+          built.bundleSha256,
+          JSON.stringify(statusCounts),
+          now,
+        );
+      const insertRecord = this.database.prepare(`
+        INSERT INTO round_result_records (
+          round_record_id, attempt_id, leaf_index, sort_key, record_json, leaf_sha256
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      for (const entry of built.entries) {
+        const attempt = attempts.find(
+          (candidate) => candidate.player_i_address === entry.record.playerIAddress,
+        );
+        insertRecord.run(
+          roundRecordId,
+          attempt.id,
+          entry.leafIndex,
+          entry.sortKey,
+          entry.recordJson,
+          entry.leafSha256,
+        );
+      }
+      return { created: true, resultSet: this.getRoundResultSet(roundRecordId) };
+    });
+  }
+
+  getRoundResultSet(roundRecordId) {
+    const row = this.database
+      .prepare('SELECT * FROM round_result_sets WHERE round_record_id = ?')
+      .get(roundRecordId);
+    if (!row) return null;
+    return {
+      roundRecordId: row.round_record_id,
+      algorithm: row.algorithm,
+      rootSha256: row.root_sha256,
+      leafCount: Number(row.leaf_count),
+      bundle: JSON.parse(row.bundle_json),
+      bundleSha256: row.bundle_sha256,
+      statusCounts: JSON.parse(row.status_counts_json),
+      resultsTxid: row.results_txid,
+      createdAt: Number(row.created_at_ms),
+    };
+  }
+
+  confirmRoundResults({ roundRecordId, resultsTxid }) {
+    if (!/^[0-9a-f]{64}$/.test(resultsTxid)) {
+      throw new Error('Results transaction ID must be 64 lowercase hex characters');
+    }
+    const updated = this.database
+      .prepare(`
+        UPDATE round_result_sets
+        SET results_txid = ?
+        WHERE round_record_id = ?
+          AND (results_txid IS NULL OR results_txid = ?)
+      `)
+      .run(resultsTxid, roundRecordId, resultsTxid);
+    if (updated.changes !== 1) {
+      throw new RepositoryConflictError(
+        'RESULT_SET_STATE_CONFLICT',
+        'Result set is missing or references a different transaction',
+      );
+    }
+    return this.getRoundResultSet(roundRecordId);
+  }
+
+  getResultProof({ roundRecordId, playerIAddress }) {
+    const stored = this.getRoundResultSet(roundRecordId);
+    if (!stored) return null;
+    const built = buildResultSet(stored.bundle);
+    if (
+      built.rootSha256 !== stored.rootSha256 ||
+      built.bundleSha256 !== stored.bundleSha256
+    ) {
+      throw new Error('Stored result bundle does not match its commitment');
+    }
+    const index = built.entries.findIndex(
+      (entry) => entry.record.playerIAddress === playerIAddress,
+    );
+    return index === -1 ? null : createInclusionProof(built, index);
   }
 
   planChainOperation({

@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { DailyService } from './daily-service.mjs';
 import { migrate } from './db/migrate.mjs';
 import { ArcadeRepository } from './db/repository.mjs';
+import { verifyInclusionProof } from './result-set.mjs';
 
 const PRINCIPAL = Object.freeze({
   chain: 'vrsctest',
@@ -229,5 +230,33 @@ test('action validation rejects unknown words and conflicting action reuse', () 
       }),
     (error) => error.code === 'ACTION_ID_CONFLICT',
   );
+  database.close();
+});
+
+test('attempt proof is pending before close and independently valid after finalization', () => {
+  const { database, repository, service } = setup();
+  createRound(repository);
+  repository.openRound({
+    id: 'round-record-1',
+    commitmentTxid: 'a'.repeat(64),
+  });
+  const { attempt } = service.reserveAttempt({
+    principal: PRINCIPAL,
+    roundId: 'round-record-1',
+  });
+  assert.deepEqual(
+    service.getAttemptProof({ principal: PRINCIPAL, attemptId: attempt.id }),
+    { status: 'pending', roundId: '2026-07-25' },
+  );
+  repository.finalizeRoundResults({ roundRecordId: 'round-record-1', now: 10_000 });
+  const result = service.getAttemptProof({
+    principal: PRINCIPAL,
+    attemptId: attempt.id,
+  });
+  assert.equal(result.status, 'finalized');
+  assert.equal(result.descriptor.leafCount, 1);
+  assert.equal(result.descriptor.rootSha256, result.proof.rootSha256);
+  assert.deepEqual(result.publication, { status: 'pending', txid: null });
+  assert.equal(verifyInclusionProof(result.proof), true);
   database.close();
 });

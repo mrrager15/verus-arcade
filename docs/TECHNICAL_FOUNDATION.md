@@ -213,6 +213,56 @@ Observed durable VRSCTEST lifecycle result:
 `opensAt` and `closesAt`, so this future-dated test round cannot accept ranked attempts
 before `2026-07-27T00:00:00Z`.
 
+### Final result set and player proofs
+
+Migration `003_round_results.sql` stores an immutable canonical result bundle, its
+SHA-256, the Merkle root, status counts, ordered leaf records, and the confirmed
+results transaction receipt. Finalization runs in one immediate transaction:
+
+- active and reserved attempts become `abandoned` after close;
+- every reservation becomes exactly one canonical result record;
+- records are sorted by the binary `chainId + NUL + playerIAddress` key;
+- leaves and internal nodes use the domain-separated construction in ADR-006;
+- the complete bundle remains operational while only its hash, root, count, and
+  protocol metadata enter the compact chain descriptor;
+- exact retries return the already stored result set.
+
+Authenticated players can retrieve a pending or finalized proof through
+`GET /api/v1/attempts/:attemptId/proof`. The response contains the canonical record and
+Merkle path, not a server-trusted verification boolean. The shared verifier recomputes
+the root locally and rejects malformed paths, wrong orientation, extra levels, modified
+records, and duplicate identity keys.
+
+Experimental VRSCTEST results key:
+
+- URI: `Arcade::round.results.v1`;
+- VDXF ID: `iEuNeBozij6ZkEYeDaz7w5BCYAU5r714cA`.
+
+The real-daemon results test prepares and signs the compact descriptor with `returntx`
+but does not broadcast it:
+
+```powershell
+$env:VERUS_RESULT_TEST_ACK='PREPARE_VRSCTEST_RESULT_DESCRIPTOR_RETURNTX'
+node scripts/integration/result-descriptor-returntx.mjs
+```
+
+Observed VRSCTEST result:
+
+- zero-leaf root:
+  `dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986`;
+- canonical empty-bundle hash:
+  `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`;
+- signed transaction size: 1,832 bytes;
+- derived, non-broadcast txid:
+  `0a688ee053f1d9b1c4c892fefab8e3843f45f75e33899ba801dbd17217918ca6`;
+- journal state: `signed`;
+- the full result bundle was not included in the descriptor;
+- `sendrawtransaction` was never called and the identity anchor remained unchanged.
+
+The player proof API reports finalization and chain publication separately. A valid
+local inclusion proof is not labelled chain-confirmed until reconciliation stores the
+confirmed results transaction ID.
+
 Migration and repository tests currently use Node's in-memory SQLite implementation as
 a test adapter only. Production targets `better-sqlite3` on Node 22. The native package
 could not be installed on this development machine because it runs unsupported Node 24

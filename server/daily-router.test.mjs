@@ -125,6 +125,26 @@ test('v1 API returns 201 for reservation and 200 for idempotent resume', async (
     );
     assert.equal(actionResponse.status, 200);
     assert.equal((await actionResponse.json()).result.solved, true);
+
+    const pendingProof = await fetch(
+      `${context.baseUrl}/attempts/attempt-generated/proof`,
+      { headers: authorization },
+    );
+    assert.equal(pendingProof.status, 200);
+    assert.equal((await pendingProof.json()).status, 'pending');
+
+    context.repository.finalizeRoundResults({
+      roundRecordId: 'round-record-1',
+      now: 10_000,
+    });
+    const finalProof = await fetch(
+      `${context.baseUrl}/attempts/attempt-generated/proof`,
+      { headers: authorization },
+    );
+    assert.equal(finalProof.status, 200);
+    const proofBody = await finalProof.json();
+    assert.equal(proofBody.status, 'finalized');
+    assert.equal(proofBody.descriptor.rootSha256, proofBody.proof.rootSha256);
   } finally {
     await close(context);
   }

@@ -97,6 +97,53 @@ export class DailyService {
     return publicAttempt(attempt);
   }
 
+  getAttemptProof({ principal, attemptId }) {
+    if (!principal?.chain || !principal?.iAddress) {
+      throw new DailyServiceError('NOT_AUTHENTICATED', 'Authentication required', 401);
+    }
+    const attempt = this.repository.getAttemptForPlayer({
+      attemptId,
+      chainId: principal.chain,
+      playerIAddress: principal.iAddress,
+    });
+    if (!attempt) {
+      throw new DailyServiceError('ATTEMPT_NOT_FOUND', 'Attempt does not exist', 404);
+    }
+    const round = this.repository.getRoundForAttempt(attempt);
+    const resultSet = round ? this.repository.getRoundResultSet(round.id) : null;
+    if (!resultSet) {
+      return { status: 'pending', roundId: attempt.round_id };
+    }
+    const proof = this.repository.getResultProof({
+      roundRecordId: round.id,
+      playerIAddress: principal.iAddress,
+    });
+    if (!proof) {
+      throw new DailyServiceError(
+        'RESULT_COMPLETENESS_FAILURE',
+        'Final result set does not contain this reserved attempt',
+        503,
+      );
+    }
+    return {
+      status: 'finalized',
+      descriptor: {
+        schemaVersion: 1,
+        algorithm: resultSet.algorithm,
+        roundId: attempt.round_id,
+        gameId: attempt.game_id,
+        gameVersion: attempt.game_version,
+        leafCount: resultSet.leafCount,
+        rootSha256: resultSet.rootSha256,
+        bundleSha256: resultSet.bundleSha256,
+      },
+      publication: resultSet.resultsTxid
+        ? { status: 'confirmed', txid: resultSet.resultsTxid }
+        : { status: 'pending', txid: null },
+      proof,
+    };
+  }
+
   submitAction({ principal, attemptId, action }) {
     if (!principal?.chain || !principal?.iAddress) {
       throw new DailyServiceError('NOT_AUTHENTICATED', 'Authentication required', 401);

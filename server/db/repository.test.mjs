@@ -22,6 +22,7 @@ test('migrations are ordered and idempotent', () => {
     [
       { version: 1, filename: '001_initial.sql' },
       { version: 2, filename: '002_round_private_definition.sql' },
+      { version: 3, filename: '003_round_results.sql' },
     ],
   );
   assert.equal(database.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
@@ -202,6 +203,102 @@ test('action ID, sequence conflicts, and gaps fail closed', () => {
   assert.equal(
     database.prepare('SELECT COUNT(*) count FROM attempt_actions').get().count,
     1,
+  );
+  database.close();
+});
+
+test('round finalization includes completed and abandoned reservations exactly once', () => {
+  const { database, repository } = setup();
+  repository.createRound({
+    id: 'round-record',
+    chainId: 'vrsctest',
+    gameId: 'word-grid',
+    gameVersion: '1.0.0',
+    roundId: '2026-07-25',
+    commitmentHash: 'b'.repeat(64),
+    privateDefinition: { answer: 'crane' },
+    opensAt: 1_000,
+    closesAt: 2_000,
+    now: 0,
+  });
+  repository.openRound({ id: 'round-record', commitmentTxid: 'a'.repeat(64) });
+  reserve(repository);
+  repository.recordAttemptAction({
+    attemptId: 'attempt-1',
+    actionId: 'action-1',
+    sequence: 1,
+    canonicalAction: JSON.stringify({
+      type: 'guess',
+      payload: { word: 'crane' },
+      gameVersion: '1.0.0',
+    }),
+    actionHash: 'hash-1',
+    response: { solved: true, terminal: true },
+    terminal: true,
+    resultHash: 'result-hash',
+    now: 1_500,
+  });
+  repository.reserveDailyAttempt({
+    attemptId: 'attempt-2',
+    chainId: 'vrsctest',
+    playerIAddress: 'i-player-2',
+    gameId: 'word-grid',
+    gameVersion: '1.0.0',
+    roundId: '2026-07-25',
+    now: 1_600,
+  });
+
+  const finalized = repository.finalizeRoundResults({
+    roundRecordId: 'round-record',
+    now: 2_000,
+  });
+  assert.equal(finalized.created, true);
+  assert.equal(finalized.resultSet.leafCount, 2);
+  assert.deepEqual(finalized.resultSet.statusCounts, {
+    solved: 1,
+    unsolved: 0,
+    abandoned: 1,
+  });
+  assert.equal(repository.getRound('round-record').status, 'closed');
+  assert.equal(
+    database.prepare('SELECT status FROM attempts WHERE id = ?').get('attempt-2').status,
+    'abandoned',
+  );
+  assert.equal(
+    repository.finalizeRoundResults({ roundRecordId: 'round-record', now: 3_000 })
+      .created,
+    false,
+  );
+  const proof = repository.getResultProof({
+    roundRecordId: 'round-record',
+    playerIAddress: 'i-player',
+  });
+  assert.equal(proof.rootSha256, finalized.resultSet.rootSha256);
+  database.close();
+});
+
+test('round finalization fails before close without changing attempts', () => {
+  const { database, repository } = setup();
+  repository.createRound({
+    id: 'round-record',
+    chainId: 'vrsctest',
+    gameId: 'word-grid',
+    gameVersion: '1.0.0',
+    roundId: '2026-07-25',
+    commitmentHash: 'b'.repeat(64),
+    opensAt: 1_000,
+    closesAt: 2_000,
+    now: 0,
+  });
+  repository.openRound({ id: 'round-record', commitmentTxid: 'a'.repeat(64) });
+  reserve(repository);
+  assert.throws(
+    () => repository.finalizeRoundResults({ roundRecordId: 'round-record', now: 1_999 }),
+    (error) => error.code === 'ROUND_NOT_FINALIZABLE',
+  );
+  assert.equal(
+    database.prepare('SELECT status FROM attempts WHERE id = ?').get('attempt-1').status,
+    'reserved',
   );
   database.close();
 });

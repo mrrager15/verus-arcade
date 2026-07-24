@@ -61,6 +61,19 @@ export function createDailyRouter({ dailyService, resolveSession }) {
     }
   });
 
+  router.get('/attempts/:attemptId/proof', (request, response, next) => {
+    try {
+      response.json(
+        dailyService.getAttemptProof({
+          principal: request.principal,
+          attemptId: request.params.attemptId,
+        }),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.post('/attempts/:attemptId/actions', (request, response, next) => {
     try {
       response.json(

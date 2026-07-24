@@ -4,6 +4,15 @@ Status: in progress
 Started: 2026-07-25  
 Default network: VRSCTEST
 
+## Supported runtime
+
+The application targets Node.js 22. The vendored `verus-connect@5.2.1` package declares
+support for Node.js 20 through 22. `.nvmrc` and the root package engine range keep local,
+CI, and deployment runtimes aligned.
+
+GitHub Actions validates locked dependency installation, tests, Svelte/TypeScript
+checks, and the production build on Node.js 22 for every pull request and master push.
+
 ## Implemented baseline
 
 ### Fail-closed network configuration
@@ -51,6 +60,25 @@ Configuration tests cover:
 
 Sessions are intentionally memory-only in this slice. A restart logs users out rather
 than persisting raw bearer secrets. The SQLite slice will add durable hashed sessions.
+
+### Database contract and first migration
+
+The first migration defines:
+
+- hashed, expiring, revocable sessions;
+- rounds and commitment state;
+- one Daily attempt per chain, identity, game, version, and round;
+- idempotent action IDs and unique action sequences;
+- a durable, idempotent transaction journal.
+
+The repository contract already implements durable session operations and atomic Daily
+attempt reservation. Duplicate reservation requests return the original attempt.
+
+Migration and repository tests currently use Node's in-memory SQLite implementation as
+a test adapter only. Production targets `better-sqlite3` on Node 22. The native package
+could not be installed on this development machine because it runs unsupported Node 24
+and has no compatible prebuilt binary or local C++ toolchain. We do not bypass that
+runtime boundary in production.
 
 ## Next foundation slices
 

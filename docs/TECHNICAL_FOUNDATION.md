@@ -74,6 +74,23 @@ The first migration defines:
 The repository contract already implements durable session operations and atomic Daily
 attempt reservation. Duplicate reservation requests return the original attempt.
 
+Action processing now enforces:
+
+- the attempt must exist and be active;
+- sequences start at one and increase without gaps;
+- an exact `(actionId, sequence, actionHash)` retry returns the stored response;
+- reuse of an action ID with different content is rejected;
+- reuse of a sequence is rejected;
+- rejected actions leave no partial database state.
+
+The chain transaction journal now enforces:
+
+- one immutable payload intent per operation key;
+- explicit compare-and-set state transitions;
+- distinct `uncertain` state for RPC timeouts after possible submission;
+- reconciliation from `uncertain` to `submitted`, `confirmed`, or `failed`;
+- terminal confirmed and failed states.
+
 Migration and repository tests currently use Node's in-memory SQLite implementation as
 a test adapter only. Production targets `better-sqlite3` on Node 22. The native package
 could not be installed on this development machine because it runs unsupported Node 24
@@ -84,8 +101,8 @@ runtime boundary in production.
 
 1. Add the SQLite repository and migrations.
 2. Persist only hashed, expiring session records.
-3. Implement atomic Daily attempt reservation and action idempotency.
-4. Add a Verus gateway and durable transaction journal.
+3. Integrate the repository with the game API.
+4. Add the safe Verus gateway around the transaction journal.
 5. Add structured health checks and sanitized logging.
 6. Run integration tests against VRSCTEST.
 

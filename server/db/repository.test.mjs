@@ -3,7 +3,7 @@ import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
 import { migrate } from './migrate.mjs';
-import { ArcadeRepository } from './repository.mjs';
+import { ArcadeRepository, RepositoryConflictError } from './repository.mjs';
 
 function setup() {
   const database = new DatabaseSync(':memory:');
@@ -102,6 +102,180 @@ test('the same player can reserve different rounds and game versions', () => {
       gameVersion: '2.0.0',
     }).created,
     true,
+  );
+  database.close();
+});
+
+function reserve(repository) {
+  return repository.reserveDailyAttempt({
+    attemptId: 'attempt-1',
+    chainId: 'vrsctest',
+    playerIAddress: 'i-player',
+    gameId: 'word-grid',
+    gameVersion: '1.0.0',
+    roundId: '2026-07-25',
+    now: 1_000,
+  });
+}
+
+test('actions are sequential and exact retries replay the stored response', () => {
+  const { database, repository } = setup();
+  reserve(repository);
+  const input = {
+    attemptId: 'attempt-1',
+    actionId: 'action-1',
+    sequence: 1,
+    canonicalAction: '{"guess":"crane"}',
+    actionHash: 'hash-1',
+    response: { pattern: ['x', 'x', 'y', 'x', 'g'] },
+    now: 2_000,
+  };
+  assert.equal(repository.recordAttemptAction(input).replayed, false);
+  assert.deepEqual(repository.recordAttemptAction(input), {
+    replayed: true,
+    response: input.response,
+  });
+  assert.equal(
+    database.prepare('SELECT status FROM attempts WHERE id = ?').get('attempt-1')
+      .status,
+    'active',
+  );
+  database.close();
+});
+
+test('action ID, sequence conflicts, and gaps fail closed', () => {
+  const { database, repository } = setup();
+  reserve(repository);
+  repository.recordAttemptAction({
+    attemptId: 'attempt-1',
+    actionId: 'action-1',
+    sequence: 1,
+    canonicalAction: '{"guess":"crane"}',
+    actionHash: 'hash-1',
+    response: { accepted: true },
+    now: 2_000,
+  });
+  assert.throws(
+    () =>
+      repository.recordAttemptAction({
+        attemptId: 'attempt-1',
+        actionId: 'action-1',
+        sequence: 1,
+        canonicalAction: '{"guess":"slate"}',
+        actionHash: 'hash-2',
+        response: {},
+        now: 3_000,
+      }),
+    (error) =>
+      error instanceof RepositoryConflictError &&
+      error.code === 'ACTION_ID_CONFLICT',
+  );
+  assert.throws(
+    () =>
+      repository.recordAttemptAction({
+        attemptId: 'attempt-1',
+        actionId: 'action-2',
+        sequence: 1,
+        canonicalAction: '{"guess":"crane"}',
+        actionHash: 'hash-1',
+        response: {},
+        now: 3_000,
+      }),
+    (error) => error.code === 'ACTION_SEQUENCE_CONFLICT',
+  );
+  assert.throws(
+    () =>
+      repository.recordAttemptAction({
+        attemptId: 'attempt-1',
+        actionId: 'action-3',
+        sequence: 3,
+        canonicalAction: '{"guess":"slate"}',
+        actionHash: 'hash-2',
+        response: {},
+        now: 3_000,
+      }),
+    (error) => error.code === 'ACTION_SEQUENCE_OUT_OF_ORDER',
+  );
+  assert.equal(
+    database.prepare('SELECT COUNT(*) count FROM attempt_actions').get().count,
+    1,
+  );
+  database.close();
+});
+
+test('chain operation planning is idempotent and rejects key reuse', () => {
+  const { database, repository } = setup();
+  const intent = {
+    id: 'journal-1',
+    operationType: 'round-commitment',
+    operationKey: 'vrsctest:word-grid:2026-07-25:commit',
+    chainId: 'vrsctest',
+    identityIAddress: 'i-operator',
+    payloadHash: 'payload-hash-1',
+    now: 1_000,
+  };
+  assert.equal(repository.planChainOperation(intent).created, true);
+  assert.equal(
+    repository.planChainOperation({ ...intent, id: 'journal-2' }).created,
+    false,
+  );
+  assert.throws(
+    () =>
+      repository.planChainOperation({
+        ...intent,
+        id: 'journal-3',
+        payloadHash: 'different-payload',
+      }),
+    (error) => error.code === 'CHAIN_OPERATION_CONFLICT',
+  );
+  database.close();
+});
+
+test('journal reconciles an uncertain submission through explicit transitions', () => {
+  const { database, repository } = setup();
+  const operationKey = 'vrsctest:word-grid:2026-07-25:commit';
+  repository.planChainOperation({
+    id: 'journal-1',
+    operationType: 'round-commitment',
+    operationKey,
+    chainId: 'vrsctest',
+    identityIAddress: 'i-operator',
+    payloadHash: 'payload-hash-1',
+    now: 1_000,
+  });
+  repository.transitionChainOperation({
+    operationKey,
+    expectedState: 'planned',
+    nextState: 'signed',
+    rawTransaction: 'raw-transaction',
+    now: 2_000,
+  });
+  repository.transitionChainOperation({
+    operationKey,
+    expectedState: 'signed',
+    nextState: 'uncertain',
+    txid: 'a'.repeat(64),
+    errorCode: 'RPC_TIMEOUT',
+    now: 3_000,
+  });
+  const confirmed = repository.transitionChainOperation({
+    operationKey,
+    expectedState: 'uncertain',
+    nextState: 'confirmed',
+    txid: 'a'.repeat(64),
+    now: 4_000,
+  });
+  assert.equal(confirmed.state, 'confirmed');
+  assert.equal(confirmed.error_code, null);
+  assert.throws(
+    () =>
+      repository.transitionChainOperation({
+        operationKey,
+        expectedState: 'uncertain',
+        nextState: 'confirmed',
+        now: 5_000,
+      }),
+    (error) => error.code === 'CHAIN_OPERATION_STATE_CONFLICT',
   );
   database.close();
 });

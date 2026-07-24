@@ -435,6 +435,14 @@ export class ArcadeRepository {
     });
   }
 
+  getChainOperation(operationKey) {
+    return (
+      this.database
+        .prepare('SELECT * FROM transaction_journal WHERE operation_key = ?')
+        .get(operationKey) ?? null
+    );
+  }
+
   transitionChainOperation({
     operationKey,
     expectedState,

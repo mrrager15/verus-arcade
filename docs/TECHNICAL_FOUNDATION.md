@@ -120,6 +120,52 @@ The router is dependency-injected into the shared application. It is not enabled
 the legacy JSON engine; server bootstrap will enable it only after a durable SQLite
 adapter is available.
 
+### Safe Verus gateway
+
+The gateway wraps every identity write in the transaction journal:
+
+1. assert that the daemon reports VRSCTEST;
+2. retrieve the exact configured identity;
+3. preserve its complete current `contentmultimap`;
+4. merge only validated VDXF changes;
+5. journal the identity anchor and complete payload hash;
+6. create a signed transaction through `updateidentity(..., returntx=true)`;
+7. submit the journaled raw transaction separately;
+8. treat connection loss during submission as `uncertain`;
+9. confirm only after `getrawtransaction` reports the configured confirmations.
+
+The gateway keeps the friendly identity name and i-address as separate required
+configuration. The daemon accepts the i-address for identity retrieval but requires
+the friendly name in `updateidentity`; the returned i-address is still verified before
+signing.
+
+The gateway constructor refuses VRSC. Invalid keys, non-hex values, inactive or
+mismatched identities, and daemon-network mismatches fail closed.
+
+The shared RPC client has bounded timeouts and distinguishes a definite daemon
+rejection from connection loss after a possible `sendrawtransaction`. Credentials are
+kept in request headers and are not included in sanitized errors.
+
+The real-daemon integration test prepares a no-op merged identity update through
+`returntx=true`, never calls `sendrawtransaction`, and verifies that the VRSCTEST
+identity anchor remains unchanged:
+
+```powershell
+$env:VERUS_GATEWAY_TEST_ACK='TEST_VRSCTEST_GATEWAY_RETURNTX'
+node scripts/integration/verus-gateway-returntx.mjs
+```
+
+Observed VRSCTEST result:
+
+- identity: `i9ARtCeKDBH84LvevYPoMxtZNxfts3c5SN`
+  (`arcade-storage-poc@`);
+- journal state: `signed`;
+- signed transaction size: 1,129 bytes;
+- derived, non-broadcast txid:
+  `ac16d59f9cab867bb4749d9b7ddfecf5b0bb662ca304e05c1d1201f9edb464c0`;
+- `sendrawtransaction` was never called;
+- the identity transaction anchor remained unchanged.
+
 Migration and repository tests currently use Node's in-memory SQLite implementation as
 a test adapter only. Production targets `better-sqlite3` on Node 22. The native package
 could not be installed on this development machine because it runs unsupported Node 24

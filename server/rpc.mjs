@@ -4,6 +4,7 @@
  */
 import fs from 'node:fs';
 import { loadConfig } from './config.mjs';
+import { VerusRpcClient } from './verus/rpc-client.mjs';
 
 const runtime = loadConfig();
 const CONF_PATH = runtime.confPath;
@@ -21,16 +22,12 @@ function parseConf(path) {
 }
 
 const conf = parseConf(CONF_PATH);
-const RPC_URL = `http://${conf.rpchost ?? '127.0.0.1'}:${conf.rpcport}`;
-const AUTH = 'Basic ' + Buffer.from(`${conf.rpcuser}:${conf.rpcpassword}`).toString('base64');
+const client = new VerusRpcClient({
+  url: `http://${conf.rpchost ?? '127.0.0.1'}:${conf.rpcport}`,
+  username: conf.rpcuser,
+  password: conf.rpcpassword,
+});
 
 export async function rpc(method, params = []) {
-  const res = await fetch(RPC_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: AUTH },
-    body: JSON.stringify({ jsonrpc: '1.0', id: 'arcade', method, params }),
-  });
-  const body = await res.json();
-  if (body.error) throw new Error(`RPC ${method} failed: ${body.error.message}`);
-  return body.result;
+  return client.call(method, params);
 }

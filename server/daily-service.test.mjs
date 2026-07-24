@@ -32,6 +32,7 @@ function createRound(repository) {
     gameVersion: '1.0.0',
     roundId: '2026-07-25',
     commitmentHash: 'commitment-hash',
+    privateDefinition: { answer: 'crane', salt: 'test-salt' },
     opensAt: 1_000,
     closesAt: 10_000,
     now: 500,
@@ -129,6 +130,104 @@ test('attempt lookup is scoped to the authenticated chain and identity', () => {
         attemptId: attempt.id,
       }),
     (error) => error.code === 'ATTEMPT_NOT_FOUND',
+  );
+  database.close();
+});
+
+test('server-authoritative action solves, persists, and replays exactly', () => {
+  const { database, repository, service } = setup();
+  createRound(repository);
+  repository.openRound({
+    id: 'round-record-1',
+    commitmentTxid: 'a'.repeat(64),
+  });
+  const { attempt } = service.reserveAttempt({
+    principal: PRINCIPAL,
+    roundId: 'round-record-1',
+  });
+  const action = {
+    actionId: 'action-0001',
+    sequence: 1,
+    type: 'guess',
+    payload: { word: 'CRANE' },
+    gameVersion: '1.0.0',
+  };
+  const first = service.submitAction({
+    principal: PRINCIPAL,
+    attemptId: attempt.id,
+    action,
+  });
+  const replay = service.submitAction({
+    principal: PRINCIPAL,
+    attemptId: attempt.id,
+    action,
+  });
+  assert.equal(first.replayed, false);
+  assert.equal(first.result.solved, true);
+  assert.deepEqual(first.result.pattern, ['g', 'g', 'g', 'g', 'g']);
+  assert.equal(first.result.answer, 'crane');
+  assert.deepEqual(replay, { replayed: true, result: first.result });
+  const stored = repository.getAttemptForPlayer({
+    attemptId: attempt.id,
+    chainId: PRINCIPAL.chain,
+    playerIAddress: PRINCIPAL.iAddress,
+  });
+  assert.equal(stored.status, 'completed');
+  assert.equal(stored.result_hash.length, 64);
+  database.close();
+});
+
+test('action validation rejects unknown words and conflicting action reuse', () => {
+  const { database, repository, service } = setup();
+  createRound(repository);
+  repository.openRound({
+    id: 'round-record-1',
+    commitmentTxid: 'a'.repeat(64),
+  });
+  const { attempt } = service.reserveAttempt({
+    principal: PRINCIPAL,
+    roundId: 'round-record-1',
+  });
+  assert.throws(
+    () =>
+      service.submitAction({
+        principal: PRINCIPAL,
+        attemptId: attempt.id,
+        action: {
+          actionId: 'action-0001',
+          sequence: 1,
+          type: 'guess',
+          payload: { word: 'zzzzz' },
+          gameVersion: '1.0.0',
+        },
+      }),
+    (error) => error.code === 'GUESS_NOT_IN_DICTIONARY' && error.httpStatus === 400,
+  );
+  service.submitAction({
+    principal: PRINCIPAL,
+    attemptId: attempt.id,
+    action: {
+      actionId: 'action-0001',
+      sequence: 1,
+      type: 'guess',
+      payload: { word: 'slate' },
+      gameVersion: '1.0.0',
+    },
+  });
+  assert.throws(
+    () =>
+      service.submitAction({
+        principal: PRINCIPAL,
+        attemptId: attempt.id,
+        action: {
+          actionId: 'action-0001',
+          sequence: 1,
+          type: 'guess',
+          payload: { word: 'apple' },
+          gameVersion: '1.0.0',
+        },
+      }),
+    (error) => error.code === 'ACTION_ID_CONFLICT',
   );
   database.close();
 });

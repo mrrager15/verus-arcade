@@ -61,6 +61,20 @@ export function createDailyRouter({ dailyService, resolveSession }) {
     }
   });
 
+  router.post('/attempts/:attemptId/actions', (request, response, next) => {
+    try {
+      response.json(
+        dailyService.submitAction({
+          principal: request.principal,
+          attemptId: request.params.attemptId,
+          action: request.body,
+        }),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.use((error, _request, response, next) => {
     if (!(error instanceof DailyServiceError)) return next(error);
     response.status(error.httpStatus).json({

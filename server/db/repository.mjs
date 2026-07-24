@@ -98,28 +98,40 @@ export class ArcadeRepository {
     gameVersion,
     roundId,
     commitmentHash,
+    privateDefinition,
     opensAt,
     closesAt,
     now,
   }) {
-    this.database
-      .prepare(`
-        INSERT INTO rounds (
-          id, chain_id, game_id, game_version, round_id, mode, status,
-          commitment_hash, opens_at_ms, closes_at_ms, created_at_ms
-        ) VALUES (?, ?, ?, ?, ?, 'daily', 'commit_pending', ?, ?, ?, ?)
-      `)
-      .run(
-        id,
-        chainId,
-        gameId,
-        gameVersion,
-        roundId,
-        commitmentHash,
-        opensAt,
-        closesAt,
-        now,
-      );
+    return inImmediateTransaction(this.database, () => {
+      this.database
+        .prepare(`
+          INSERT INTO rounds (
+            id, chain_id, game_id, game_version, round_id, mode, status,
+            commitment_hash, opens_at_ms, closes_at_ms, created_at_ms
+          ) VALUES (?, ?, ?, ?, ?, 'daily', 'commit_pending', ?, ?, ?, ?)
+        `)
+        .run(
+          id,
+          chainId,
+          gameId,
+          gameVersion,
+          roundId,
+          commitmentHash,
+          opensAt,
+          closesAt,
+          now,
+        );
+      if (privateDefinition) {
+        this.database
+          .prepare(`
+            INSERT INTO round_private_definitions (
+              round_record_id, definition_json, created_at_ms
+            ) VALUES (?, ?, ?)
+          `)
+          .run(id, JSON.stringify(privateDefinition), now);
+      }
+    });
   }
 
   openRound({ id, commitmentTxid }) {
@@ -146,6 +158,39 @@ export class ArcadeRepository {
     return this.database.prepare('SELECT * FROM rounds WHERE id = ?').get(id) ?? null;
   }
 
+  getRoundForAttempt(attempt) {
+    return (
+      this.database
+        .prepare(`
+          SELECT *
+          FROM rounds
+          WHERE chain_id = ?
+            AND game_id = ?
+            AND game_version = ?
+            AND round_id = ?
+            AND mode = ?
+        `)
+        .get(
+          attempt.chain_id,
+          attempt.game_id,
+          attempt.game_version,
+          attempt.round_id,
+          attempt.mode,
+        ) ?? null
+    );
+  }
+
+  getRoundPrivateDefinition(id) {
+    const row = this.database
+      .prepare(`
+        SELECT definition_json
+        FROM round_private_definitions
+        WHERE round_record_id = ?
+      `)
+      .get(id);
+    return row ? JSON.parse(row.definition_json) : null;
+  }
+
   getAttemptForPlayer({ attemptId, chainId, playerIAddress }) {
     return (
       this.database
@@ -156,6 +201,24 @@ export class ArcadeRepository {
         `)
         .get(attemptId, chainId, playerIAddress) ?? null
     );
+  }
+
+  getAttemptAction({ attemptId, actionId }) {
+    const row = this.database
+      .prepare(`
+        SELECT action_id, sequence, action_hash, response_json
+        FROM attempt_actions
+        WHERE attempt_id = ? AND action_id = ?
+      `)
+      .get(attemptId, actionId);
+    return row
+      ? {
+          actionId: row.action_id,
+          sequence: Number(row.sequence),
+          actionHash: row.action_hash,
+          response: JSON.parse(row.response_json),
+        }
+      : null;
   }
 
   reserveDailyAttempt({
@@ -211,6 +274,8 @@ export class ArcadeRepository {
     canonicalAction,
     actionHash,
     response,
+    terminal = false,
+    resultHash = null,
     now,
   }) {
     if (!Number.isSafeInteger(sequence) || sequence < 1) {
@@ -226,13 +291,6 @@ export class ArcadeRepository {
           'Attempt does not exist',
         );
       }
-      if (!['reserved', 'active'].includes(attempt.status)) {
-        throw new RepositoryConflictError(
-          'ATTEMPT_NOT_ACTIVE',
-          `Attempt does not accept actions in status ${attempt.status}`,
-        );
-      }
-
       const existingAction = this.database
         .prepare(`
           SELECT action_id, sequence, action_hash, response_json
@@ -253,6 +311,13 @@ export class ArcadeRepository {
         throw new RepositoryConflictError(
           'ACTION_ID_CONFLICT',
           'Action ID was already used with different content',
+        );
+      }
+
+      if (!['reserved', 'active'].includes(attempt.status)) {
+        throw new RepositoryConflictError(
+          'ATTEMPT_NOT_ACTIVE',
+          `Attempt does not accept actions in status ${attempt.status}`,
         );
       }
 
@@ -305,10 +370,21 @@ export class ArcadeRepository {
       this.database
         .prepare(`
           UPDATE attempts
-          SET status = 'active', updated_at_ms = ?
-          WHERE id = ? AND status = 'reserved'
+          SET status = ?,
+              updated_at_ms = ?,
+              completed_at_ms = CASE WHEN ? THEN ? ELSE completed_at_ms END,
+              result_hash = CASE WHEN ? THEN ? ELSE result_hash END
+          WHERE id = ?
         `)
-        .run(now, attemptId);
+        .run(
+          terminal ? 'completed' : 'active',
+          now,
+          terminal ? 1 : 0,
+          now,
+          terminal ? 1 : 0,
+          resultHash,
+          attemptId,
+        );
       return { replayed: false, response };
     });
   }

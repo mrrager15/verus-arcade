@@ -80,6 +80,7 @@ test('v1 API returns 201 for reservation and 200 for idempotent resume', async (
       gameVersion: '1.0.0',
       roundId: '2026-07-25',
       commitmentHash: 'commitment-hash',
+      privateDefinition: { answer: 'crane', salt: 'test-salt' },
       opensAt: 1_000,
       closesAt: 10_000,
       now: 500,
@@ -106,6 +107,24 @@ test('v1 API returns 201 for reservation and 200 for idempotent resume', async (
     );
     assert.equal(attempt.status, 200);
     assert.equal((await attempt.json()).attempt.id, 'attempt-generated');
+
+    const action = {
+      actionId: 'action-0001',
+      sequence: 1,
+      type: 'guess',
+      payload: { word: 'crane' },
+      gameVersion: '1.0.0',
+    };
+    const actionResponse = await fetch(
+      `${context.baseUrl}/attempts/attempt-generated/actions`,
+      {
+        method: 'POST',
+        headers: { ...authorization, 'content-type': 'application/json' },
+        body: JSON.stringify(action),
+      },
+    );
+    assert.equal(actionResponse.status, 200);
+    assert.equal((await actionResponse.json()).result.solved, true);
   } finally {
     await close(context);
   }
@@ -121,6 +140,7 @@ test('v1 API returns stable round-not-open error without creating an attempt', a
       gameVersion: '1.0.0',
       roundId: '2026-07-25',
       commitmentHash: 'commitment-hash',
+      privateDefinition: { answer: 'crane', salt: 'test-salt' },
       opensAt: 1_000,
       closesAt: 10_000,
       now: 500,

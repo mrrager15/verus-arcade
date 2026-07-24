@@ -19,7 +19,10 @@ test('migrations are ordered and idempotent', () => {
       .prepare('SELECT version, filename FROM schema_migrations ORDER BY version')
       .all()
       .map((row) => ({ version: Number(row.version), filename: row.filename })),
-    [{ version: 1, filename: '001_initial.sql' }],
+    [
+      { version: 1, filename: '001_initial.sql' },
+      { version: 2, filename: '002_round_private_definition.sql' },
+    ],
   );
   assert.equal(database.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
   database.close();

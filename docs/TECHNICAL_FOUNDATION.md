@@ -98,11 +98,23 @@ The new service and `/api/v1` router implement the first database-backed API sli
 - `GET /api/v1/me`;
 - `POST /api/v1/rounds/:roundId/attempts`;
 - `GET /api/v1/attempts/:attemptId`.
+- `POST /api/v1/attempts/:attemptId/actions`.
 
 Daily reservation requires a chain-bound session, matching round chain, an open time
 window, and a recorded commitment transaction. A new reservation returns HTTP 201; an
 idempotent resume returns HTTP 200. Attempt lookup is scoped to the authenticated
 identity and deliberately returns not-found to other identities.
+
+Word-grid action submission is server-authoritative:
+
+- the request contains only identity-bound attempt context, action ID, sequence,
+  game version, type, and guessed word;
+- the server normalizes and validates the word against the versioned dictionary;
+- duplicate-letter feedback is computed by the portable game engine;
+- answer, feedback, terminal state, and result hash are never accepted from the client;
+- feedback and attempt transition commit atomically;
+- the answer is returned only after solve or the sixth accepted guess;
+- exact action retries return the stored response even after terminal completion.
 
 The router is dependency-injected into the shared application. It is not enabled by
 the legacy JSON engine; server bootstrap will enable it only after a durable SQLite

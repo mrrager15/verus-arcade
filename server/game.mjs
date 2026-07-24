@@ -58,6 +58,10 @@ export function registerSession(token, user) {
   sessions.register(token, user);
 }
 
+export function resolveSession(token) {
+  return sessions.resolve(token);
+}
+
 // Dev convenience: ARCADE_DEV_TOKEN=xyz node server/auth.mjs registers a fixed
 // session for API testing without a wallet. Never set this in production.
 if (process.env.ARCADE_DEV_TOKEN) {

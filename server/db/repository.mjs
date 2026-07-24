@@ -91,6 +91,73 @@ export class ArcadeRepository {
     );
   }
 
+  createRound({
+    id,
+    chainId,
+    gameId,
+    gameVersion,
+    roundId,
+    commitmentHash,
+    opensAt,
+    closesAt,
+    now,
+  }) {
+    this.database
+      .prepare(`
+        INSERT INTO rounds (
+          id, chain_id, game_id, game_version, round_id, mode, status,
+          commitment_hash, opens_at_ms, closes_at_ms, created_at_ms
+        ) VALUES (?, ?, ?, ?, ?, 'daily', 'commit_pending', ?, ?, ?, ?)
+      `)
+      .run(
+        id,
+        chainId,
+        gameId,
+        gameVersion,
+        roundId,
+        commitmentHash,
+        opensAt,
+        closesAt,
+        now,
+      );
+  }
+
+  openRound({ id, commitmentTxid }) {
+    if (!/^[0-9a-f]{64}$/.test(commitmentTxid)) {
+      throw new Error('Commitment transaction ID must be 64 lowercase hex characters');
+    }
+    const updated = this.database
+      .prepare(`
+        UPDATE rounds
+        SET status = 'open', commitment_txid = ?
+        WHERE id = ? AND status = 'commit_pending' AND commitment_txid IS NULL
+      `)
+      .run(commitmentTxid, id);
+    if (updated.changes !== 1) {
+      throw new RepositoryConflictError(
+        'ROUND_STATE_CONFLICT',
+        'Round is missing or cannot transition to open',
+      );
+    }
+    return this.getRound(id);
+  }
+
+  getRound(id) {
+    return this.database.prepare('SELECT * FROM rounds WHERE id = ?').get(id) ?? null;
+  }
+
+  getAttemptForPlayer({ attemptId, chainId, playerIAddress }) {
+    return (
+      this.database
+        .prepare(`
+          SELECT *
+          FROM attempts
+          WHERE id = ? AND chain_id = ? AND player_i_address = ?
+        `)
+        .get(attemptId, chainId, playerIAddress) ?? null
+    );
+  }
+
   reserveDailyAttempt({
     attemptId,
     chainId,

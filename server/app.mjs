@@ -12,7 +12,8 @@
  */
 import express from 'express';
 import { verusAuth } from 'verus-connect/server';
-import { gameRouter, registerSession } from './game.mjs';
+import { gameRouter, registerSession, resolveSession } from './game.mjs';
+import { createDailyRouter } from './daily-router.mjs';
 import { loadConfig } from './config.mjs';
 import { createSessionToken } from './session-store.mjs';
 
@@ -20,7 +21,7 @@ const runtime = loadConfig();
 const confOverrides = { [runtime.network]: runtime.confPath };
 
 /** Build the Express app with /verus (auth) and /api (game) mounted. */
-export function makeArcadeApp() {
+export function makeArcadeApp({ dailyService = null } = {}) {
   const app = express();
 
   app.use(
@@ -49,6 +50,12 @@ export function makeArcadeApp() {
   );
 
   app.use('/api', gameRouter);
+  if (dailyService) {
+    app.use(
+      '/api/v1',
+      createDailyRouter({ dailyService, resolveSession }),
+    );
+  }
   return app;
 }
 

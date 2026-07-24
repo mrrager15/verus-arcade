@@ -91,6 +91,23 @@ The chain transaction journal now enforces:
 - reconciliation from `uncertain` to `submitted`, `confirmed`, or `failed`;
 - terminal confirmed and failed states.
 
+### Daily application service and HTTP contract
+
+The new service and `/api/v1` router implement the first database-backed API slice:
+
+- `GET /api/v1/me`;
+- `POST /api/v1/rounds/:roundId/attempts`;
+- `GET /api/v1/attempts/:attemptId`.
+
+Daily reservation requires a chain-bound session, matching round chain, an open time
+window, and a recorded commitment transaction. A new reservation returns HTTP 201; an
+idempotent resume returns HTTP 200. Attempt lookup is scoped to the authenticated
+identity and deliberately returns not-found to other identities.
+
+The router is dependency-injected into the shared application. It is not enabled by
+the legacy JSON engine; server bootstrap will enable it only after a durable SQLite
+adapter is available.
+
 Migration and repository tests currently use Node's in-memory SQLite implementation as
 a test adapter only. Production targets `better-sqlite3` on Node 22. The native package
 could not be installed on this development machine because it runs unsupported Node 24

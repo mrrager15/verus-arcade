@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "type": "verus-arcade-storage-poc",
+  "fixture": "small-json",
+  "network": "vrsctest",
+  "message": "Verus Arcade storage proof of concept",
+  "sequence": 1
+}

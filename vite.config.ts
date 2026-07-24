@@ -4,8 +4,8 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
 	server: {
-		// Frontend (5173) praat via deze proxy met de auth-server (8100);
-		// de wallet-callback gaat rechtstreeks naar 8100 via het LAN-IP.
+		// The frontend (5173) reaches the auth server (8100) through this proxy;
+		// the wallet callback connects directly to port 8100 through the LAN IP.
 		proxy: {
 			'/verus': 'http://localhost:8100',
 			'/api': 'http://localhost:8100'

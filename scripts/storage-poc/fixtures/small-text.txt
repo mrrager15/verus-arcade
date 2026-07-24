@@ -1,0 +1,7 @@
+Verus Arcade storage proof of concept
+
+This deterministic UTF-8 fixture verifies that a small file can be stored under a
+VDXF key, retrieved from a VRSCTEST identity, and compared byte-for-byte.
+
+Network: VRSCTEST
+Schema: storage-poc/v1

@@ -166,6 +166,53 @@ Observed VRSCTEST result:
 - `sendrawtransaction` was never called;
 - the identity transaction anchor remained unchanged.
 
+### Round commitment coordinator
+
+The coordinator validates the closed version-1 hidden round schema, canonicalizes it,
+hashes it with SHA-256, stores the private definition operationally, and sends only the
+public commitment object to the gateway. A round remains `commit_pending` through
+preparation and submission and transitions to `open` only after the journaled
+transaction is confirmed.
+
+Experimental VRSCTEST commitment key:
+
+- URI: `Arcade::round.commitment.v1`;
+- VDXF ID: `i5m7tdxizT2PWqLakjjdwsnMAoUqFQXEj7`.
+
+The full real-daemon preparation test is non-broadcast:
+
+```powershell
+$env:VERUS_ROUND_TEST_ACK='PREPARE_VRSCTEST_ROUND_COMMITMENT_RETURNTX'
+node scripts/integration/round-commitment-returntx.mjs
+```
+
+Broadcast testing uses a separate durable lifecycle runner. Its SQLite database lives
+under gitignored `server/data`; hidden definition and journal survive process restarts.
+Preparation, submission, and reconciliation require different explicit
+acknowledgements and are never combined implicitly.
+
+Observed durable VRSCTEST lifecycle result:
+
+- round: `word-grid:1.0.0:2026-07-27`;
+- public hidden-definition commitment:
+  `8333d89d56147a4098ad09d182859c2d0b72327dbdc9f81c9ad408296c194f7f`;
+- transaction:
+  `b06d005b08ffb4f2d8bf91d83b0352db84117582623271c8bd8cf480b33a0113`;
+- serialized transaction size: 1,462 bytes;
+- confirmation block:
+  `00000001853e186fb91c1b912353069da0e513d5c30ecc67edbbe32be968b1e6`;
+- confirmation time: `2026-07-24T23:23:07Z`;
+- after one confirmation, the journal transitioned to `confirmed` and the round to
+  `open`;
+- the hidden definition remained in the operational database and was not included in
+  the public commitment;
+- the identity contained four VDXF keys after the update, and all three earlier storage
+  fixtures remained byte-identical.
+
+`open` is the persisted commitment state. The Daily service independently enforces
+`opensAt` and `closesAt`, so this future-dated test round cannot accept ranked attempts
+before `2026-07-27T00:00:00Z`.
+
 Migration and repository tests currently use Node's in-memory SQLite implementation as
 a test adapter only. Production targets `better-sqlite3` on Node 22. The native package
 could not be installed on this development machine because it runs unsupported Node 24

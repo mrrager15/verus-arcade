@@ -104,6 +104,28 @@ export class ArcadeRepository {
     now,
   }) {
     return inImmediateTransaction(this.database, () => {
+      const existing = this.database
+        .prepare('SELECT * FROM rounds WHERE id = ?')
+        .get(id);
+      if (existing) {
+        const storedDefinition = this.getRoundPrivateDefinition(id);
+        const same =
+          existing.chain_id === chainId &&
+          existing.game_id === gameId &&
+          existing.game_version === gameVersion &&
+          existing.round_id === roundId &&
+          existing.commitment_hash === commitmentHash &&
+          Number(existing.opens_at_ms) === opensAt &&
+          Number(existing.closes_at_ms) === closesAt &&
+          JSON.stringify(storedDefinition) === JSON.stringify(privateDefinition ?? null);
+        if (!same) {
+          throw new RepositoryConflictError(
+            'ROUND_DEFINITION_CONFLICT',
+            'Round ID was already used for a different definition',
+          );
+        }
+        return { created: false, round: existing };
+      }
       this.database
         .prepare(`
           INSERT INTO rounds (
@@ -131,6 +153,7 @@ export class ArcadeRepository {
           `)
           .run(id, JSON.stringify(privateDefinition), now);
       }
+      return { created: true, round: this.getRound(id) };
     });
   }
 

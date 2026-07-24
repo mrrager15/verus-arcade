@@ -1,6 +1,6 @@
 # ADR-004 — Round-Level On-Chain Proof Records
 
-Status: Provisional, pending Verus Storage PoC  
+Status: Accepted for MVP, with open operational validation
 Date: 2026-07-25  
 Owners: Verus Arcade maintainers
 
@@ -129,7 +129,24 @@ game loop.
 
 ## Storage PoC validation
 
-The provisional decision becomes Accepted or is superseded after measuring:
+VRSCTEST measurements accepted this decision:
+
+- three successive identity updates preserved all prior keys and round-tripped the
+  sentinel, JSON fixture, and file fixture byte-identically;
+- the writes used 870, 1,051, and 1,311 serialized bytes with fees of 0.0002, 0.0003,
+  and 0.0005 VRSCTEST respectively;
+- signed, non-broadcast boundary transactions succeeded through a 5,120-byte logical
+  replacement payload and failed at 5,632 bytes for the tested identity state;
+- therefore full result bundles and general assets are not placed directly in a single
+  identity value;
+- compact commitments, reveals, roots, hashes, schema metadata, and retrieval
+  references remain appropriate on-chain records.
+
+Independent-node retrieval, uncertain-submit reconciliation, and production
+serialization of identity writes remain required before public launch. They do not
+change the round-level record decision.
+
+Validation continues for:
 
 - VDXF key derivation and retrieval;
 - identity replacement/merge behavior;

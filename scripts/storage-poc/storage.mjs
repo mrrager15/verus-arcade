@@ -20,6 +20,18 @@ export function sha256Hex(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+export function identityStateFingerprint(result) {
+  const identity = result?.identity ?? result;
+  return sha256Hex(
+    JSON.stringify({
+      txid: result?.txid ?? null,
+      vout: result?.vout ?? null,
+      identityaddress: identity?.identityaddress ?? null,
+      contentmultimap: identity?.contentmultimap ?? {},
+    }),
+  );
+}
+
 export async function resolvePocKeys() {
   const resolved = {};
   for (const [name, uri] of Object.entries(VDXF_URIS)) {
@@ -41,10 +53,19 @@ export async function readPocIdentity() {
 }
 
 export async function writeMergedValue({ vdxfid, encodedHex }) {
-  const { info, identity } = await readPocIdentity();
+  const { info, result, identity } = await readPocIdentity();
+  const expectedStateFingerprint = identityStateFingerprint(result);
   const before = structuredClone(identity.contentmultimap ?? {});
   const merged = structuredClone(before);
   merged[vdxfid] = [encodedHex];
+
+  const latest = await readPocIdentity();
+  const latestStateFingerprint = identityStateFingerprint(latest.result);
+  if (latestStateFingerprint !== expectedStateFingerprint) {
+    throw new Error(
+      'Refusing write: identity changed after read; reload, merge, and retry explicitly',
+    );
+  }
 
   const txid = await rpc('updateidentity', [
     {
@@ -56,6 +77,7 @@ export async function writeMergedValue({ vdxfid, encodedHex }) {
   return {
     txid,
     preWriteHeight: info.blocks,
+    expectedStateFingerprint,
     beforeKeyCount: Object.keys(before).length,
     beforeValueCount: Object.values(before).reduce(
       (total, values) => total + (Array.isArray(values) ? values.length : 0),

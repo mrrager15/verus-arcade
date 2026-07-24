@@ -9,6 +9,7 @@ import {
 } from './config.mjs';
 import {
   hexToUtf8,
+  identityStateFingerprint,
   sha256Hex,
   utf8ToHex,
 } from './storage.mjs';
@@ -51,4 +52,39 @@ test('write acknowledgement must match exactly', () => {
     if (original === undefined) delete process.env.STORAGE_POC_ACK;
     else process.env.STORAGE_POC_ACK = original;
   }
+});
+
+test('hex decoding rejects no bytes for deterministic UTF-8 fixtures', () => {
+  for (const size of [1, 1024, 4096, 16384]) {
+    const unit = 'VERUS-ARCADE-STORAGE-POC-BOUNDARY-V1\n';
+    const source = unit.repeat(Math.ceil(size / unit.length)).slice(0, size);
+    assert.equal(Buffer.byteLength(source, 'utf8'), size);
+    assert.equal(Buffer.byteLength(hexToUtf8(utf8ToHex(source)), 'utf8'), size);
+  }
+});
+
+test('identity fingerprint changes with its transaction anchor or content', () => {
+  const baseline = {
+    txid: 'a'.repeat(64),
+    vout: 0,
+    identity: {
+      identityaddress: 'i-test',
+      contentmultimap: { 'i-key': ['00'] },
+    },
+  };
+  assert.equal(identityStateFingerprint(baseline), identityStateFingerprint(baseline));
+  assert.notEqual(
+    identityStateFingerprint(baseline),
+    identityStateFingerprint({ ...baseline, txid: 'b'.repeat(64) }),
+  );
+  assert.notEqual(
+    identityStateFingerprint(baseline),
+    identityStateFingerprint({
+      ...baseline,
+      identity: {
+        ...baseline.identity,
+        contentmultimap: { 'i-key': ['01'] },
+      },
+    }),
+  );
 });

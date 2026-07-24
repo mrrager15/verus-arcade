@@ -172,7 +172,7 @@ than only the requested key.
 - Record serialized transaction size, fees, outputs, and retrieval latency.
 - Stop before an unsafe or unexpectedly expensive transaction.
 
-Status: small-file transaction submitted; boundary tests pending.
+Status: small-file confirmed; initial boundary tests completed.
 
 Small-file submission:
 
@@ -186,7 +186,28 @@ Small-file submission:
 | Serialized transaction bytes | 1,311 |
 | Wallet fee | 0.0005 VRSCTEST |
 | Submitted content keys | 3 |
-| Current state | Accepted in mempool; awaiting first confirmation |
+| Confirmation evidence | 9 confirmations at local height `1,161,072` |
+
+All three stored values were retrieved after confirmation. Their byte lengths and
+SHA-256 hashes matched their fixtures exactly.
+
+Signed `returntx=true` measurements were used for larger payloads. These transactions
+were constructed but never broadcast:
+
+| Logical payload | Serialized transaction | Result |
+|---:|---:|---|
+| 1,024 bytes | 1,918 bytes | Constructed |
+| 4,096 bytes | 4,990 bytes | Constructed |
+| 4,608 bytes | 5,502 bytes | Constructed |
+| 5,120 bytes | 6,014 bytes | Constructed |
+| 5,632 bytes | n/a | Rejected: `Invalid JSON ID parameter` |
+| 6,144 bytes | n/a | Rejected: `Invalid JSON ID parameter` |
+| 16,384 bytes | n/a | Rejected: `Invalid JSON ID parameter` |
+
+This is a contextual limit for the tested daemon, identity state, and encoding—not a
+portable protocol constant. Arcade adopts a conservative design limit below the
+observed boundary and will not store result bundles or general files directly in one
+identity value.
 
 ### P5 — Signing, MMR, and encryption
 
@@ -229,9 +250,48 @@ Encryption remains experimental and must not be used for application secrets yet
 - Concurrent identity modification detection.
 - Restart and independent retrieval.
 
-Status: pending.
+Status: safeguards partially completed; operational reconciliation tests pending.
 
-## 6. Measurements per write
+Completed safeguards:
+
+- exact VRSCTEST daemon assertion;
+- dedicated identity allowlist;
+- operation-specific acknowledgement;
+- invalid acknowledgement test;
+- unauthorized identity test;
+- read/merge/read comparison using a transaction-and-content fingerprint;
+- confirmed post-write hash verification.
+
+The second read detects changes before submission, but it cannot provide an atomic
+compare-and-swap with the chain. The production transaction journal must therefore
+serialize writes for one operator identity and reconcile txids after uncertain RPC
+outcomes.
+
+`getidentitycontent` filtering was also tested. With a specific VDXF key, the tested
+daemon returned the complete current identity `contentmultimap`, not a key-only history
+collection. Arcade must parse this response defensively and must not infer independent
+historical indexing from the help text alone.
+
+Independent-node retrieval remains open because this environment currently has only
+one synchronized VRSCTEST node.
+
+## 6. Storage placement decision
+
+Measured evidence supports a hybrid architecture:
+
+| Data class | Authoritative storage |
+|---|---|
+| Active sessions, attempts, actions, jobs | SQLite for MVP; PostgreSQL when ADR-001 triggers apply |
+| Compact round commitments and reveals | Verus identity/VDXF records |
+| Result root, bundle hash, schema and retrieval reference | Verus identity/VDXF records |
+| Full result bundle, replay data and game assets | Content-addressed object/file storage |
+| Public read model and leaderboard cache | Rebuildable operational database |
+
+Native Verus storage is the integrity and public-proof layer. It does not replace the
+transactional database needed for anti-cheat attempt uniqueness, low-latency gameplay,
+sessions, rate limits, or job coordination.
+
+## 7. Measurements per write
 
 - operation ID;
 - daemon and protocol version;
@@ -252,7 +312,7 @@ Status: pending.
 - preservation-sentinel status;
 - sanitized errors and retry behavior.
 
-## 7. Tooling
+## 8. Tooling
 
 Read-only inspection:
 
@@ -270,7 +330,14 @@ node scripts/storage-poc/create-identity-commitment.mjs
 Registration is a separate step after commitment confirmation. This separation prevents
 the script from guessing that an unconfirmed commitment is final.
 
-## 8. Acceptance criteria
+Boundary measurement constructs signed transactions without broadcasting:
+
+```powershell
+$env:STORAGE_POC_ACK='MEASURE_VRSCTEST_STORAGE_POC_PAYLOADS'
+node scripts/storage-poc/measure-payload-boundaries.mjs
+```
+
+## 9. Acceptance criteria
 
 The Storage PoC is complete only when:
 
@@ -285,7 +352,7 @@ The Storage PoC is complete only when:
 - encryption behavior and negative cases are reproduced;
 - ADR-004 is accepted or superseded using measured evidence.
 
-## 9. Sources
+## 10. Sources
 
 - Verus data overview: https://verus.io/build/data
 - Verus PBaaS documentation: https://docs.verus.io/

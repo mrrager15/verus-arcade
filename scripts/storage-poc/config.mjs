@@ -9,6 +9,7 @@ export const ACKNOWLEDGEMENTS = {
   writeSmallJson: 'WRITE_VRSCTEST_STORAGE_POC_SMALL_JSON',
   writeSmallFile: 'WRITE_VRSCTEST_STORAGE_POC_SMALL_FILE',
   testEncryption: 'TEST_VRSCTEST_STORAGE_POC_ENCRYPTION',
+  measurePayloadBoundaries: 'MEASURE_VRSCTEST_STORAGE_POC_PAYLOADS',
 };
 
 export const VDXF_URIS = {

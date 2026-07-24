@@ -9,7 +9,7 @@
  */
 import { makeArcadeApp, config } from './app.mjs';
 
-const PORT = Number(process.env.ARCADE_AUTH_PORT ?? 8100);
+const PORT = config.runtime.authPort;
 const app = makeArcadeApp();
 
 app.listen(PORT, '0.0.0.0', () => {

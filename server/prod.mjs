@@ -12,7 +12,7 @@
 import { handler } from '../build/handler.js';
 import { makeArcadeApp, config } from './app.mjs';
 
-const PORT = Number(process.env.PORT ?? 3003);
+const PORT = config.runtime.productionPort;
 const app = makeArcadeApp();
 
 // Everything not handled by /verus or /api falls through to SvelteKit.

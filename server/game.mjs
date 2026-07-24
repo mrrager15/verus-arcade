@@ -19,6 +19,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { publishState, sha256hex, randomSalt } from './chain.mjs';
+import { loadConfig } from './config.mjs';
+import { SessionStore } from './session-store.mjs';
 import { ANSWERS, pickAnswer } from './words.mjs';
 
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'data');
@@ -47,44 +49,32 @@ const state = loadState();
 const todayUTC = () => new Date().toISOString().slice(0, 10);
 
 // ── Sessions (issued by the login flow in auth.mjs) ──────────────────────────
-// Persisted to disk so a server restart doesn't log everyone out. Tokens are
-// bearer secrets; the file lives in the gitignored data dir.
-
-const SESSIONS_PATH = path.join(DATA_DIR, 'sessions.json');
-
-function loadSessions() {
-  try {
-    return new Map(Object.entries(JSON.parse(fs.readFileSync(SESSIONS_PATH, 'utf8'))));
-  } catch {
-    return new Map();
-  }
-}
-
-const sessions = loadSessions();
-
-function saveSessions() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(SESSIONS_PATH, JSON.stringify(Object.fromEntries(sessions), null, 2));
-}
+// Raw bearer tokens are never persisted. Durable hashed sessions move to SQLite in
+// the next foundation slice; until then a restart intentionally logs everyone out.
+const runtime = loadConfig();
+const sessions = new SessionStore({ ttlSeconds: runtime.sessionTtlSeconds });
 
 export function registerSession(token, user) {
-  sessions.set(token, user);
-  saveSessions();
+  sessions.register(token, user);
 }
 
 // Dev convenience: ARCADE_DEV_TOKEN=xyz node server/auth.mjs registers a fixed
 // session for API testing without a wallet. Never set this in production.
 if (process.env.ARCADE_DEV_TOKEN) {
-  sessions.set(process.env.ARCADE_DEV_TOKEN, {
+  if (runtime.environment === 'production') {
+    throw new Error('ARCADE_DEV_TOKEN is forbidden in production');
+  }
+  sessions.register(process.env.ARCADE_DEV_TOKEN, {
     iAddress: 'iDevTester1111111111111111111111111',
     friendlyName: 'dev.tester@',
+    chain: runtime.network,
   });
   console.log('[game] dev session registered (ARCADE_DEV_TOKEN)');
 }
 
 function auth(req, res, next) {
   const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
-  const user = sessions.get(token);
+  const user = sessions.resolve(token)?.user;
   if (!user) return res.status(401).json({ error: 'Not logged in' });
   req.user = user;
   next();
@@ -221,10 +211,11 @@ gameRouter.get('/state', (req, res) => {
     maxGuesses: MAX_GUESSES,
     commitSha256: cur.commit.sha256,
     commitTxid: cur.commitTxid,
+    rankedAvailable: Boolean(cur.commitTxid),
   };
 
   const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
-  const user = sessions.get(token);
+  const user = sessions.resolve(token)?.user;
   if (user) {
     const play = playFor(cur.round, user.iAddress);
     base.you = {
@@ -240,6 +231,12 @@ gameRouter.get('/state', (req, res) => {
 gameRouter.post('/guess', auth, (req, res) => {
   const cur = currentRound();
   if (!cur) return res.status(503).json({ error: 'No active round' });
+  if (!cur.commitTxid) {
+    return res.status(503).json({
+      error: 'Daily Seed is unavailable until its commitment is confirmed',
+      code: 'COMMITMENT_NOT_CONFIRMED',
+    });
+  }
 
   const guess = String(req.body?.guess ?? '').toLowerCase();
   if (!/^[a-z]{5}$/.test(guess)) {

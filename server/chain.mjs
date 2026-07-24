@@ -13,8 +13,6 @@
  * identity history.
  */
 import crypto from 'node:crypto';
-import { rpc } from './rpc.mjs';
-
 export const ARCADE_ID = 'Arcade@';
 
 // Generated with `getvdxfid` on vrsctest (phase 0). Re-derive when migrating
@@ -24,8 +22,6 @@ export const VDXF_KEYS = {
   reveal: 'iNUaEEzeD5e1aVu3GcSwxDfzKKMoNeYU4p', // arcade::round.reveal
   results: 'iQkPoHuVWQV9kH3ULMF6QhFgiMq8EMXVgs', // arcade::round.results
 };
-
-const toHex = (s) => Buffer.from(s, 'utf8').toString('hex');
 
 export const sha256hex = (s) => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
 
@@ -38,9 +34,10 @@ export const randomSalt = () => crypto.randomBytes(32).toString('hex');
  * Returns the txid.
  */
 export async function publishState({ commit, reveal, results }) {
-  const contentmultimap = {};
-  if (commit) contentmultimap[VDXF_KEYS.commit] = [toHex(JSON.stringify(commit))];
-  if (reveal) contentmultimap[VDXF_KEYS.reveal] = [toHex(JSON.stringify(reveal))];
-  if (results) contentmultimap[VDXF_KEYS.results] = [toHex(JSON.stringify(results))];
-  return rpc('updateidentity', [{ name: ARCADE_ID, contentmultimap }]);
+  void commit;
+  void reveal;
+  void results;
+  throw new Error(
+    'Legacy publisher is disabled: it cannot safely merge identity content. Use the transaction journal and Verus gateway.',
+  );
 }

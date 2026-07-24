@@ -3,11 +3,10 @@
  * Credentials are read from the daemon's own conf file — nothing to configure.
  */
 import fs from 'node:fs';
+import { loadConfig } from './config.mjs';
 
-// Which daemon the round engine writes to (updateidentity for commit/reveal).
-// Dev default: local vrsctest. Prod (VPS): set ARCADE_CONF=/root/.komodo/VRSC/VRSC.conf
-const CONF_PATH =
-  process.env.ARCADE_CONF ?? `${process.env.APPDATA}\\Komodo\\vrsctest\\vrsctest.conf`;
+const runtime = loadConfig();
+const CONF_PATH = runtime.confPath;
 
 function parseConf(path) {
   const out = {};

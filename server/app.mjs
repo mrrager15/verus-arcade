@@ -15,6 +15,7 @@ import { verusAuth } from 'verus-connect/server';
 import { gameRouter, registerSession, resolveSession } from './game.mjs';
 import { createDailyRouter } from './daily-router.mjs';
 import { loadConfig } from './config.mjs';
+import { canonicalLoginPrincipal } from './login-principal.mjs';
 import { createSessionToken } from './session-store.mjs';
 
 const runtime = loadConfig();
@@ -38,11 +39,10 @@ export function makeArcadeApp({ dailyService = null } = {}) {
       debug: runtime.debug,
       onLogin: (login) => {
         const token = createSessionToken();
-        registerSession(token, {
-          iAddress: login.iAddress,
-          friendlyName: login.friendlyName,
-          chain: login.chainName,
-        });
+        registerSession(
+          token,
+          canonicalLoginPrincipal(login, runtime.network),
+        );
         console.log(`[arcade] login verified: ${login.friendlyName} (${login.iAddress}) via ${login.chainName}`);
         return { sessionToken: token };
       },

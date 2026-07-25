@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import { ANSWERS } from './words.mjs';
 import {
   MAX_GUESSES,
   WORD_GRID_GAME_ID,
@@ -357,13 +356,6 @@ export class DailyService {
       word = normalizeGuess(action.payload?.word);
     } catch (error) {
       throw new DailyServiceError('INVALID_GUESS', error.message, 400);
-    }
-    if (!ANSWERS.includes(word)) {
-      throw new DailyServiceError(
-        'GUESS_NOT_IN_DICTIONARY',
-        'Guess is not in the versioned dictionary',
-        400,
-      );
     }
     if (action.sequence > MAX_GUESSES) {
       throw new DailyServiceError('MAX_GUESSES_EXCEEDED', 'Too many guesses', 409);

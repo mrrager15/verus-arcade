@@ -13,10 +13,23 @@ import { ANSWERS } from '../../server/words.mjs';
 const IDENTITY_NAME = 'arcade-storage-poc@';
 const IDENTITY = 'i9ARtCeKDBH84LvevYPoMxtZNxfts3c5SN';
 const COMMITMENT_VDXF_KEY = 'i5m7tdxizT2PWqLakjjdwsnMAoUqFQXEj7';
-const DATE = '2026-07-27';
+const DATE = process.env.VERUS_ROUND_DATE ?? '2026-07-27';
 const RECORD_ID = `word-grid:1.0.0:${DATE}`;
 const OPERATION_KEY = `vrsctest:${RECORD_ID}:commitment:v1`;
+const OPENS_AT = process.env.VERUS_ROUND_OPENS_AT ?? `${DATE}T00:00:00.000Z`;
+const CLOSES_AT =
+  process.env.VERUS_ROUND_CLOSES_AT ?? '2026-07-28T00:00:00.000Z';
 const action = process.argv[2];
+const customSchedule = [
+  process.env.VERUS_ROUND_DATE,
+  process.env.VERUS_ROUND_OPENS_AT,
+  process.env.VERUS_ROUND_CLOSES_AT,
+];
+if (customSchedule.some(Boolean) && !customSchedule.every(Boolean)) {
+  throw new Error(
+    'Set VERUS_ROUND_DATE, VERUS_ROUND_OPENS_AT, and VERUS_ROUND_CLOSES_AT together',
+  );
+}
 
 const acknowledgements = {
   prepare: 'PREPARE_DURABLE_VRSCTEST_ROUND',
@@ -36,7 +49,9 @@ if (process.env.VERUS_ROUND_LIFECYCLE_ACK !== acknowledgements[action]) {
 
 const dataDirectory = path.resolve('server', 'data');
 fs.mkdirSync(dataDirectory, { recursive: true });
-const databasePath = path.join(dataDirectory, 'vrsctest-round-lifecycle.sqlite');
+const databasePath =
+  process.env.ARCADE_DATABASE_PATH ??
+  path.join(dataDirectory, 'vrsctest-round-lifecycle.sqlite');
 const database = new DatabaseSync(databasePath);
 
 try {
@@ -68,8 +83,8 @@ try {
         gameId: 'word-grid',
         gameVersion: '1.0.0',
         date: DATE,
-        opensAt: `${DATE}T00:00:00.000Z`,
-        closesAt: '2026-07-28T00:00:00.000Z',
+        opensAt: OPENS_AT,
+        closesAt: CLOSES_AT,
         puzzleSeed: crypto.randomBytes(32).toString('hex'),
         answer: ANSWERS[crypto.randomInt(0, ANSWERS.length)],
         salt: crypto.randomBytes(32).toString('hex'),

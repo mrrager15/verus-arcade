@@ -219,7 +219,7 @@ test('server-authoritative action solves, persists, and replays exactly', () => 
   database.close();
 });
 
-test('action validation rejects unknown words and conflicting action reuse', () => {
+test('action validation accepts normalized five-letter guesses and rejects conflicting reuse', () => {
   const { database, repository, service } = setup();
   createRound(repository);
   repository.openRound({
@@ -230,21 +230,6 @@ test('action validation rejects unknown words and conflicting action reuse', () 
     principal: PRINCIPAL,
     roundId: 'round-record-1',
   });
-  assert.throws(
-    () =>
-      service.submitAction({
-        principal: PRINCIPAL,
-        attemptId: attempt.id,
-        action: {
-          actionId: 'action-0001',
-          sequence: 1,
-          type: 'guess',
-          payload: { word: 'zzzzz' },
-          gameVersion: '1.0.0',
-        },
-      }),
-    (error) => error.code === 'GUESS_NOT_IN_DICTIONARY' && error.httpStatus === 400,
-  );
   service.submitAction({
     principal: PRINCIPAL,
     attemptId: attempt.id,
@@ -252,7 +237,7 @@ test('action validation rejects unknown words and conflicting action reuse', () 
       actionId: 'action-0001',
       sequence: 1,
       type: 'guess',
-      payload: { word: 'slate' },
+      payload: { word: 'rates' },
       gameVersion: '1.0.0',
     },
   });

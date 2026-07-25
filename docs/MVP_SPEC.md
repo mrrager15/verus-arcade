@@ -146,8 +146,9 @@ avoid implying affiliation with another word-game trademark.
 
 - The answer contains exactly five lowercase English letters `a-z`.
 - The player has at most six guesses.
-- A guess must contain exactly five letters and exist in the versioned allowed-guess
-  dictionary.
+- A v1.0.0 guess must contain exactly five ASCII letters. The curated answer list is
+  intentionally smaller than the accepted-guess space. A future game version may add a
+  separately versioned and hashed allowed-guess dictionary.
 - Feedback for each position is:
   - `correct`: letter and position match;
   - `present`: letter exists elsewhere, subject to duplicate-letter accounting;
@@ -383,7 +384,7 @@ The server validates:
 - action schema and payload size;
 - next sequence number or exact idempotent replay;
 - five-letter normalization;
-- membership in the versioned guess dictionary;
+- conformance to the game version's guess policy;
 - maximum guess count;
 - rate limit.
 

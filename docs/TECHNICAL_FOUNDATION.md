@@ -109,7 +109,8 @@ Word-grid action submission is server-authoritative:
 
 - the request contains only identity-bound attempt context, action ID, sequence,
   game version, type, and guessed word;
-- the server normalizes and validates the word against the versioned dictionary;
+- the v1.0.0 server normalizes every guess to exactly five ASCII letters; its curated
+  list selects fair answers but is not incorrectly used as an exhaustive guess list;
 - duplicate-letter feedback is computed by the portable game engine;
 - answer, feedback, terminal state, and result hash are never accepted from the client;
 - feedback and attempt transition commit atomically;

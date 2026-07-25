@@ -5,6 +5,9 @@ daily round on VRSCTEST. Transaction preparation, submission, and confirmation
 are deliberately separate so every signed payload can be inspected before
 broadcast.
 
+For a short-lived round that can be exercised in one session, first follow
+[`VRSCTEST_E2E.md`](./VRSCTEST_E2E.md).
+
 ## Safety rules
 
 - Run this workflow on `VRSCTEST` only.

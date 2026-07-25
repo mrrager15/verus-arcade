@@ -70,6 +70,37 @@ test('v1 API rejects missing authentication and exposes chain-bound principal', 
   }
 });
 
+test('current round discovery requires no login and exposes no answer', async () => {
+  const context = await setup();
+  try {
+    context.repository.createRound({
+      id: 'round-record-1',
+      chainId: 'vrsctest',
+      gameId: 'word-grid',
+      gameVersion: '1.0.0',
+      roundId: '2026-07-25',
+      commitmentHash: 'b'.repeat(64),
+      privateDefinition: { answer: 'crane', salt: 'secret' },
+      opensAt: 1_000,
+      closesAt: 10_000,
+      now: 500,
+    });
+    context.repository.openRound({
+      id: 'round-record-1',
+      commitmentTxid: 'a'.repeat(64),
+    });
+    const response = await fetch(
+      `${context.baseUrl}/games/word-grid/rounds/current`,
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.round.availability, 'open');
+    assert.equal(JSON.stringify(body).includes('crane'), false);
+  } finally {
+    await close(context);
+  }
+});
+
 test('v1 API returns 201 for reservation and 200 for idempotent resume', async () => {
   const context = await setup();
   try {
@@ -100,6 +131,13 @@ test('v1 API returns 201 for reservation and 200 for idempotent resume', async (
     assert.equal(first.status, 201);
     assert.equal(retry.status, 200);
     assert.equal((await first.json()).attempt.id, (await retry.json()).attempt.id);
+
+    const roundAttempt = await fetch(
+      `${context.baseUrl}/rounds/round-record-1/attempt`,
+      { headers: authorization },
+    );
+    assert.equal(roundAttempt.status, 200);
+    assert.equal((await roundAttempt.json()).attempt.id, 'attempt-generated');
 
     const attempt = await fetch(
       `${context.baseUrl}/attempts/attempt-generated`,

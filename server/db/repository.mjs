@@ -185,6 +185,25 @@ export class ArcadeRepository {
     return this.database.prepare('SELECT * FROM rounds WHERE id = ?').get(id) ?? null;
   }
 
+  getCurrentRound({ chainId, gameId, gameVersion, now }) {
+    return (
+      this.database
+        .prepare(`
+          SELECT *
+          FROM rounds
+          WHERE chain_id = ?
+            AND game_id = ?
+            AND game_version = ?
+            AND mode = 'daily'
+            AND closes_at_ms > ?
+            AND status IN ('commit_pending', 'open')
+          ORDER BY opens_at_ms ASC
+          LIMIT 1
+        `)
+        .get(chainId, gameId, gameVersion, now) ?? null
+    );
+  }
+
   getRoundForAttempt(attempt) {
     return (
       this.database
@@ -228,6 +247,47 @@ export class ArcadeRepository {
         `)
         .get(attemptId, chainId, playerIAddress) ?? null
     );
+  }
+
+  getDailyAttemptForPlayer({
+    chainId,
+    playerIAddress,
+    gameId,
+    gameVersion,
+    roundId,
+  }) {
+    return (
+      this.database
+        .prepare(`
+          SELECT *
+          FROM attempts
+          WHERE chain_id = ?
+            AND player_i_address = ?
+            AND game_id = ?
+            AND game_version = ?
+            AND round_id = ?
+            AND mode = 'daily'
+        `)
+        .get(chainId, playerIAddress, gameId, gameVersion, roundId) ?? null
+    );
+  }
+
+  listAttemptActions(attemptId) {
+    return this.database
+      .prepare(`
+        SELECT action_id, sequence, canonical_action, response_json, created_at_ms
+        FROM attempt_actions
+        WHERE attempt_id = ?
+        ORDER BY sequence
+      `)
+      .all(attemptId)
+      .map((row) => ({
+        actionId: row.action_id,
+        sequence: Number(row.sequence),
+        action: JSON.parse(row.canonical_action),
+        response: JSON.parse(row.response_json),
+        createdAt: Number(row.created_at_ms),
+      }));
   }
 
   getAttemptAction({ attemptId, actionId }) {

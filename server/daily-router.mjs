@@ -21,6 +21,20 @@ export function createDailyRouter({ dailyService, resolveSession }) {
     }
   });
 
+  router.get('/games/word-grid/rounds/current', (_request, response) => {
+    const round = dailyService.getCurrentRound();
+    response.status(round ? 200 : 404).json(
+      round
+        ? { round }
+        : {
+            error: {
+              code: 'ROUND_NOT_FOUND',
+              message: 'No current Word Grid round is scheduled',
+            },
+          },
+    );
+  });
+
   router.use((request, response, next) => {
     const token = bearerToken(request);
     const session = token ? resolveSession(token) : null;
@@ -51,6 +65,19 @@ export function createDailyRouter({ dailyService, resolveSession }) {
         roundId: request.params.roundId,
       });
       response.status(result.created ? 201 : 200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/rounds/:roundId/attempt', (request, response, next) => {
+    try {
+      response.json({
+        attempt: dailyService.getRoundAttempt({
+          principal: request.principal,
+          roundId: request.params.roundId,
+        }),
+      });
     } catch (error) {
       next(error);
     }

@@ -11,14 +11,25 @@
  */
 import { handler } from '../build/handler.js';
 import { makeArcadeApp, config } from './app.mjs';
+import { createRuntimeServices } from './runtime-services.mjs';
 
 const PORT = config.runtime.productionPort;
-const app = makeArcadeApp();
+const services = createRuntimeServices();
+const app = makeArcadeApp({ dailyService: services.dailyService });
 
 // Everything not handled by /verus or /api falls through to SvelteKit.
 app.use(handler);
 
-app.listen(PORT, '127.0.0.1', () => {
+const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`[arcade] production server on 127.0.0.1:${PORT}`);
   console.log(`[arcade] origin: ${config.ORIGIN}  chains: ${config.CHAINS.join(', ')}`);
 });
+
+function shutdown() {
+  server.close(() => {
+    services.close();
+    process.exit(0);
+  });
+}
+process.once('SIGINT', shutdown);
+process.once('SIGTERM', shutdown);

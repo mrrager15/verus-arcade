@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import QRCode from 'qrcode';
+	import DailyGame from '$lib/DailyGame.svelte';
 	import PracticeGame from '$lib/PracticeGame.svelte';
 
 	type LoginStatus = 'restoring' | 'idle' | 'waiting' | 'verified' | 'error';
@@ -13,6 +14,7 @@
 	let qrDataUrl = $state('');
 	let deepLink = $state('');
 	let error = $state('');
+	let activeMode = $state<'practice' | 'daily'>('practice');
 
 	onMount(async () => {
 		const stored = localStorage.getItem(TOKEN_KEY);
@@ -131,30 +133,49 @@
 	</header>
 
 	<section class="modes">
-		<div class="mode-card active">
+		<button
+			class="mode-card"
+			class:active={activeMode === 'practice'}
+			onclick={() => (activeMode = 'practice')}
+		>
 			<p class="number">01</p>
 			<h2>Practice</h2>
 			<p>Unlimited local games. No login, ranking or chain write.</p>
 			<span>Available now</span>
-		</div>
-		<div class="mode-card">
+		</button>
+		<button
+			class="mode-card"
+			class:active={activeMode === 'daily'}
+			onclick={() => (activeMode = 'daily')}
+		>
 			<p class="number">02</p>
 			<h2>Daily Seed</h2>
 			<p>One server-authoritative ranked attempt per VerusID and day.</p>
-			<span>VRSCTEST integration</span>
-		</div>
+			<span>{status === 'verified' ? 'Open Daily' : 'VerusID required'}</span>
+		</button>
 	</section>
 
 	<section class="play-area">
-		<PracticeGame />
+		{#if activeMode === 'practice'}
+			<PracticeGame />
+		{:else if status === 'verified' && user}
+			<DailyGame token={sessionToken} friendlyName={user.friendlyName ?? user.iAddress} />
+		{:else}
+			<div class="daily-gate">
+				<p class="eyebrow">Daily Seed</p>
+				<h2>Authenticate before reserving</h2>
+				<p>
+					Reading the commitment is public. Reserving the single ranked attempt requires a
+					chain-bound VerusID session.
+				</p>
+				<p>No attempt is consumed by opening this screen or starting the login flow.</p>
+			</div>
+		{/if}
 
 		<aside>
 			<p class="eyebrow">Ranked access</p>
 			<h2>Daily Seed uses VerusID</h2>
-			<p>
-				Practice never affects your Daily eligibility. Login is only required when you choose
-				the one-attempt ranked mode.
-			</p>
+			<p>Practice never affects Daily eligibility. Reservation happens only after an explicit warning and confirmation.</p>
 
 			{#if status === 'restoring'}
 				<p class="muted">Restoring VRSCTEST session…</p>
@@ -175,7 +196,7 @@
 					<strong>{user.friendlyName ?? user.iAddress}</strong>
 					<code>{user.iAddress}</code>
 				</div>
-				<p class="muted">The Daily gameplay screen is the next vertical-slice milestone.</p>
+				<button class="login" onclick={() => (activeMode = 'daily')}>Open Daily Seed</button>
 				<button class="text-button" onclick={logout}>Log out</button>
 			{:else}
 				<p class="error">{error}</p>
@@ -208,14 +229,18 @@
 	.capabilities { display:grid; grid-template-columns:1fr 1fr; border-top:1px solid #aebbae; }
 	.capabilities span { padding:.8rem 0; border-bottom:1px solid #cad4ca; color:#59685e; font-size:.78rem; }
 	.modes { max-width:76rem; margin:0 auto 2rem; padding:0 1.5rem; display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
-	.mode-card { border:1px solid #c7d1c7; border-radius:1rem; padding:1.25rem; background:#edf0e9; }
+	.mode-card { border:1px solid #c7d1c7; border-radius:1rem; padding:1.25rem; background:#edf0e9; color:#17231b; text-align:left; cursor:pointer; }
 	.mode-card.active { background:#193d26; color:white; border-color:#193d26; }
 	.mode-card .number { float:right; margin:0; opacity:.55; font-family:monospace; }
 	.mode-card h2 { margin:0 0 .4rem; font-family:Georgia,serif; font-size:1.8rem; font-weight:500; }
 	.mode-card p:not(.number) { margin:.3rem 0 1rem; opacity:.72; }
 	.mode-card span { font-size:.72rem; font-weight:800; text-transform:uppercase; letter-spacing:.08em; }
+	.mode-card:focus-visible { outline:3px solid #77a582; outline-offset:3px; }
 	.play-area { max-width:76rem; margin:auto; padding:2rem 1.5rem 5rem; display:grid; grid-template-columns:minmax(0,1fr) minmax(17rem,.55fr); gap:clamp(2rem,7vw,6rem); align-items:start; }
 	aside { position:sticky; top:1rem; border-left:1px solid #becbbe; padding-left:2rem; }
+	.daily-gate { align-self:start; padding:clamp(1.5rem,5vw,3rem); border:1px solid #c5d1c6; border-radius:1rem; background:#e8ede6; }
+	.daily-gate h2 { margin:.2rem 0 .8rem; font-family:Georgia,serif; font-size:clamp(2rem,6vw,3.5rem); font-weight:500; }
+	.daily-gate p:not(.eyebrow) { color:#5c6b60; line-height:1.6; }
 	aside h2 { margin:.2rem 0 .8rem; font-family:Georgia,serif; font-size:2rem; font-weight:500; }
 	aside > p:not(.eyebrow) { color:#5d6b61; line-height:1.55; }
 	.login { width:100%; border:0; border-radius:.65rem; padding:.85rem 1rem; background:#173e25; color:white; font-weight:800; cursor:pointer; }

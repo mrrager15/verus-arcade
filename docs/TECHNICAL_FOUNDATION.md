@@ -316,11 +316,12 @@ Observed VRSCTEST result:
 - no public reveal record existed before confirmation;
 - `sendrawtransaction` was never called and the identity anchor remained unchanged.
 
-Migration and repository tests currently use Node's in-memory SQLite implementation as
-a test adapter only. Production targets `better-sqlite3` on Node 22. The native package
-could not be installed on this development machine because it runs unsupported Node 24
-and has no compatible prebuilt binary or local C++ toolchain. We do not bypass that
-runtime boundary in production.
+Migration and repository tests use Node's in-memory SQLite implementation. Runtime
+services now use the same `DatabaseSync` API on the pinned Node 22.13+ runtime, enable
+WAL and foreign keys, apply migrations at startup, and default to the gitignored
+`server/data/arcade.sqlite`. `ARCADE_DATABASE_PATH` can select an explicit staging
+database. Dev and production both inject this durable Daily service into `/api/v1`;
+the v1 API is no longer test-only.
 
 ## Next foundation slices
 
@@ -355,3 +356,40 @@ The legacy mainnet selector was removed from the homepage. VerusID login is pres
 only as access to the upcoming ranked Daily screen and sends an explicit `vrsctest`
 chain request. Anonymous Practice remains available if session restoration or wallet
 login fails.
+
+### Daily Seed web flow
+
+The same homepage now switches between mutually exclusive Practice and Daily
+components, preventing simultaneous keyboard handlers. Daily implements:
+
+- public discovery through `GET /api/v1/games/word-grid/rounds/current`;
+- commitment state and receipt display without exposing the hidden definition;
+- read-only existing-attempt lookup that cannot consume eligibility;
+- an explicit one-attempt warning and acknowledgement before reservation;
+- atomic reservation through the v1 service;
+- server-authoritative guesses using UUID action IDs and monotonic sequences;
+- reuse of the exact pending action ID after an uncertain network failure;
+- reconstruction of accepted guesses and terminal result after refresh;
+- separate scheduled, commitment-pending, open, terminal, and unavailable states;
+- a direct link to the public round verifier after completion.
+
+The UI never selects or receives the answer during active play. Color feedback is
+paired with tile content, text status, semantic controls, visible focus behavior, and
+screen-reader live messages.
+
+The durable VRSCTEST pre-start check is:
+
+```powershell
+$env:VERUS_DAILY_UI_ACK='CHECK_VRSCTEST_DAILY_UI_READINESS'
+node scripts/integration/vrsctest-daily-readiness.mjs
+```
+
+Observed against the durable confirmed VRSCTEST round:
+
+- round: `word-grid:1.0.0:2026-07-27`;
+- UI availability: `scheduled`;
+- commitment state: `confirmed`;
+- commitment transaction:
+  `b06d005b08ffb4f2d8bf91d83b0352db84117582623271c8bd8cf480b33a0113`;
+- read-only lookup found no existing attempt and created zero attempts;
+- public discovery and proof responses exposed no answer, salt, or puzzle seed.

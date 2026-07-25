@@ -8,11 +8,22 @@
  * Requires:  verusd running for the configured chains, Arcade@ in the wallet.
  */
 import { makeArcadeApp, config } from './app.mjs';
+import { createRuntimeServices } from './runtime-services.mjs';
 
 const PORT = config.runtime.authPort;
-const app = makeArcadeApp();
+const services = createRuntimeServices();
+const app = makeArcadeApp({ dailyService: services.dailyService });
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[arcade] dev backend on ${config.ORIGIN}  (chains: ${config.CHAINS.join(', ')})`);
-  console.log('[arcade] routes: /verus/* (auth), /api/* (game)');
+  console.log('[arcade] routes: /verus/*, /api/v1/*');
 });
+
+function shutdown() {
+  server.close(() => {
+    services.close();
+    process.exit(0);
+  });
+}
+process.once('SIGINT', shutdown);
+process.once('SIGTERM', shutdown);

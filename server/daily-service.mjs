@@ -32,11 +32,56 @@ function publicAttempt(attempt) {
   };
 }
 
+function publicRound(round, now) {
+  const opensAt = Number(round.opens_at_ms);
+  const closesAt = Number(round.closes_at_ms);
+  const available =
+    round.status === 'open' &&
+    Boolean(round.commitment_txid) &&
+    now >= opensAt &&
+    now < closesAt;
+  return {
+    id: round.id,
+    chainId: round.chain_id,
+    gameId: round.game_id,
+    gameVersion: round.game_version,
+    roundId: round.round_id,
+    mode: round.mode,
+    status: round.status,
+    availability: available
+      ? 'open'
+      : now < opensAt
+        ? 'scheduled'
+        : round.status === 'commit_pending'
+          ? 'commitment-pending'
+          : 'closed',
+    opensAt,
+    closesAt,
+    commitment: {
+      sha256: round.commitment_hash,
+      transaction: round.commitment_txid
+        ? { status: 'confirmed', txid: round.commitment_txid }
+        : { status: 'pending', txid: null },
+    },
+  };
+}
+
 export class DailyService {
   constructor({ repository, clock = () => Date.now(), createId = () => crypto.randomUUID() }) {
     this.repository = repository;
     this.clock = clock;
     this.createId = createId;
+  }
+
+  getCurrentRound() {
+    const now = this.clock();
+    const round = this.repository.getCurrentRound({
+      chainId: 'vrsctest',
+      gameId: WORD_GRID_GAME_ID,
+      gameVersion: WORD_GRID_VERSION,
+      now,
+    });
+    return round ? publicRound(round, now) : null;
   }
 
   reserveAttempt({ principal, roundId }) {
@@ -147,7 +192,38 @@ export class DailyService {
     if (!attempt) {
       throw new DailyServiceError('ATTEMPT_NOT_FOUND', 'Attempt does not exist', 404);
     }
-    return publicAttempt(attempt);
+    const actions = this.repository.listAttemptActions(attempt.id);
+    return {
+      ...publicAttempt(attempt),
+      actions: actions.map((entry) => ({
+        actionId: entry.actionId,
+        sequence: entry.sequence,
+        word: entry.action.payload.word,
+        pattern: entry.response.pattern,
+      })),
+      terminalResult:
+        attempt.status === 'completed' && actions.length > 0
+          ? actions.at(-1).response
+          : null,
+    };
+  }
+
+  getRoundAttempt({ principal, roundId }) {
+    if (!principal?.chain || !principal?.iAddress) {
+      throw new DailyServiceError('NOT_AUTHENTICATED', 'Authentication required', 401);
+    }
+    const round = this.repository.getRound(roundId);
+    if (!round || round.chain_id !== principal.chain) return null;
+    const attempt = this.repository.getDailyAttemptForPlayer({
+      chainId: principal.chain,
+      playerIAddress: principal.iAddress,
+      gameId: round.game_id,
+      gameVersion: round.game_version,
+      roundId: round.round_id,
+    });
+    return attempt
+      ? this.getAttempt({ principal, attemptId: attempt.id })
+      : null;
   }
 
   getAttemptProof({ principal, attemptId }) {

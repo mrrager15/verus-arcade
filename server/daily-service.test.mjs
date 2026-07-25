@@ -75,6 +75,40 @@ test('confirmed open round reserves once and exact retries resume it', () => {
   database.close();
 });
 
+test('current round discovery is public-safe and existing-attempt lookup is read-only', () => {
+  const { database, repository, service } = setup();
+  createRound(repository);
+  repository.openRound({
+    id: 'round-record-1',
+    commitmentTxid: 'a'.repeat(64),
+  });
+  const current = service.getCurrentRound();
+  assert.equal(current.id, 'round-record-1');
+  assert.equal(current.availability, 'open');
+  assert.equal(current.commitment.transaction.status, 'confirmed');
+  assert.equal(JSON.stringify(current).includes('crane'), false);
+  assert.equal(
+    service.getRoundAttempt({ principal: PRINCIPAL, roundId: 'round-record-1' }),
+    null,
+  );
+  assert.equal(
+    database.prepare('SELECT COUNT(*) count FROM attempts').get().count,
+    0,
+  );
+  const reserved = service.reserveAttempt({
+    principal: PRINCIPAL,
+    roundId: 'round-record-1',
+  });
+  assert.equal(
+    service.getRoundAttempt({
+      principal: PRINCIPAL,
+      roundId: 'round-record-1',
+    }).id,
+    reserved.attempt.id,
+  );
+  database.close();
+});
+
 test('round time and chain boundaries fail closed', () => {
   const early = setup({ now: 999 });
   createRound(early.repository);
@@ -175,6 +209,13 @@ test('server-authoritative action solves, persists, and replays exactly', () => 
   });
   assert.equal(stored.status, 'completed');
   assert.equal(stored.result_hash.length, 64);
+  const resumed = service.getAttempt({
+    principal: PRINCIPAL,
+    attemptId: attempt.id,
+  });
+  assert.equal(resumed.actions.length, 1);
+  assert.equal(resumed.actions[0].word, 'crane');
+  assert.equal(resumed.terminalResult.answer, 'crane');
   database.close();
 });
 

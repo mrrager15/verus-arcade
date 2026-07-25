@@ -18,16 +18,20 @@ export class RevealCoordinator {
   async prepare({ roundRecordId }) {
     const round = this.repository.getRound(roundRecordId);
     const definition = this.repository.getRoundPrivateDefinition(roundRecordId);
+    const resultSet = this.repository.getRoundResultSet(roundRecordId);
     if (!round || round.chain_id !== 'vrsctest') {
       throw new Error('Reveal preparation is enabled for VRSCTEST rounds only');
     }
     if (
       round.status !== 'closed' ||
       !round.commitment_txid ||
+      !resultSet?.resultsTxid ||
       !definition ||
       this.clock() < Number(round.closes_at_ms)
     ) {
-      throw new Error('Closed round with confirmed commitment is required');
+      throw new Error(
+        'Closed round with confirmed commitment and results publication is required',
+      );
     }
     if (hiddenDefinitionHash(definition) !== round.commitment_hash) {
       throw new Error('Hidden definition no longer matches the round commitment');

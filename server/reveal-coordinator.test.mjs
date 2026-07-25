@@ -23,7 +23,7 @@ const definition = Object.freeze({
   salt: '22'.repeat(32),
 });
 
-function setup() {
+function setup({ resultsConfirmed = true } = {}) {
   const database = new DatabaseSync(':memory:');
   migrate(database);
   const repository = new ArcadeRepository(database);
@@ -44,6 +44,12 @@ function setup() {
     roundRecordId: definition.roundId,
     now: Date.parse(definition.closesAt),
   });
+  if (resultsConfirmed) {
+    repository.confirmRoundResults({
+      roundRecordId: definition.roundId,
+      resultsTxid: 'b'.repeat(64),
+    });
+  }
   let confirmed = false;
   const calls = [];
   const gateway = {
@@ -122,5 +128,18 @@ test('public reveal appears only after transaction confirmation', async () => {
   });
   assert.equal(confirmed.reveal.revealTxid, TXID);
   assert.equal(context.repository.getRound(definition.roundId).status, 'revealed');
+  context.database.close();
+});
+
+test('reveal cannot be prepared before the results identity update is confirmed', async () => {
+  const context = setup({ resultsConfirmed: false });
+  await assert.rejects(
+    () =>
+      context.coordinator.prepare({
+        roundRecordId: definition.roundId,
+      }),
+    /results publication/,
+  );
+  assert.equal(context.calls.length, 0);
   context.database.close();
 });

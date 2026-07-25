@@ -266,9 +266,10 @@ confirmed results transaction ID.
 ### Round reveal and public verification
 
 Migration `004_round_reveals.sql` separates the private operational definition from the
-confirmed public reveal. Reveal preparation is allowed only after close and after
-transactional result finalization. It refuses to sign when the stored definition no
-longer hashes to the confirmed commitment.
+confirmed public reveal. Reveal preparation is allowed only after close, transactional
+result finalization, and confirmation of the result publication. It refuses to sign
+when the stored definition no longer hashes to the confirmed commitment. Requiring the
+confirmed result transaction also serializes the two updates to the operator VerusID.
 
 The reveal journal and public state have separate lifecycles:
 
@@ -278,6 +279,9 @@ The reveal journal and public state have separate lifecycles:
 - `submit` is explicit and idempotent;
 - `reconcile` copies the definition into the public reveal table and changes the round
   to `revealed` only after chain confirmation.
+
+The complete guarded prepare, inspect, submit, and reconcile procedure is in
+[`OPERATOR_RUNBOOK.md`](./OPERATOR_RUNBOOK.md).
 
 `GET /api/v1/rounds/:roundId/proof` is public and exposes the commitment, optional
 confirmed reveal, compact result descriptor, and their distinct transaction states.

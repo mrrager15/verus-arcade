@@ -57,6 +57,10 @@ try {
     roundRecordId: definition.roundId,
     now: Date.parse(definition.closesAt),
   });
+  repository.confirmRoundResults({
+    roundRecordId: definition.roundId,
+    resultsTxid: 'b'.repeat(64),
+  });
   const gateway = new VerusGateway({
     rpc: { call: rpc },
     repository,

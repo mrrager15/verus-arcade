@@ -332,3 +332,26 @@ runtime boundary in production.
 6. Run integration tests against VRSCTEST.
 
 No legacy JSON gameplay state is considered production-safe during this transition.
+
+## First playable web slice
+
+The homepage now exposes Word Grid Practice immediately without authentication.
+Practice is deliberately isolated from ranked infrastructure:
+
+- puzzle selection uses rejection-sampled `crypto.getRandomValues()` in the browser;
+- every completed game can be followed by a fresh random puzzle;
+- no session, operational database row, transaction journal entry, or Verus write is
+  created;
+- the UI explicitly labels the mode `Unranked` and `not stored on-chain`;
+- physical keyboard and touch keyboard input share one state machine;
+- layouts and controls are responsive down to narrow mobile screens.
+
+The pure Word Grid v1.0.0 rules moved to `shared/word-grid.mjs`. Server-authoritative
+Daily actions and local Practice now import the exact same normalization,
+duplicate-letter evaluation, terminal-state, and guess-limit implementation. The
+existing immutable engine vectors therefore protect both modes.
+
+The legacy mainnet selector was removed from the homepage. VerusID login is presented
+only as access to the upcoming ranked Daily screen and sends an explicit `vrsctest`
+chain request. Anonymous Practice remains available if session restoration or wallet
+login fails.

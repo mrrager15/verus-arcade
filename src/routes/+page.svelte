@@ -1,188 +1,239 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import QRCode from 'qrcode';
-	import Game from '$lib/Game.svelte';
+	import PracticeGame from '$lib/PracticeGame.svelte';
 
 	type LoginStatus = 'restoring' | 'idle' | 'waiting' | 'verified' | 'error';
+	type User = { friendlyName: string; iAddress: string; chain: string };
 
+	const TOKEN_KEY = 'arcade-session-token';
 	let status: LoginStatus = $state('restoring');
+	let sessionToken = $state('');
+	let user = $state<User | null>(null);
 	let qrDataUrl = $state('');
 	let deepLink = $state('');
 	let error = $state('');
-	let sessionToken = $state('');
-	let user = $state<{ friendlyName: string; iAddress: string; chainName: string } | null>(null);
 
-	const TOKEN_KEY = 'arcade-session-token';
-
-	// Restore a previous session: the backend recognises the stored token and
-	// /api/state answers with a `you` block — no wallet interaction needed.
 	onMount(async () => {
-		const savedChain = localStorage.getItem('arcade-chain');
-		if (savedChain) chain = savedChain;
 		const stored = localStorage.getItem(TOKEN_KEY);
 		if (!stored) {
 			status = 'idle';
 			return;
 		}
 		try {
-			const r = await fetch('/api/state', { headers: { Authorization: `Bearer ${stored}` } });
-			const body = await r.json();
-			if (r.ok && body.you) {
+			const response = await fetch('/api/v1/me', {
+				headers: { authorization: `Bearer ${stored}` }
+			});
+			if (response.ok) {
+				const body = await response.json();
 				sessionToken = stored;
-				user = { friendlyName: body.you.friendlyName, iAddress: body.you.iAddress, chainName: 'VRSCTEST' };
+				user = body.principal;
 				status = 'verified';
 				return;
 			}
 		} catch {
-			/* fall through to login */
+			// A failed restore never blocks anonymous Practice.
 		}
 		localStorage.removeItem(TOKEN_KEY);
 		status = 'idle';
 	});
 
-	let chain = $state('vrsc');
-
 	async function login() {
 		status = 'waiting';
 		error = '';
-		user = null;
-		localStorage.setItem('arcade-chain', chain);
 		try {
-			const r = await fetch('/verus/login', {
+			const response = await fetch('/verus/login', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ chain })
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ chain: 'vrsctest' })
 			});
-			const body = await r.json();
-			if (!r.ok) throw new Error(body.error ?? r.statusText);
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.error ?? response.statusText);
 			deepLink = body.deepLinkPost;
-			qrDataUrl = await QRCode.toDataURL(body.deepLinkPost, { width: 320, margin: 1 });
+			qrDataUrl = await QRCode.toDataURL(body.deepLinkPost, { width: 300, margin: 1 });
 			void poll(body.challengeId);
-		} catch (e) {
+		} catch (caught) {
 			status = 'error';
-			error = e instanceof Error ? e.message : String(e);
+			error = caught instanceof Error ? caught.message : String(caught);
 		}
 	}
 
 	async function poll(challengeId: string) {
 		while (status === 'waiting') {
-			await new Promise((res) => setTimeout(res, 1500));
-			const r = await fetch(`/verus/result/${challengeId}`);
-			if (!r.ok) {
+			await new Promise((resolve) => setTimeout(resolve, 1500));
+			const response = await fetch(`/verus/result/${challengeId}`);
+			if (!response.ok) {
 				status = 'error';
-				error = 'Challenge expired — please try again.';
+				error = 'The login challenge expired. Please try again.';
 				return;
 			}
-			const data = await r.json();
-			if (data.status === 'verified') {
-				user = data;
-				sessionToken = data.data?.sessionToken ?? '';
-				if (sessionToken) localStorage.setItem(TOKEN_KEY, sessionToken);
+			const body = await response.json();
+			if (body.status === 'verified') {
+				sessionToken = body.data?.sessionToken ?? '';
+				if (!sessionToken) {
+					status = 'error';
+					error = 'Login completed without a session token.';
+					return;
+				}
+				localStorage.setItem(TOKEN_KEY, sessionToken);
+				const me = await fetch('/api/v1/me', {
+					headers: { authorization: `Bearer ${sessionToken}` }
+				});
+				const profile = await me.json();
+				user = profile.principal;
 				status = 'verified';
-				return;
 			}
 		}
 	}
 
-	function reset() {
+	function cancelLogin() {
 		status = 'idle';
 		qrDataUrl = '';
 		deepLink = '';
-		user = null;
 		error = '';
-		sessionToken = '';
+	}
+
+	function logout() {
 		localStorage.removeItem(TOKEN_KEY);
+		sessionToken = '';
+		user = null;
+		status = 'idle';
 	}
 </script>
 
-<main>
-	<h1>🕹️ Verus Arcade</h1>
-	<p class="tagline">Provably fair skill games — your name, streak and rating on-chain forever.</p>
+<svelte:head>
+	<title>Verus Arcade</title>
+	<meta
+		name="description"
+		content="Simple games demonstrating VerusID, VDXF, storage and independently verifiable proofs."
+	/>
+</svelte:head>
 
-	{#if status === 'restoring'}
-		<p class="hint">Restoring session…</p>
-	{:else if status === 'idle'}
-		<button onclick={login}>Login with VerusID</button>
-		<p class="chain-pick">
-			<label><input type="radio" bind:group={chain} value="vrsc" /> VRSC (mainnet)</label>
-			<label><input type="radio" bind:group={chain} value="vrsctest" /> VRSCTEST</label>
-		</p>
-		<p class="hint">Scan the QR with Verus Mobile to log in — any VerusID works, login is free and off-chain.</p>
-	{:else if status === 'waiting'}
-		{#if qrDataUrl}
-			<img src={qrDataUrl} alt="Login QR code" />
-			<p class="hint">Scan with Verus Mobile and approve the login request…</p>
-			<details>
-				<summary>deeplink (same device)</summary>
-				<a href={deepLink}>Open in wallet</a>
-			</details>
-		{:else}
-			<p>Creating challenge…</p>
-		{/if}
-		<button class="secondary" onclick={reset}>Cancel</button>
-	{:else if status === 'verified' && user}
-		<Game token={sessionToken} friendlyName={user.friendlyName} />
-		<button class="secondary" onclick={reset}>Log out</button>
-	{:else if status === 'error'}
-		<p class="error">⚠ {error}</p>
-		<button onclick={login}>Try again</button>
-	{/if}
+<main>
+	<nav>
+		<a class="brand" href="/">VERUS <span>ARCADE</span></a>
+		<span class="network">VRSCTEST</span>
+	</nav>
+
+	<header class="hero">
+		<div>
+			<p class="eyebrow">Play · prove · verify</p>
+			<h1>Small games.<br /><em>Verifiable results.</em></h1>
+			<p class="intro">
+				An arcade built to demonstrate VerusID, VDXF and on-chain commitments—starting with
+				one carefully tested word game.
+			</p>
+		</div>
+		<div class="capabilities" aria-label="Verus capabilities">
+			<span>VerusID login</span><span>Daily commitments</span>
+			<span>Result proofs</span><span>Public verification</span>
+		</div>
+	</header>
+
+	<section class="modes">
+		<div class="mode-card active">
+			<p class="number">01</p>
+			<h2>Practice</h2>
+			<p>Unlimited local games. No login, ranking or chain write.</p>
+			<span>Available now</span>
+		</div>
+		<div class="mode-card">
+			<p class="number">02</p>
+			<h2>Daily Seed</h2>
+			<p>One server-authoritative ranked attempt per VerusID and day.</p>
+			<span>VRSCTEST integration</span>
+		</div>
+	</section>
+
+	<section class="play-area">
+		<PracticeGame />
+
+		<aside>
+			<p class="eyebrow">Ranked access</p>
+			<h2>Daily Seed uses VerusID</h2>
+			<p>
+				Practice never affects your Daily eligibility. Login is only required when you choose
+				the one-attempt ranked mode.
+			</p>
+
+			{#if status === 'restoring'}
+				<p class="muted">Restoring VRSCTEST session…</p>
+			{:else if status === 'idle'}
+				<button class="login" onclick={login}>Login with VerusID</button>
+				<p class="muted">VRSCTEST only. Login is off-chain and free.</p>
+			{:else if status === 'waiting'}
+				{#if qrDataUrl}
+					<img class="qr" src={qrDataUrl} alt="VerusID login QR code" />
+					<a class="deeplink" href={deepLink}>Open in Verus Mobile</a>
+				{:else}
+					<p>Creating wallet challenge…</p>
+				{/if}
+				<button class="text-button" onclick={cancelLogin}>Cancel</button>
+			{:else if status === 'verified' && user}
+				<div class="identity">
+					<span>Authenticated on {user.chain}</span>
+					<strong>{user.friendlyName ?? user.iAddress}</strong>
+					<code>{user.iAddress}</code>
+				</div>
+				<p class="muted">The Daily gameplay screen is the next vertical-slice milestone.</p>
+				<button class="text-button" onclick={logout}>Log out</button>
+			{:else}
+				<p class="error">{error}</p>
+				<button class="login" onclick={login}>Try again</button>
+				<button class="text-button" onclick={cancelLogin}>Cancel</button>
+			{/if}
+		</aside>
+	</section>
+
+	<footer>
+		<p>Built on VRSCTEST first. Mainnet remains disabled during development.</p>
+		<a href="https://verus.io/build" rel="noreferrer">Explore Verus development →</a>
+	</footer>
 </main>
 
 <style>
-	main {
-		max-width: 28rem;
-		margin: 10vh auto;
-		text-align: center;
-		font-family: system-ui, sans-serif;
-	}
-	h1 {
-		font-size: 2.2rem;
-		margin-bottom: 0.25rem;
-	}
-	.tagline {
-		color: #666;
-		margin-bottom: 2rem;
-	}
-	button {
-		font-size: 1.1rem;
-		padding: 0.7rem 1.6rem;
-		border-radius: 0.5rem;
-		border: none;
-		background: #3165d4;
-		color: white;
-		cursor: pointer;
-	}
-	button:hover {
-		background: #2851a8;
-	}
-	button.secondary {
-		background: transparent;
-		color: #3165d4;
-		margin-top: 1rem;
-	}
-	img {
-		border: 1px solid #ddd;
-		border-radius: 0.75rem;
-		padding: 0.5rem;
-		background: white;
-	}
-	.hint {
-		color: #888;
-		font-size: 0.9rem;
-	}
-	.chain-pick {
-		display: flex;
-		gap: 1.2rem;
-		justify-content: center;
-		font-size: 0.9rem;
-		color: #555;
-	}
-	.error {
-		color: #c0392b;
-	}
-	details {
-		margin-top: 0.5rem;
-		font-size: 0.85rem;
+	:global(*) { box-sizing:border-box; }
+	:global(body) { margin:0; background:#f3f5ef; color:#17231b; }
+	:global(button), :global(a) { font:inherit; }
+	main { min-height:100vh; font-family:Inter, ui-sans-serif, system-ui, sans-serif; }
+	nav { display:flex; align-items:center; justify-content:space-between; max-width:76rem; margin:auto; padding:1.4rem 1.5rem; border-bottom:1px solid #ccd6cd; }
+	.brand { color:#14261a; text-decoration:none; font-weight:900; letter-spacing:.08em; }
+	.brand span { color:#4d7d58; }
+	.network { border:1px solid #a9baa9; border-radius:999px; padding:.3rem .65rem; color:#4b6551; font-size:.7rem; font-weight:800; letter-spacing:.08em; }
+	.hero { max-width:76rem; margin:auto; padding:clamp(3rem,8vw,7rem) 1.5rem 3rem; display:grid; grid-template-columns:1.5fr .7fr; gap:3rem; align-items:end; }
+	.eyebrow { margin:0 0 .65rem; color:#4d7d58; font-size:.72rem; font-weight:850; letter-spacing:.12em; text-transform:uppercase; }
+	h1 { margin:0; font-family:Georgia, serif; font-size:clamp(3rem,8vw,6.8rem); line-height:.88; letter-spacing:-.055em; font-weight:500; }
+	h1 em { color:#347348; font-weight:500; }
+	.intro { max-width:43rem; margin:1.5rem 0 0; color:#58675d; font-size:clamp(1rem,2vw,1.22rem); line-height:1.6; }
+	.capabilities { display:grid; grid-template-columns:1fr 1fr; border-top:1px solid #aebbae; }
+	.capabilities span { padding:.8rem 0; border-bottom:1px solid #cad4ca; color:#59685e; font-size:.78rem; }
+	.modes { max-width:76rem; margin:0 auto 2rem; padding:0 1.5rem; display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+	.mode-card { border:1px solid #c7d1c7; border-radius:1rem; padding:1.25rem; background:#edf0e9; }
+	.mode-card.active { background:#193d26; color:white; border-color:#193d26; }
+	.mode-card .number { float:right; margin:0; opacity:.55; font-family:monospace; }
+	.mode-card h2 { margin:0 0 .4rem; font-family:Georgia,serif; font-size:1.8rem; font-weight:500; }
+	.mode-card p:not(.number) { margin:.3rem 0 1rem; opacity:.72; }
+	.mode-card span { font-size:.72rem; font-weight:800; text-transform:uppercase; letter-spacing:.08em; }
+	.play-area { max-width:76rem; margin:auto; padding:2rem 1.5rem 5rem; display:grid; grid-template-columns:minmax(0,1fr) minmax(17rem,.55fr); gap:clamp(2rem,7vw,6rem); align-items:start; }
+	aside { position:sticky; top:1rem; border-left:1px solid #becbbe; padding-left:2rem; }
+	aside h2 { margin:.2rem 0 .8rem; font-family:Georgia,serif; font-size:2rem; font-weight:500; }
+	aside > p:not(.eyebrow) { color:#5d6b61; line-height:1.55; }
+	.login { width:100%; border:0; border-radius:.65rem; padding:.85rem 1rem; background:#173e25; color:white; font-weight:800; cursor:pointer; }
+	.text-button { border:0; background:transparent; color:#3f704c; padding:.7rem 0; cursor:pointer; text-decoration:underline; }
+	.muted { color:#77827a!important; font-size:.78rem; }
+	.error { color:#8b2e24!important; }
+	.qr { display:block; width:min(100%,18rem); margin:1rem auto; border-radius:.8rem; }
+	.deeplink { display:block; color:#2e6740; text-align:center; font-weight:700; }
+	.identity { display:grid; gap:.4rem; padding:1rem; background:#e4ebe3; border-radius:.7rem; }
+	.identity span { color:#617067; font-size:.72rem; text-transform:uppercase; }
+	.identity code { overflow-wrap:anywhere; font-size:.68rem; color:#657268; }
+	footer { max-width:76rem; margin:auto; padding:1.5rem; border-top:1px solid #ccd6cd; display:flex; justify-content:space-between; gap:1rem; color:#68756c; font-size:.78rem; }
+	footer a { color:#356c44; }
+	@media (max-width:760px) {
+		.hero { grid-template-columns:1fr; gap:2rem; }
+		.modes { grid-template-columns:1fr; }
+		.play-area { grid-template-columns:1fr; }
+		aside { position:static; border-left:0; border-top:1px solid #becbbe; padding:2rem 0 0; }
+		footer { flex-direction:column; }
 	}
 </style>

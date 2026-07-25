@@ -96,6 +96,17 @@ test('current round discovery requires no login and exposes no answer', async ()
     const body = await response.json();
     assert.equal(body.round.availability, 'open');
     assert.equal(JSON.stringify(body).includes('crane'), false);
+
+    const leaderboard = await fetch(
+      `${context.baseUrl}/rounds/round-record-1/leaderboard`,
+    );
+    assert.equal(leaderboard.status, 200);
+    assert.deepEqual(await leaderboard.json(), {
+      roundId: '2026-07-25',
+      state: 'live',
+      resultRoot: null,
+      entries: [],
+    });
   } finally {
     await close(context);
   }

@@ -315,15 +315,22 @@ export class ArcadeRepository {
     gameId,
     gameVersion,
     roundId,
+    friendlyName = null,
     now,
   }) {
+    if (
+      friendlyName !== null &&
+      (typeof friendlyName !== 'string' || friendlyName.length > 128)
+    ) {
+      throw new Error('Friendly name must be at most 128 characters');
+    }
     return inImmediateTransaction(this.database, () => {
       const inserted = this.database
         .prepare(`
           INSERT INTO attempts (
             id, chain_id, player_i_address, game_id, game_version,
-            round_id, mode, status, reserved_at_ms, updated_at_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, 'daily', 'reserved', ?, ?)
+            round_id, mode, status, reserved_at_ms, updated_at_ms, friendly_name
+          ) VALUES (?, ?, ?, ?, ?, ?, 'daily', 'reserved', ?, ?, ?)
           ON CONFLICT (
             chain_id, player_i_address, game_id, game_version, round_id, mode
           ) DO NOTHING
@@ -337,6 +344,7 @@ export class ArcadeRepository {
           roundId,
           now,
           now,
+          friendlyName,
         );
       const attempt = this.database
         .prepare(`
@@ -352,6 +360,34 @@ export class ArcadeRepository {
         .get(chainId, playerIAddress, gameId, gameVersion, roundId);
       return { created: inserted.changes === 1, attempt };
     });
+  }
+
+  listRoundAttempts(round) {
+    return this.database
+      .prepare(`
+        SELECT
+          a.*,
+          COUNT(aa.sequence) AS guesses_used,
+          MAX(CASE
+            WHEN json_extract(aa.response_json, '$.solved') = 1 THEN 1
+            ELSE 0
+          END) AS solved
+        FROM attempts a
+        LEFT JOIN attempt_actions aa ON aa.attempt_id = a.id
+        WHERE a.chain_id = ?
+          AND a.game_id = ?
+          AND a.game_version = ?
+          AND a.round_id = ?
+          AND a.mode = 'daily'
+        GROUP BY a.id
+        ORDER BY a.player_i_address
+      `)
+      .all(
+        round.chain_id,
+        round.game_id,
+        round.game_version,
+        round.round_id,
+      );
   }
 
   recordAttemptAction({

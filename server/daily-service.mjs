@@ -8,6 +8,7 @@ import {
   normalizeGuess,
 } from './games/word-grid/engine.mjs';
 import { RepositoryConflictError } from './db/repository.mjs';
+import { rankLeaderboard } from './leaderboard.mjs';
 
 export class DailyServiceError extends Error {
   constructor(code, message, httpStatus) {
@@ -119,11 +120,57 @@ export class DailyService {
       gameId: round.game_id,
       gameVersion: round.game_version,
       roundId: round.round_id,
+      friendlyName: principal.friendlyName ?? null,
       now,
     });
     return {
       created: reservation.created,
       attempt: publicAttempt(reservation.attempt),
+    };
+  }
+
+  getLeaderboard({ roundId }) {
+    const round = this.repository.getRound(roundId);
+    if (!round) {
+      throw new DailyServiceError('ROUND_NOT_FOUND', 'Round does not exist', 404);
+    }
+    const resultSet = this.repository.getRoundResultSet(round.id);
+    const attempts = this.repository.listRoundAttempts(round);
+    const presentation = new Map(
+      attempts.map((attempt) => [
+        attempt.player_i_address,
+        attempt.friendly_name ?? null,
+      ]),
+    );
+    const source = resultSet
+      ? resultSet.bundle.map((record) => ({
+          playerIAddress: record.playerIAddress,
+          friendlyName: presentation.get(record.playerIAddress) ?? null,
+          status: record.status,
+          guessesUsed: record.score.guessesUsed,
+        }))
+      : attempts.map((attempt) => ({
+          playerIAddress: attempt.player_i_address,
+          friendlyName: attempt.friendly_name ?? null,
+          status:
+            attempt.status === 'completed'
+              ? Number(attempt.solved) === 1
+                ? 'solved'
+                : 'unsolved'
+              : ['abandoned', 'failed', 'expired'].includes(attempt.status)
+                ? 'abandoned'
+                : 'in_progress',
+          guessesUsed: Number(attempt.guesses_used),
+        }));
+    return {
+      roundId: round.round_id,
+      state: resultSet
+        ? resultSet.resultsTxid
+          ? 'chain-verified'
+          : 'finalized'
+        : 'live',
+      resultRoot: resultSet?.rootSha256 ?? null,
+      entries: rankLeaderboard(source),
     };
   }
 

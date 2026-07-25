@@ -392,4 +392,27 @@ Observed against the durable confirmed VRSCTEST round:
 - commitment transaction:
   `b06d005b08ffb4f2d8bf91d83b0352db84117582623271c8bd8cf480b33a0113`;
 - read-only lookup found no existing attempt and created zero attempts;
-- public discovery and proof responses exposed no answer, salt, or puzzle seed.
+- public discovery and proof responses exposed no answer, salt, or puzzle seed;
+- the mutable pre-round leaderboard returned `live` with zero entries and did not
+  consume eligibility.
+
+### Public leaderboard
+
+Migration `005_attempt_presentation.sql` adds an optional friendly-name snapshot to the
+attempt as presentation data. Identity uniqueness and canonical result records continue
+to use only the chain-bound i-address; changing or omitting a friendly name cannot
+change a score, leaf, root, or eligibility decision.
+
+`GET /api/v1/rounds/:roundId/leaderboard` requires no login and returns:
+
+- `live` rankings from accepted server-authoritative actions;
+- `finalized` rankings rebuilt from the immutable canonical result bundle;
+- `chain-verified` only after the result-root transaction is confirmed;
+- standard competition ties (`1, 1, 3`) based only on solved state and guesses used;
+- deterministic i-address ordering within a tie without implying a better rank;
+- no rank for an attempt that is still in progress.
+
+Solved attempts rank before completed unsolved attempts, which rank before abandoned
+attempts. Completion time is deliberately excluded. The Daily UI displays the proof
+state, shortened i-address reference, optional friendly name, score/status, and
+published result root.

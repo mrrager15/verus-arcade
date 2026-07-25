@@ -39,6 +39,17 @@
 		sequence: number;
 		word: string;
 	};
+	type Leaderboard = {
+		state: 'live' | 'finalized' | 'chain-verified';
+		resultRoot: string | null;
+		entries: Array<{
+			rank: number | null;
+			playerIAddress: string;
+			friendlyName: string | null;
+			status: 'solved' | 'unsolved' | 'abandoned' | 'in_progress';
+			guessesUsed: number;
+		}>;
+	};
 
 	const KEY_ROWS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
 	const headers = () => ({ authorization: `Bearer ${token}` });
@@ -56,6 +67,7 @@
 	let terminal = $state(false);
 	let solved = $state(false);
 	let answer = $state('');
+	let leaderboard = $state<Leaderboard | null>(null);
 
 	onMount(load);
 
@@ -72,6 +84,7 @@
 			if (!response.ok) throw new Error(body.error?.message ?? 'Daily round unavailable.');
 			const discovered: Round = body.round;
 			round = discovered;
+			await loadLeaderboard(discovered.id);
 			const existing = await fetch(`/api/v1/rounds/${encodeURIComponent(discovered.id)}/attempt`, {
 				headers: headers()
 			});
@@ -84,6 +97,14 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function loadLeaderboard(roundId = round?.id) {
+		if (!roundId) return;
+		const response = await fetch(
+			`/api/v1/rounds/${encodeURIComponent(roundId)}/leaderboard`
+		);
+		if (response.ok) leaderboard = await response.json();
 	}
 
 	function restoreAttempt(value: Attempt) {
@@ -168,6 +189,7 @@
 					? `Solved in ${body.result.guessesUsed} guesses.`
 					: `The answer was ${answer.toUpperCase()}.`
 				: '';
+			await loadLeaderboard();
 		} catch (caught) {
 			message =
 				(caught instanceof Error ? caught.message : String(caught)) +
@@ -312,6 +334,41 @@
 	{/if}
 
 	{#if message && !attempt}<p class="message">{message}</p>{/if}
+
+	{#if leaderboard}
+		<section class="leaderboard">
+			<header>
+				<div>
+					<p class="mode">Public leaderboard</p>
+					<h3>Daily standings</h3>
+				</div>
+				<span class="proof-state">{leaderboard.state}</span>
+			</header>
+			{#if leaderboard.entries.length === 0}
+				<p class="empty">No ranked results yet.</p>
+			{:else}
+				<ol>
+					{#each leaderboard.entries as entry}
+						<li>
+							<span class="rank">{entry.rank ?? '—'}</span>
+							<span class="identity-name">
+								<strong>{entry.friendlyName ?? 'VerusID'}</strong>
+								<code>{entry.playerIAddress.slice(0, 9)}…{entry.playerIAddress.slice(-5)}</code>
+							</span>
+							<span class="score">
+								{entry.status === 'solved'
+									? `${entry.guessesUsed}/6`
+									: entry.status.replace('_', ' ')}
+							</span>
+						</li>
+					{/each}
+				</ol>
+			{/if}
+			{#if leaderboard.resultRoot}
+				<code class="root">root {leaderboard.resultRoot}</code>
+			{/if}
+		</section>
+	{/if}
 </section>
 
 <style>
@@ -344,6 +401,18 @@
 	.key { min-width:0; width:2.25rem; height:3.25rem; padding:0; border:0; border-radius:.4rem; background:#dbe2dc; font-size:.85rem; font-weight:800; text-transform:uppercase; cursor:pointer; }
 	.key.action { width:3.8rem; font-size:.65rem; }
 	.state a { color:#2f6e43; font-weight:800; }
+	.leaderboard { margin-top:1.5rem; padding-top:1.2rem; border-top:1px solid #cbd8ce; }
+	.leaderboard header { align-items:center; }
+	.leaderboard h3 { margin:.1rem 0; font-size:1.25rem; }
+	.proof-state { padding:.3rem .55rem; border-radius:999px; background:#e0e9df; color:#3f6549; font-size:.65rem; font-weight:800; text-transform:uppercase; }
+	.leaderboard ol { list-style:none; padding:0; margin:.8rem 0 0; display:grid; gap:.35rem; }
+	.leaderboard li { display:grid; grid-template-columns:2rem 1fr auto; gap:.65rem; align-items:center; padding:.6rem .7rem; border-radius:.55rem; background:#f8faf6; }
+	.rank { font-family:Georgia,serif; font-size:1.2rem; color:#41604a; }
+	.identity-name { display:grid; gap:.15rem; min-width:0; }
+	.identity-name code { color:#78847b; font-size:.65rem; }
+	.score { color:#4e6053; font-size:.75rem; font-weight:800; text-transform:capitalize; }
+	.root { display:block; margin-top:.7rem; color:#76827a; font-size:.62rem; overflow-wrap:anywhere; }
+	.empty { color:#738078; font-size:.8rem; }
 	@media (max-width:430px) {
 		.key { width:calc((100vw - 3.6rem)/10); height:3rem; font-size:.7rem; }
 		.key.action { width:2.9rem; font-size:.55rem; }

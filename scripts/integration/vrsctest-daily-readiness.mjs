@@ -53,6 +53,7 @@ try {
     },
     roundId: ROUND_ID,
   });
+  const leaderboard = service.getLeaderboard({ roundId: ROUND_ID });
   const afterAttempts = Number(
     database.prepare('SELECT COUNT(*) count FROM attempts').get().count,
   );
@@ -69,6 +70,8 @@ try {
         commitmentTxid: round.commitment.transaction.txid,
         existingAttempt: existingAttempt?.id ?? null,
         attemptsCreated: afterAttempts - beforeAttempts,
+        leaderboardState: leaderboard.state,
+        leaderboardEntries: leaderboard.entries.length,
         hiddenFieldsExposed: false,
       },
       null,

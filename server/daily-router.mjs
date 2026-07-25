@@ -35,6 +35,16 @@ export function createDailyRouter({ dailyService, resolveSession }) {
     );
   });
 
+  router.get('/rounds/:roundId/leaderboard', (request, response, next) => {
+    try {
+      response.json(
+        dailyService.getLeaderboard({ roundId: request.params.roundId }),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.use((request, response, next) => {
     const token = bearerToken(request);
     const session = token ? resolveSession(token) : null;

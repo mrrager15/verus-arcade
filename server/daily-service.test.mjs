@@ -301,3 +301,73 @@ test('attempt proof is pending before close and independently valid after finali
   assert.equal(verifyInclusionProof(result.proof), true);
   database.close();
 });
+
+test('leaderboard moves from live to finalized and chain-verified with tied ranks', () => {
+  const { database, repository, service } = setup();
+  createRound(repository);
+  repository.openRound({
+    id: 'round-record-1',
+    commitmentTxid: 'a'.repeat(64),
+  });
+  repository.reserveDailyAttempt({
+    attemptId: 'attempt-a',
+    chainId: 'vrsctest',
+    playerIAddress: 'i-a',
+    friendlyName: 'alice@',
+    gameId: 'word-grid',
+    gameVersion: '1.0.0',
+    roundId: '2026-07-25',
+    now: 2_000,
+  });
+  repository.reserveDailyAttempt({
+    attemptId: 'attempt-b',
+    chainId: 'vrsctest',
+    playerIAddress: 'i-b',
+    friendlyName: 'bob@',
+    gameId: 'word-grid',
+    gameVersion: '1.0.0',
+    roundId: '2026-07-25',
+    now: 2_000,
+  });
+  for (const attemptId of ['attempt-a', 'attempt-b']) {
+    repository.recordAttemptAction({
+      attemptId,
+      actionId: `${attemptId}-action`,
+      sequence: 1,
+      canonicalAction: JSON.stringify({
+        type: 'guess',
+        payload: { word: 'crane' },
+        gameVersion: '1.0.0',
+      }),
+      actionHash: `${attemptId}-hash`,
+      response: { solved: true, terminal: true, pattern: ['g', 'g', 'g', 'g', 'g'] },
+      terminal: true,
+      resultHash: `${attemptId}-result`,
+      now: 3_000,
+    });
+  }
+  const live = service.getLeaderboard({ roundId: 'round-record-1' });
+  assert.equal(live.state, 'live');
+  assert.deepEqual(live.entries.map((entry) => entry.rank), [1, 1]);
+  assert.deepEqual(
+    live.entries.map((entry) => entry.friendlyName),
+    ['alice@', 'bob@'],
+  );
+
+  repository.finalizeRoundResults({
+    roundRecordId: 'round-record-1',
+    now: 10_000,
+  });
+  assert.equal(
+    service.getLeaderboard({ roundId: 'round-record-1' }).state,
+    'finalized',
+  );
+  repository.confirmRoundResults({
+    roundRecordId: 'round-record-1',
+    resultsTxid: 'c'.repeat(64),
+  });
+  const verified = service.getLeaderboard({ roundId: 'round-record-1' });
+  assert.equal(verified.state, 'chain-verified');
+  assert.equal(verified.resultRoot.length, 64);
+  database.close();
+});

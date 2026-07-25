@@ -263,6 +263,59 @@ The player proof API reports finalization and chain publication separately. A va
 local inclusion proof is not labelled chain-confirmed until reconciliation stores the
 confirmed results transaction ID.
 
+### Round reveal and public verification
+
+Migration `004_round_reveals.sql` separates the private operational definition from the
+confirmed public reveal. Reveal preparation is allowed only after close and after
+transactional result finalization. It refuses to sign when the stored definition no
+longer hashes to the confirmed commitment.
+
+The reveal journal and public state have separate lifecycles:
+
+- `prepare` creates a signed `returntx` containing the canonical hidden definition and
+  commitment transaction reference;
+- no public API reads from the transaction journal;
+- `submit` is explicit and idempotent;
+- `reconcile` copies the definition into the public reveal table and changes the round
+  to `revealed` only after chain confirmation.
+
+`GET /api/v1/rounds/:roundId/proof` is public and exposes the commitment, optional
+confirmed reveal, compact result descriptor, and their distinct transaction states.
+Before reveal confirmation, the response cannot contain the answer, salt, or puzzle
+seed.
+
+The shared `verifyRoundReveal()` implementation validates the closed schema,
+canonicalizes the definition, recomputes its SHA-256, and matches all public commitment
+metadata. It returns no server assertion that clients need to trust.
+
+The `/verify/:round` web route performs the same operation locally with the browser's
+Web Crypto API. It fetches proof material from the public endpoint, displays separate
+commitment, reveal, and result-publication receipts, and never treats a pending chain
+write as confirmed.
+
+Experimental VRSCTEST reveal key:
+
+- URI: `Arcade::round.reveal.v1`;
+- VDXF ID: `iCbAUhPCoibgTsmRe8WbJGJTDFmk7mQQuj`.
+
+The real-daemon preparation test is deliberately non-broadcast:
+
+```powershell
+$env:VERUS_REVEAL_TEST_ACK='PREPARE_VRSCTEST_REVEAL_RETURNTX'
+node scripts/integration/reveal-returntx.mjs
+```
+
+Observed VRSCTEST result:
+
+- hidden-definition commitment:
+  `a1ec197c3823a1262b1da3df9d9fb43055abbe30ade013e70b18eb1a6f246043`;
+- signed transaction size: 2,010 bytes;
+- derived, non-broadcast txid:
+  `b3b843085bfff700d1cad93a2decf894507159de4f2d3143c0873ab3d61a88a3`;
+- the independent verifier reproduced the commitment;
+- no public reveal record existed before confirmation;
+- `sendrawtransaction` was never called and the identity anchor remained unchanged.
+
 Migration and repository tests currently use Node's in-memory SQLite implementation as
 a test adapter only. Production targets `better-sqlite3` on Node 22. The native package
 could not be installed on this development machine because it runs unsupported Node 24

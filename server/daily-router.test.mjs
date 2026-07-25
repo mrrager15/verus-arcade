@@ -179,3 +179,36 @@ test('v1 API returns stable round-not-open error without creating an attempt', a
     await close(context);
   }
 });
+
+test('round proof is public but never reveals the private definition before confirmation', async () => {
+  const context = await setup();
+  try {
+    context.repository.createRound({
+      id: 'round-record-1',
+      chainId: 'vrsctest',
+      gameId: 'word-grid',
+      gameVersion: '1.0.0',
+      roundId: '2026-07-25',
+      commitmentHash: 'b'.repeat(64),
+      privateDefinition: {
+        date: '2026-07-25',
+        opensAt: '1970-01-01T00:00:01.000Z',
+        closesAt: '1970-01-01T00:00:10.000Z',
+        answer: 'crane',
+      },
+      opensAt: 1_000,
+      closesAt: 10_000,
+      now: 500,
+    });
+    const response = await fetch(
+      `${context.baseUrl}/rounds/round-record-1/proof`,
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.commitment.hiddenDefinitionSha256, 'b'.repeat(64));
+    assert.equal(body.reveal, null);
+    assert.equal(JSON.stringify(body).includes('crane'), false);
+  } finally {
+    await close(context);
+  }
+});

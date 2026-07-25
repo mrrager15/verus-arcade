@@ -1,10 +1,7 @@
 import crypto from 'node:crypto';
 
 import { canonicalJson } from './canonical-json.mjs';
-
-function sha256(value) {
-  return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
-}
+import { hiddenDefinitionHash, validateHiddenDefinition } from './round-proof.mjs';
 
 function toHex(value) {
   return Buffer.from(value, 'utf8').toString('hex');
@@ -19,35 +16,11 @@ export class RoundCoordinator {
   }
 
   async prepare({ hiddenDefinition }) {
-    const required = [
-      'schemaVersion',
-      'roundId',
-      'chainId',
-      'gameId',
-      'gameVersion',
-      'date',
-      'opensAt',
-      'closesAt',
-      'puzzleSeed',
-      'answer',
-      'salt',
-    ];
-    if (
-      hiddenDefinition?.schemaVersion !== 1 ||
-      Object.keys(hiddenDefinition).length !== required.length ||
-      required.some((key) => !(key in hiddenDefinition))
-    ) {
-      throw new Error('Hidden round definition does not match schema version 1');
-    }
+    const { opensAt, closesAt } = validateHiddenDefinition(hiddenDefinition);
     if (hiddenDefinition.chainId !== 'vrsctest') {
       throw new Error('Round preparation is enabled for VRSCTEST only');
     }
-    const opensAt = Date.parse(hiddenDefinition.opensAt);
-    const closesAt = Date.parse(hiddenDefinition.closesAt);
-    if (!Number.isFinite(opensAt) || !Number.isFinite(closesAt) || closesAt <= opensAt) {
-      throw new Error('Round timestamps are invalid');
-    }
-    const hiddenDefinitionSha256 = sha256(canonicalJson(hiddenDefinition));
+    const hiddenDefinitionSha256 = hiddenDefinitionHash(hiddenDefinition);
     const commitment = {
       schemaVersion: 1,
       roundId: hiddenDefinition.roundId,

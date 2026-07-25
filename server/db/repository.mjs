@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 
+import { canonicalJson } from '../canonical-json.mjs';
 import { buildResultSet, createInclusionProof } from '../result-set.mjs';
+import { hiddenDefinitionHash } from '../round-proof.mjs';
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token, 'utf8').digest('hex');
@@ -603,6 +605,75 @@ export class ArcadeRepository {
       (entry) => entry.record.playerIAddress === playerIAddress,
     );
     return index === -1 ? null : createInclusionProof(built, index);
+  }
+
+  confirmRoundReveal({ roundRecordId, revealTxid, now }) {
+    if (!/^[0-9a-f]{64}$/.test(revealTxid)) {
+      throw new Error('Reveal transaction ID must be 64 lowercase hex characters');
+    }
+    return inImmediateTransaction(this.database, () => {
+      const existing = this.getRoundReveal(roundRecordId);
+      if (existing) {
+        if (existing.revealTxid !== revealTxid) {
+          throw new RepositoryConflictError(
+            'ROUND_REVEAL_CONFLICT',
+            'Round reveal already references a different transaction',
+          );
+        }
+        return { created: false, reveal: existing };
+      }
+      const round = this.database
+        .prepare('SELECT * FROM rounds WHERE id = ?')
+        .get(roundRecordId);
+      const definition = this.getRoundPrivateDefinition(roundRecordId);
+      if (
+        !round ||
+        round.status !== 'closed' ||
+        !round.commitment_txid ||
+        !definition ||
+        hiddenDefinitionHash(definition) !== round.commitment_hash
+      ) {
+        throw new RepositoryConflictError(
+          'ROUND_REVEAL_NOT_CONFIRMABLE',
+          'Closed round, commitment receipt, and matching definition are required',
+        );
+      }
+      this.database
+        .prepare(`
+          INSERT INTO round_reveals (
+            round_record_id, definition_json, definition_sha256,
+            commitment_txid, reveal_txid, confirmed_at_ms
+          ) VALUES (?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          roundRecordId,
+          canonicalJson(definition),
+          round.commitment_hash,
+          round.commitment_txid,
+          revealTxid,
+          now,
+        );
+      this.database
+        .prepare(`UPDATE rounds SET status = 'revealed' WHERE id = ? AND status = 'closed'`)
+        .run(roundRecordId);
+      return { created: true, reveal: this.getRoundReveal(roundRecordId) };
+    });
+  }
+
+  getRoundReveal(roundRecordId) {
+    const row = this.database
+      .prepare('SELECT * FROM round_reveals WHERE round_record_id = ?')
+      .get(roundRecordId);
+    return row
+      ? {
+          roundRecordId: row.round_record_id,
+          hiddenDefinition: JSON.parse(row.definition_json),
+          hiddenDefinitionSha256: row.definition_sha256,
+          commitmentTxid: row.commitment_txid,
+          revealTxid: row.reveal_txid,
+          confirmedAt: Number(row.confirmed_at_ms),
+        }
+      : null;
   }
 
   planChainOperation({

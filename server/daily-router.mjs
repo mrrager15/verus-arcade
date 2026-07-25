@@ -13,6 +13,14 @@ export function createDailyRouter({ dailyService, resolveSession }) {
   const router = express.Router();
   router.use(express.json({ limit: '4kb' }));
 
+  router.get('/rounds/:roundId/proof', (request, response, next) => {
+    try {
+      response.json(dailyService.getRoundProof({ roundId: request.params.roundId }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.use((request, response, next) => {
     const token = bearerToken(request);
     const session = token ? resolveSession(token) : null;

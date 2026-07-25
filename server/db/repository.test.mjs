@@ -23,6 +23,7 @@ test('migrations are ordered and idempotent', () => {
       { version: 1, filename: '001_initial.sql' },
       { version: 2, filename: '002_round_private_definition.sql' },
       { version: 3, filename: '003_round_results.sql' },
+      { version: 4, filename: '004_round_reveals.sql' },
     ],
   );
   assert.equal(database.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);

@@ -82,6 +82,59 @@ export class DailyService {
     };
   }
 
+  getRoundProof({ roundId }) {
+    const round = this.repository.getRound(roundId);
+    if (!round) {
+      throw new DailyServiceError('ROUND_NOT_FOUND', 'Round does not exist', 404);
+    }
+    const definition = this.repository.getRoundPrivateDefinition(round.id);
+    const reveal = this.repository.getRoundReveal(round.id);
+    const resultSet = this.repository.getRoundResultSet(round.id);
+    const commitment = {
+      schemaVersion: 1,
+      roundId: round.round_id,
+      chainId: round.chain_id,
+      gameId: round.game_id,
+      gameVersion: round.game_version,
+      date: definition?.date ?? null,
+      opensAt: definition?.opensAt ?? new Date(Number(round.opens_at_ms)).toISOString(),
+      closesAt:
+        definition?.closesAt ?? new Date(Number(round.closes_at_ms)).toISOString(),
+      hiddenDefinitionSha256: round.commitment_hash,
+      transaction: round.commitment_txid
+        ? { status: 'confirmed', txid: round.commitment_txid }
+        : { status: 'pending', txid: null },
+    };
+    return {
+      roundStatus: round.status,
+      commitment,
+      reveal: reveal
+        ? {
+            schemaVersion: 1,
+            hiddenDefinition: reveal.hiddenDefinition,
+            commitmentTxid: reveal.commitmentTxid,
+            transaction: { status: 'confirmed', txid: reveal.revealTxid },
+          }
+        : null,
+      results: resultSet
+        ? {
+            schemaVersion: 1,
+            algorithm: resultSet.algorithm,
+            roundId: round.round_id,
+            chainId: round.chain_id,
+            gameId: round.game_id,
+            gameVersion: round.game_version,
+            leafCount: resultSet.leafCount,
+            rootSha256: resultSet.rootSha256,
+            bundleSha256: resultSet.bundleSha256,
+            transaction: resultSet.resultsTxid
+              ? { status: 'confirmed', txid: resultSet.resultsTxid }
+              : { status: 'pending', txid: null },
+          }
+        : null,
+    };
+  }
+
   getAttempt({ principal, attemptId }) {
     if (!principal?.chain || !principal?.iAddress) {
       throw new DailyServiceError('NOT_AUTHENTICATED', 'Authentication required', 401);

@@ -1,156 +1,131 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
+	import {
+		verifyRoundReveal,
+		type Commitment,
+		type Reveal
+	} from '$lib/proof-verifier';
 
-	type VerifyData = {
-		round: number;
-		date: string;
-		commitSha256: string;
-		commitTxid: string | null;
-		word?: string;
-		salt?: string;
-		revealTxid?: string | null;
-		note?: string;
+	type Transaction = { status: 'pending' | 'confirmed'; txid: string | null };
+	type ProofResponse = {
+		roundStatus: string;
+		commitment: Commitment & { transaction: Transaction };
+		reveal: (Reveal & { transaction: Transaction }) | null;
+		results: {
+			algorithm: string;
+			leafCount: number;
+			rootSha256: string;
+			bundleSha256: string;
+			transaction: Transaction;
+		} | null;
 	};
 
-	let data = $state<VerifyData | null>(null);
+	let data = $state<ProofResponse | null>(null);
 	let error = $state('');
 	let recomputed = $state('');
-	let match = $state<boolean | null>(null);
-
-	// The point of this page: YOUR browser recomputes the hash — you don't
-	// have to trust the server's word for it.
-	async function sha256hex(s: string): Promise<string> {
-		const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
-		return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-	}
+	let valid = $state<boolean | null>(null);
 
 	onMount(async () => {
 		try {
-			const r = await fetch(`/api/verify/${page.params.round}`);
-			const body = await r.json();
-			if (!r.ok) {
-				error = body.error ?? 'Unknown round';
+			const roundId = page.params.round;
+			if (!roundId) {
+				error = 'Round ID is missing.';
+				return;
+			}
+			const response = await fetch(`/api/v1/rounds/${encodeURIComponent(roundId)}/proof`);
+			const body = await response.json();
+			if (!response.ok) {
+				error = body.error?.message ?? 'Round proof is unavailable.';
 				return;
 			}
 			data = body;
-			if (body.word && body.salt) {
-				recomputed = await sha256hex(body.word + body.salt);
-				match = recomputed === body.commitSha256;
+			if (body.reveal) {
+				const verification = await verifyRoundReveal(body.commitment, body.reveal);
+				recomputed = verification.recomputedSha256;
+				valid = verification.valid;
 			}
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
+		} catch (caught) {
+			error = caught instanceof Error ? caught.message : String(caught);
 		}
 	});
 </script>
 
+<svelte:head><title>Verify round | Verus Arcade</title></svelte:head>
+
 <main>
-	<h1>🔍 Round verification</h1>
+	<p class="eyebrow">Independent browser verification</p>
+	<h1>Round proof</h1>
 
 	{#if error}
-		<p class="error">⚠ {error}</p>
+		<p class="error">{error}</p>
 	{:else if !data}
-		<p>Loading…</p>
+		<p>Loading proof material…</p>
 	{:else}
-		<section class="card">
-			<h2>Round #{data.round} — {data.date}</h2>
+		<section>
+			<h2>Commitment</h2>
+			<p>Your browser received the public commitment for <code>{data.commitment.roundId}</code>.</p>
+			<dl>
+				<dt>Hidden-definition SHA-256</dt>
+				<dd>{data.commitment.hiddenDefinitionSha256}</dd>
+				<dt>Transaction</dt>
+				<dd>{data.commitment.transaction.txid ?? 'Pending'}</dd>
+			</dl>
+		</section>
 
-			<h3>1. The commitment (published before play started)</h3>
-			<p>
-				Before anyone could guess, Verus Arcade published the hash of the answer on the Verus
-				testnet blockchain, inside the identity <code>Arcade@</code>:
-			</p>
-			<p class="mono">sha256(word + salt) = {data.commitSha256}</p>
-			{#if data.commitTxid}
-				<p class="mono">transaction: {data.commitTxid}</p>
-			{/if}
-
-			{#if data.word && data.salt}
-				<h3>2. The reveal (published after the round ended)</h3>
-				<p class="mono">word = "{data.word}"</p>
-				<p class="mono">salt = {data.salt}</p>
-
-				<h3>3. Your browser checks the math</h3>
+		<section>
+			<h2>Reveal</h2>
+			{#if data.reveal}
 				<p>
-					This page just recomputed <code>sha256("{data.word}" + salt)</code> locally — not on our
-					server, but in <em>your</em> browser:
+					The complete definition is public. This browser canonicalized it and recomputed the
+					hash locally with Web Crypto.
 				</p>
-				<p class="mono">recomputed = {recomputed}</p>
-				{#if match === true}
-					<p class="verdict ok">✓ MATCH — the answer provably wasn't changed after the round started.</p>
-				{:else if match === false}
-					<p class="verdict bad">✗ MISMATCH — the reveal does not correspond to the commitment!</p>
-				{/if}
-
-				<h3>4. Don't trust this page either?</h3>
-				<p>Verify fully independently against any Verus testnet node:</p>
-				<pre>verus -chain=vrsctest getidentitycontent Arcade@
-# decode the hex entries under the round.commit / round.reveal keys,
-# then: sha256("{data.word}" + "{data.salt.slice(0, 8)}…") and compare.</pre>
+				<dl>
+					<dt>Answer</dt>
+					<dd>{data.reveal.hiddenDefinition.answer}</dd>
+					<dt>Recomputed SHA-256</dt>
+					<dd>{recomputed}</dd>
+					<dt>Reveal transaction</dt>
+					<dd>{data.reveal.transaction.txid}</dd>
+				</dl>
+				<p class:ok={valid === true} class:bad={valid === false} class="verdict">
+					{valid === true
+						? 'Verified: the reveal matches the pre-game commitment.'
+						: 'Verification failed: the reveal does not match the commitment.'}
+				</p>
 			{:else}
-				<h3>2. The reveal</h3>
-				<p>{data.note}</p>
+				<p>The reveal is not confirmed yet. No answer, salt, or puzzle seed is exposed.</p>
 			{/if}
 		</section>
-		<p><a href="/">← Back to the game</a></p>
+
+		<section>
+			<h2>Result set</h2>
+			{#if data.results}
+				<dl>
+					<dt>Algorithm</dt><dd>{data.results.algorithm}</dd>
+					<dt>Players</dt><dd>{data.results.leafCount}</dd>
+					<dt>Merkle root</dt><dd>{data.results.rootSha256}</dd>
+					<dt>Bundle SHA-256</dt><dd>{data.results.bundleSha256}</dd>
+					<dt>Chain publication</dt><dd>{data.results.transaction.status}</dd>
+				</dl>
+			{:else}
+				<p>Results have not been finalized.</p>
+			{/if}
+		</section>
 	{/if}
 </main>
 
 <style>
-	main {
-		max-width: 42rem;
-		margin: 5vh auto;
-		font-family: system-ui, sans-serif;
-		padding: 0 1rem;
-	}
-	h1 {
-		text-align: center;
-	}
-	.card {
-		border: 1px solid #e0e0e0;
-		border-radius: 0.75rem;
-		padding: 1.5rem;
-	}
-	h3 {
-		margin-top: 1.4rem;
-		margin-bottom: 0.3rem;
-	}
-	.mono {
-		font-family: monospace;
-		font-size: 0.8rem;
-		word-break: break-all;
-		background: #f6f6f6;
-		padding: 0.35rem 0.5rem;
-		border-radius: 0.3rem;
-	}
-	pre {
-		font-size: 0.75rem;
-		background: #1e1e1e;
-		color: #d4d4d4;
-		padding: 0.75rem;
-		border-radius: 0.4rem;
-		overflow-x: auto;
-	}
-	.verdict {
-		font-weight: 700;
-		padding: 0.5rem 0.75rem;
-		border-radius: 0.4rem;
-	}
-	.verdict.ok {
-		background: #e7f4e4;
-		color: #2d6a2d;
-	}
-	.verdict.bad {
-		background: #fdeaea;
-		color: #a33;
-	}
-	.error {
-		color: #c0392b;
-		text-align: center;
-	}
-	code {
-		background: #f0f0f0;
-		padding: 0.1rem 0.3rem;
-		border-radius: 0.2rem;
-	}
+	main { max-width: 52rem; margin: 4rem auto; padding: 0 1.25rem 4rem; font-family: system-ui, sans-serif; color: #18221b; }
+	.eyebrow { color: #497755; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+	h1 { font-size: clamp(2.2rem, 7vw, 4.5rem); margin: .2rem 0 2rem; }
+	section { border: 1px solid #cad8cd; border-radius: 1rem; padding: 1.25rem; margin: 1rem 0; background: #fbfdfb; }
+	dl { display: grid; grid-template-columns: minmax(9rem, .45fr) 1fr; gap: .6rem 1rem; }
+	dt { font-weight: 700; }
+	dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, monospace; font-size: .86rem; }
+	.verdict { padding: .8rem; border-radius: .6rem; font-weight: 700; }
+	.ok { background: #dff4e3; color: #155c2b; }
+	.bad, .error { background: #ffe1df; color: #8d2019; padding: .8rem; border-radius: .6rem; }
+	code { overflow-wrap: anywhere; }
+	@media (max-width: 600px) { dl { grid-template-columns: 1fr; } }
 </style>

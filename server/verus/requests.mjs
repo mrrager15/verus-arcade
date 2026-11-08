@@ -31,7 +31,7 @@ const ID_ADDRESS_VERSION = 102; // i-adres
 const R_ADDRESS_VERSION = 60; // R-adres (primair adres)
 const MAX_CALLBACK_BYTES = 65_536;
 
-/** @typedef {'INVALID_SIGNATURE'|'UNSUPPORTED_NETWORK'|'CHAIN_UNAVAILABLE'|'SERVICE_UNAVAILABLE'} VerusRequestErrorCode */
+/** @typedef {'INVALID_SIGNATURE'|'SIGNER_MISMATCH'|'UNSUPPORTED_NETWORK'|'CHAIN_UNAVAILABLE'|'SERVICE_UNAVAILABLE'} VerusRequestErrorCode */
 
 export class VerusRequestError extends Error {
   /** @param {VerusRequestErrorCode} code @param {string} message */
@@ -155,6 +155,51 @@ export function parseStoredSignRequest(hex, expectedMessage, expectedId) {
     'Stored signing message mismatch.',
   );
   return req;
+}
+
+/** Vlaggen van IdentityUpdateRequestDetails: signdata + expires + request-ID + systeem. */
+const IDENTITY_UPDATE_REQUEST_FLAGS = 1 | 2 | 4 | 8;
+/** PartialIdentity.contains voor "alleen naam en ouder": nooit adressen of autoriteiten. */
+const IDENTITY_CONTAINS_NAME_AND_PARENT_ONLY = 3;
+
+/**
+ * Controleert dat een IdentityUpdateRequestDetails ALLEEN content toevoegt aan
+ * de identiteit van de speler: één signdata-entry onder onze key, geen
+ * primaire adressen, geen revocation- of recovery-autoriteit, geen
+ * contentmultimap-waarden buiten signdata. Mobile toont de speler wat er
+ * verandert, maar wij dwingen het zelf af.
+ */
+export function assertContentOnlyIdentityUpdate(detail, { playerId, keyId, recordBytes, expiryHeight }) {
+  check(detail instanceof P.IdentityUpdateRequestDetails, 'Unsupported identity update details.');
+  check(detail.flags.toNumber() === IDENTITY_UPDATE_REQUEST_FLAGS, 'Unsupported identity update flags.');
+  check(detail.identity?.contains?.toNumber() === IDENTITY_CONTAINS_NAME_AND_PARENT_ONLY, 'Identity update may only carry name and parent.');
+  check(detail.getIdentityAddress(true) === playerId, 'Identity update targets a different identity.');
+  check(detail.containsSignData() && detail.signDataMap?.size === 1, 'Identity update must carry exactly one signdata entry.');
+  const plainContent = detail.identity.toJson?.().contentmultimap ?? {};
+  check(Object.keys(plainContent).length === 0, 'Identity update must not carry plain content.');
+  const [[compactKey, partial]] = [...detail.signDataMap.entries()];
+  check(compactKey.toAddress() === keyId, 'Identity update writes to an unexpected key.');
+  check(partial.createMMR === true && partial.hashType?.eqn(5) && Buffer.isBuffer(partial.data) && partial.data.equals(recordBytes), 'Identity update data differs from the record.');
+  check(detail.containsSystem() && detail.systemID?.toAddress?.() === TESTNET_SYSTEM_ID, 'Identity update is not for VRSCTEST.');
+  if (expiryHeight !== undefined) check(detail.expiryHeight?.eqn(expiryHeight), 'Identity update expiry mismatch.');
+  return { expiryHeight: detail.expiryHeight.toNumber(), keyName: detail.getContentMultiMapKeys()[0] };
+}
+
+/**
+ * Parseert een eerder opgeslagen, getekend IdentityUpdate-verzoek en controleert
+ * dat het exact bij het verwachte record, de key en de speler hoort.
+ */
+export function parseStoredPublishRequest(hex, { expectedId, playerId, keyId, recordBytes }) {
+  check(typeof hex === 'string' && /^(?:[0-9a-f]{2})+$/.test(hex), 'Invalid stored request.');
+  const req = exactParse(new P.GenericRequest(), Buffer.from(hex, 'hex'));
+  check(req.version.eqn(1) && req.flags.toNumber() === (1 | 2 | 4 | 16 | 128 | 512), 'Unsupported request envelope.');
+  signatureWrapper(req.signature);
+  check(compactId(req.requestID) === expectedId && req.details.length === 1, 'Stored request identifier mismatch.');
+  const ordinal = req.details[0];
+  check(ordinal instanceof P.IdentityUpdateRequestOrdinalVDXFObject && ordinal.version.eqn(1), 'Unsupported request details.');
+  check(compactId(ordinal.data.requestID) === expectedId, 'Stored request identifier mismatch.');
+  const { expiryHeight } = assertContentOnlyIdentityUpdate(ordinal.data, { playerId, keyId, recordBytes });
+  return { request: req, expiryHeight };
 }
 
 /**
@@ -340,6 +385,143 @@ export class VerusRequests {
       walletUri: signed.toWalletDeeplinkUri(),
       height,
     };
+  }
+
+  /**
+   * Fase 2. Bouwt en tekent een IdentityUpdateRequest: "zet dit record in je
+   * eigen VerusID onder de Arcade-key". De speler keurt goed en betaalt de fee;
+   * Mobile maakt de transactie en antwoordt met de txid.
+   *
+   * @param {{ playerId: string, playerName: string, playerParent: string, keyFqn: string, keyId: string,
+   *           recordJson: string, callbackUrl: string, requestIdHex: string, responseMode?: 'redirect'|'post', ttlBlocks?: number }} input
+   * @returns {Promise<{ requestHex: string, requestHashHex: string, walletUri: string, height: number, expiryHeight: number }>}
+   */
+  async createPlayerResultRequest({
+    playerId, playerName, playerParent, keyFqn, keyId, recordJson, callbackUrl, requestIdHex, responseMode = 'post', ttlBlocks = 60,
+  }) {
+    rawId(playerId);
+    check(typeof playerName === 'string' && /^[^@.:\s]{1,64}$/.test(playerName), 'Invalid player identity name.');
+    rawId(playerParent);
+    check(typeof keyFqn === 'string' && /^[^\s]+\.::[^\s]+$/.test(keyFqn), 'Invalid content key name.');
+    rawId(keyId);
+    check(typeof recordJson === 'string' && recordJson.length > 0 && Buffer.byteLength(recordJson, 'utf8') <= 2048, 'Invalid record payload.');
+    check(Number.isSafeInteger(ttlBlocks) && ttlBlocks >= 1 && ttlBlocks <= 10_000, 'Invalid request lifetime.');
+    let url;
+    try { url = new URL(callbackUrl); } catch { check(false, 'Invalid callback URL.'); }
+    check(responseMode === 'redirect' || responseMode === 'post', 'Unsupported wallet response mode.');
+    check(
+      url.protocol === 'https:' || (responseMode === 'redirect' && url.protocol === 'http:'),
+      responseMode === 'post' ? 'Wallet POST callbacks require HTTPS.' : 'Wallet redirects require HTTP or HTTPS.',
+    );
+    check(!url.username && !url.password && !url.hash, 'Invalid callback URL.');
+    const id = requestId(requestIdHex);
+    const { height, historical } = await this.serviceState();
+    const expiryHeight = height + ttlBlocks;
+    const recordBytes = Buffer.from(recordJson, 'utf8');
+
+    const detail = P.IdentityUpdateRequestDetails.fromCLIJson({
+      name: playerName,
+      parent: playerParent,
+      contentmultimap: { [keyFqn]: { data: { message: recordJson, createmmr: true, hashtype: 'sha256' } } },
+    }, { requestid: id.toJson(), systemid: TESTNET_SYSTEM_ID, expiryheight: String(expiryHeight) });
+    // Fail closed: wat we naar de wallet sturen, voldoet aan dezelfde eisen als wat we later terugparsen.
+    assertContentOnlyIdentityUpdate(detail, { playerId, keyId, recordBytes, expiryHeight });
+
+    const req = new P.GenericRequest({
+      version: P.GenericRequest.VERSION_CURRENT,
+      flags: P.GenericRequest.FLAG_IS_TESTNET,
+      requestID: id,
+      createdAt: new P.BigNumber(Math.floor(this.now() / 1000)),
+      preferredHandler: P.VERUS_MOBILE_GENERIC_REQUEST_HANDLER_ID,
+      responseURIs: [P.ResponseURI.fromUriString(callbackUrl,
+        responseMode === 'redirect' ? P.ResponseURI.TYPE_REDIRECT : P.ResponseURI.TYPE_POST)],
+      signature: new P.VerifiableSignatureData({
+        version: P.VerifiableSignatureData.TYPE_VERUSID_DEFAULT, isTestnet: true,
+        systemID: compact(TESTNET_SYSTEM_ID), identityID: compact(this.serviceId),
+      }),
+      details: [new P.IdentityUpdateRequestOrdinalVDXFObject({ data: detail })],
+    });
+    let signed;
+    try { signed = await this.client.signGenericRequest(req, this.serviceWif, historical, height); } catch {
+      throw new VerusRequestError('SERVICE_UNAVAILABLE', 'The service signing key is invalid or unauthorized.');
+    }
+    signatureWrapper(signed.signature);
+    const time = await this.blockTime(height);
+    if (!await this.client.verifyGenericRequest(signed, historical, TESTNET_SYSTEM_ID, time)) {
+      throw new VerusRequestError('SERVICE_UNAVAILABLE', 'The service identity signature could not be verified.');
+    }
+    const requestHex = signed.toBuffer().toString('hex');
+    parseStoredPublishRequest(requestHex, { expectedId: id.toIAddress(), playerId, keyId, recordBytes });
+    return {
+      requestHex,
+      requestHashHex: signed.getRawDataSha256().toString('hex'),
+      walletUri: signed.toWalletDeeplinkUri(),
+      height,
+      expiryHeight,
+    };
+  }
+
+  /**
+   * Fase 2. Verifieert het antwoord van de wallet op een IdentityUpdateRequest.
+   * De txid is een ONTVANGSTBEWIJS: publicatie wordt apart bewezen door de
+   * chain terug te lezen (reconcile).
+   *
+   * @param {{ body: Buffer, requestHex: string, requestIdHex: string, playerId: string, keyId: string, recordJson: string }} input
+   * @returns {Promise<{ identityId: string, txid: string, signingHeight: number, expiryHeight: number }>}
+   */
+  async verifyPlayerResultResponse({ body, requestHex, requestIdHex, playerId, keyId, recordJson }) {
+    try {
+      return await this.#verifyParsedPublishResponse({ body, requestHex, requestIdHex, playerId, keyId, recordJson });
+    } catch (error) {
+      if (error instanceof VerusRequestError) throw error;
+      throw new VerusRequestError('INVALID_SIGNATURE', 'Malformed or invalid wallet response.');
+    }
+  }
+
+  async #verifyParsedPublishResponse({ body, requestHex, requestIdHex, playerId, keyId, recordJson }) {
+    const expectedId = requestId(requestIdHex).toIAddress();
+    const recordBytes = Buffer.from(recordJson, 'utf8');
+    // 1. Opgeslagen verzoek klopt en is alleen-content voor deze speler, key en record.
+    const { request, expiryHeight } = parseStoredPublishRequest(requestHex, { expectedId, playerId, keyId, recordBytes });
+    // 2. Antwoord byte-exact, versie 1, testnet, bekende flags, tijdstip.
+    const response = exactParse(new P.GenericResponse(), body);
+    check(response.version.eqn(1), 'Unsupported response version.');
+    if (!response.isTestnet()) throw new VerusRequestError('UNSUPPORTED_NETWORK', 'Only VRSCTEST responses are supported.');
+    check([151, 407].includes(response.flags.toNumber()), 'Unsupported response flags or encrypted layout.');
+    check(
+      response.createdAt && response.createdAt.gtn(0) && response.createdAt.lte(new P.BigNumber(Math.floor(this.now() / 1000) + 300)),
+      'Invalid response timestamp.',
+    );
+    check(response.handledBy == null || response.handledBy === P.VERUS_MOBILE_GENERIC_REQUEST_HANDLER_ID, 'Unsupported wallet handler.');
+    // 3. Antwoord hoort bij dit verzoek.
+    check(
+      compactId(response.requestID) === expectedId && response.requestHashType?.eqn(5) && same(response.requestHash, request.getRawDataSha256()),
+      'Response belongs to a different request.',
+    );
+    // 4. Buitenste envelop: de speler zelf tekende het antwoord.
+    const outer = signatureWrapper(response.signature, true);
+    if (outer.identityId !== playerId) {
+      throw new VerusRequestError('SIGNER_MISMATCH', 'Signed by a different identity than the player who made this attempt.');
+    }
+    // 5. Precies één IdentityUpdateResponse met txid én request-ID.
+    check(response.details.length === 1, 'Expected exactly one identity update response.');
+    const ordinal = response.details[0];
+    check(ordinal instanceof P.IdentityUpdateResponseOrdinalVDXFObject && ordinal.version.eqn(1), 'Unexpected response details.');
+    const detail = ordinal.data;
+    check(detail.flags?.toNumber() === 3 && detail.containsTxid() && detail.containsRequestID(), 'Identity update response must carry txid and request ID.');
+    check(compactId(detail.requestID) === expectedId, 'Identity update response request identifier mismatch.');
+    check(Buffer.isBuffer(detail.txid) && detail.txid.length === 32, 'Identity update response has no transaction ID.');
+    const txid = detail.getTxidString();
+    check(/^[0-9a-f]{64}$/.test(txid) && !/^0{64}$/.test(txid), 'Invalid transaction ID.');
+    // 6. Verzoek nog geldig op de tekenhoogte.
+    check(outer.height <= expiryHeight, 'The publish request had expired when it was signed.');
+    // 7. Spelersidentiteit op tekenhoogte: actief, niet ingetrokken.
+    const state = await this.loadIdentity({ identityId: playerId, signingHeight: outer.height });
+    check(!state.revokedAtSigning && state.currentActive, 'The signing identity is revoked or inactive.');
+    // 8. Cryptografische verificatie van de envelop.
+    const time = await this.blockTime(outer.height);
+    check(await this.client.verifyGenericResponse(response, state.historical, TESTNET_SYSTEM_ID, time), 'Invalid wallet response signature.');
+    return { identityId: playerId, txid, signingHeight: outer.height, expiryHeight };
   }
 
   /**

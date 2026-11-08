@@ -191,8 +191,13 @@ export async function verifyResponse(
 
   // 1. If the wallet set requestHash, sanity-check it points at our stored request bytes.
   if (response.requestHash && response.requestHash.length > 0) {
+    // Verus Mobile (TestFlight, nov 2026) zet in requestHash de sha256 van de
+    // request-inhoud zónder handtekening (getRawDataSha256, zoals Vatermark en
+    // requests.mjs verifiëren); oudere builds hashten de volledige envelop.
+    // Beide binden het antwoord aan precies deze uitgereikte envelop.
     const requestBytesHash = createSha256(storedRequestBytes);
-    if (!response.requestHash.equals(requestBytesHash)) {
+    const requestRawHash = request.getRawDataSha256();
+    if (!response.requestHash.equals(requestBytesHash) && !response.requestHash.equals(requestRawHash)) {
       throw new Error('Response.requestHash does not match the issued request envelope');
     }
   }

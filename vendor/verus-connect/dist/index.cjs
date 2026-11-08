@@ -3348,7 +3348,8 @@ async function verifyResponse(registry, storedRequestBytes, responseBytes) {
   response.fromBuffer(responseBytes);
   if (response.requestHash && response.requestHash.length > 0) {
     const requestBytesHash = createSha256(storedRequestBytes);
-    if (!response.requestHash.equals(requestBytesHash)) {
+    const requestRawHash = request.getRawDataSha256();
+    if (!response.requestHash.equals(requestBytesHash) && !response.requestHash.equals(requestRawHash)) {
       throw new Error("Response.requestHash does not match the issued request envelope");
     }
   }

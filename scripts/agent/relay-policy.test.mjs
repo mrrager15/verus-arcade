@@ -69,3 +69,13 @@ test('andere commando\'s worden geweigerd', () => {
   assert.throws(() => resolveRun({ cmd: 'powershell', args: ['-c', 'dir'] }, opts), /niet toegestaan/);
   assert.throws(() => resolveRun({ cmd: 'npm', args: 'test' }, opts), /lijst van strings/);
 });
+
+test('git: alleen push naar origin van gewone branches', () => {
+  assert.deepEqual(resolveRun({ cmd: 'git', args: ['push', 'origin', 'master', 'feat/foundation'] }, opts), { cmd: 'git', args: ['push', 'origin', 'master', 'feat/foundation'], env: {} });
+  assert.throws(() => resolveRun({ cmd: 'git', args: ['push', 'origin', '--force', 'master'] }, opts), /ongeldige branchnaam/);
+  assert.throws(() => resolveRun({ cmd: 'git', args: ['push', 'origin', 'master:main'] }, opts), /ongeldige branchnaam/);
+  assert.throws(() => resolveRun({ cmd: 'git', args: ['push', 'upstream', 'master'] }, opts), /niet toegestaan/);
+  assert.throws(() => resolveRun({ cmd: 'git', args: ['push'] }, opts), /niet toegestaan/);
+  assert.throws(() => resolveRun({ cmd: 'git', args: ['reset', '--hard'] }, opts), /niet toegestaan/);
+  assert.throws(() => resolveRun({ cmd: 'git', args: ['push', 'origin', 'x'.repeat(102)] }, opts), /ongeldige branchnaam/);
+});

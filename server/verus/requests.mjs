@@ -137,6 +137,27 @@ export function exactParse(value, bytes) {
 }
 
 /**
+ * Parseert een eerder opgeslagen, getekend DataPacket-verzoek en controleert
+ * dat het exact bij de verwachte boodschap en het verwachte request-ID hoort.
+ */
+export function parseStoredSignRequest(hex, expectedMessage, expectedId) {
+  check(typeof hex === 'string' && /^(?:[0-9a-f]{2})+$/.test(hex), 'Invalid stored request.');
+  const req = exactParse(new P.GenericRequest(), Buffer.from(hex, 'hex'));
+  check(req.version.eqn(1) && req.flags.toNumber() === (1 | 2 | 4 | 16 | 128 | 512), 'Unsupported request envelope.');
+  signatureWrapper(req.signature);
+  check(compactId(req.requestID) === expectedId && req.details.length === 1, 'Stored request identifier mismatch.');
+  const ordinal = req.details[0];
+  check(ordinal instanceof P.DataPacketRequestOrdinalVDXFObject && ordinal.version.eqn(1), 'Unsupported request details.');
+  const detail = ordinal.data;
+  check(
+    detail.version.eqn(1) && detail.flags.toNumber() === 9 && compactId(detail.requestID) === expectedId
+      && detail.signableObjects.length === 1 && detail.signableObjects[0] === expectedMessage,
+    'Stored signing message mismatch.',
+  );
+  return req;
+}
+
+/**
  * Maakt een SDK-client. `rpcUrl` is een publieke RPC (api.verustest.net) of je
  * eigen daemon; voor de daemon geef je `rpcAuth: { username, password }` mee.
  */
@@ -265,6 +286,133 @@ export class VerusRequests {
       throw new VerusRequestError('CHAIN_UNAVAILABLE', 'The chain service returned an invalid block time.');
     }
     return time;
+  }
+
+
+  /**
+   * Bouwt en tekent een DataPacketRequest: "teken deze tekst met je ID".
+   * De wallet toont de tekst; de speler keurt goed. Geen transactie.
+   *
+   * @param {{ message: string, callbackUrl: string, requestIdHex: string, responseMode?: 'redirect'|'post' }} input
+   * @returns {Promise<{ requestHex: string, requestHashHex: string, walletUri: string, height: number }>}
+   */
+  async createSignRequest({ message, callbackUrl, requestIdHex, responseMode = 'post' }) {
+    check(typeof message === 'string' && message.length > 0 && message.length <= 4096, 'Invalid signing message.');
+    let url;
+    try { url = new URL(callbackUrl); } catch { check(false, 'Invalid callback URL.'); }
+    check(responseMode === 'redirect' || responseMode === 'post', 'Unsupported wallet response mode.');
+    check(
+      url.protocol === 'https:' || (responseMode === 'redirect' && url.protocol === 'http:'),
+      responseMode === 'post' ? 'Wallet POST callbacks require HTTPS.' : 'Wallet redirects require HTTP or HTTPS.',
+    );
+    check(!url.username && !url.password && !url.hash, 'Invalid callback URL.');
+    const id = requestId(requestIdHex);
+    const { height, historical } = await this.serviceState();
+    const req = new P.GenericRequest({
+      version: P.GenericRequest.VERSION_CURRENT,
+      flags: P.GenericRequest.FLAG_IS_TESTNET,
+      requestID: id,
+      createdAt: new P.BigNumber(Math.floor(this.now() / 1000)),
+      preferredHandler: P.VERUS_MOBILE_GENERIC_REQUEST_HANDLER_ID,
+      // Mobile kiest POST als beide aanwezig zijn: adverteer precies één transport.
+      responseURIs: [P.ResponseURI.fromUriString(callbackUrl,
+        responseMode === 'redirect' ? P.ResponseURI.TYPE_REDIRECT : P.ResponseURI.TYPE_POST)],
+      signature: new P.VerifiableSignatureData({
+        version: P.VerifiableSignatureData.TYPE_VERUSID_DEFAULT, isTestnet: true,
+        systemID: compact(TESTNET_SYSTEM_ID), identityID: compact(this.serviceId),
+      }),
+      details: [new P.DataPacketRequestOrdinalVDXFObject({ data: new P.DataPacketRequestDetails({
+        flags: P.DataPacketRequestDetails.FLAG_FOR_USERS_SIGNATURE, requestID: id, signableObjects: [message],
+      }) })],
+    });
+    let signed;
+    try { signed = await this.client.signGenericRequest(req, this.serviceWif, historical, height); } catch {
+      throw new VerusRequestError('SERVICE_UNAVAILABLE', 'The service signing key is invalid or unauthorized.');
+    }
+    signatureWrapper(signed.signature);
+    const time = await this.blockTime(height);
+    if (!await this.client.verifyGenericRequest(signed, historical, TESTNET_SYSTEM_ID, time)) {
+      throw new VerusRequestError('SERVICE_UNAVAILABLE', 'The service identity signature could not be verified.');
+    }
+    return {
+      requestHex: signed.toBuffer().toString('hex'),
+      requestHashHex: signed.getRawDataSha256().toString('hex'),
+      walletUri: signed.toWalletDeeplinkUri(),
+      height,
+    };
+  }
+
+  /**
+   * Verifieert het antwoord van de wallet op een DataPacketRequest.
+   * Negen controles, in deze volgorde; elke stap sluit een aanvalsroute.
+   *
+   * @param {{ body: Buffer, requestHex: string, message: string, requestIdHex: string, expectedSigner?: string }} input
+   * @returns {Promise<{ identityId: string, nativeSignature: string, signingHeight: number, name: string }>}
+   */
+  async verifySignResponse(input) {
+    try { return await this.#verifyParsedSignResponse(input); } catch (error) {
+      if (error instanceof VerusRequestError) throw error;
+      // Nooit SDK-parserfouten doorgeven.
+      throw new VerusRequestError('INVALID_SIGNATURE', 'Malformed or invalid wallet response.');
+    }
+  }
+
+  async #verifyParsedSignResponse({ body, requestHex, message, requestIdHex, expectedSigner }) {
+    const expectedId = requestId(requestIdHex).toIAddress();
+    // 1. Opgeslagen verzoek klopt (envelop, handtekening, ID, boodschap).
+    const request = parseStoredSignRequest(requestHex, message, expectedId);
+    // 2. Antwoord byte-exact, versie 1, testnet, verwachte flags, tijdstip.
+    const response = exactParse(new P.GenericResponse(), body);
+    check(response.version.eqn(1), 'Unsupported response version.');
+    if (!response.isTestnet()) throw new VerusRequestError('UNSUPPORTED_NETWORK', 'Only VRSCTEST responses are supported.');
+    check([151, 407].includes(response.flags.toNumber()), 'Unsupported response flags or encrypted layout.');
+    check(
+      response.createdAt && response.createdAt.gtn(0) && response.createdAt.lte(new P.BigNumber(Math.floor(this.now() / 1000) + 300)),
+      'Invalid response timestamp.',
+    );
+    check(response.handledBy == null || response.handledBy === P.VERUS_MOBILE_GENERIC_REQUEST_HANDLER_ID, 'Unsupported wallet handler.');
+    // 3. Antwoord hoort bij dit verzoek: ID én hash van het verzoek.
+    check(
+      compactId(response.requestID) === expectedId && response.requestHashType?.eqn(5) && same(response.requestHash, request.getRawDataSha256()),
+      'Response belongs to a different request.',
+    );
+    // 4. Buitenste envelop: wie tekende het antwoord, op welke hoogte.
+    const outer = signatureWrapper(response.signature, true);
+    // 5. Precies één DataResponse met één SignatureData.
+    check(response.details.length === 1, 'Expected exactly one data response.');
+    const ordinal = response.details[0];
+    check(ordinal instanceof P.DataResponseOrdinalVDXFObject && ordinal.version.eqn(1), 'Unexpected response details.');
+    const detail = ordinal.data;
+    check(detail.flags?.eqn(1) && compactId(detail.requestID) === expectedId, 'Data response request identifier mismatch.');
+    const descriptor = detail.data;
+    check(descriptor.version.eqn(1) && descriptor.flags.eqn(0), 'Unsupported or encrypted response data.');
+    const data = exactParse(new P.VdxfUniValue(), descriptor.objectdata);
+    check(data.version.eqn(1) && data.values.length === 1, 'Expected exactly one signature.');
+    const value = data.values[0];
+    check(Object.keys(value).length === 1, 'Unexpected data entries.');
+    const sig = value[P.SignatureDataKey.vdxfid];
+    check(sig instanceof P.SignatureData && sig.version.eqn(1) && sig.sigType.eqn(1) && sig.hashType.eqn(5), 'Unsupported inner signature wrapper.');
+    check(!sig.vdxfKeys.length && !sig.vdxfKeyNames.length && !sig.boundHashes.length, 'Unexpected inner signature context.');
+    if (sig.systemID !== TESTNET_SYSTEM_ID) throw new VerusRequestError('UNSUPPORTED_NETWORK', 'Only VRSCTEST signatures are supported.');
+    // 6. Binnenste handtekening: zelfde ID als buiten, over exact deze boodschap, en (optioneel) de verwachte speler.
+    check(sig.identityID === outer.identityId && same(sig.signatureHash, sha256(message)), 'Signer or signed message mismatch.');
+    if (expectedSigner !== undefined) check(sig.identityID === expectedSigner, 'Signed by a different identity than expected.');
+    // 7. Identiteit op tekenhoogte: niet ingetrokken, actief, één handtekening.
+    const height = nativeHeight(sig.signatureAsVch);
+    const innerState = await this.loadIdentity({ identityId: sig.identityID, signingHeight: height });
+    check(!innerState.revokedAtSigning && innerState.currentActive, 'The signing identity is revoked or inactive.');
+    const outerState = height === outer.height ? innerState : await this.loadIdentity({ identityId: outer.identityId, signingHeight: outer.height });
+    check(!outerState.revokedAtSigning && outerState.currentActive, 'The response signing identity is revoked or inactive.');
+    // 8. Cryptografische verificatie van de envelop.
+    const time = await this.blockTime(outer.height);
+    check(await this.client.verifyGenericResponse(response, outerState.historical, TESTNET_SYSTEM_ID, time), 'Invalid wallet response signature.');
+    // 9. Cryptografische verificatie van de binnenste handtekening.
+    //    Mobile hasht de ruwe UTF-8; verifyMessage gebruikt een ander, length-prefixed formaat.
+    const nativeSignature = sig.signatureAsVch.toString('base64');
+    const info = await this.client.getSignatureInfo(sig.identityID, nativeSignature, TESTNET_SYSTEM_ID);
+    const digest = sig.getIdentityHash({ version: info.version, hash_type: info.hashtype, height: info.height });
+    check(await this.client.verifyHash(sig.identityID, nativeSignature, digest, innerState.historical, TESTNET_SYSTEM_ID), 'Invalid signature.');
+    return { identityId: sig.identityID, nativeSignature, signingHeight: height, name: innerState.name };
   }
 
   /**

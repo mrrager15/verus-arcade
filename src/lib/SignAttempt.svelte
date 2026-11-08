@@ -9,7 +9,7 @@
 	import { onMount } from 'svelte';
 	import QRCode from 'qrcode';
 
-	let { token, attemptId }: { token: string; attemptId: string } = $props();
+	let { token, attemptId, playerName }: { token: string; attemptId: string; playerName: string } = $props();
 
 	type Signature = {
 		attemptId: string;
@@ -98,8 +98,11 @@
 		const walletReturn = params.get('walletReturn');
 		if (!walletReturn) return;
 		const returnError = params.get('returnError');
+		// De meest voorkomende fout uit de live test (8 nov): met een andere ID getekend dan de speler.
 		returnNotice = returnError
-			? `The wallet returned, but the signature was not accepted (${returnError}).`
+			? returnError === 'SIGNER_MISMATCH'
+				? `The wallet signed with a different VerusID. Sign with ${playerName}, the identity you are logged in with.`
+				: `The wallet returned, but the signature was not accepted (${returnError}).`
 			: params.get('signed') === '1'
 				? 'Signature received from Verus Mobile.'
 				: 'Returned from the wallet.';
@@ -141,6 +144,10 @@
 				device. You sign a short text with the round, your i-address and a hash of your guesses. No
 				transaction, no fee.
 			</p>
+			<p class="signer">
+				In Verus Mobile, choose <strong>{playerName}</strong> under “Sign with”. The wallet may propose a
+				different identity by default; a signature from another VerusID is refused.
+			</p>
 			<div class="qr-row">
 				{#if qr}<img class="qr" src={qr} alt="QR code for Verus Mobile" width="240" height="240" />{/if}
 				<div class="actions">
@@ -180,6 +187,7 @@
 	.button, button { display: inline-block; padding: 0.6rem 1rem; border-radius: 0.6rem; border: 0; background: #193d26; color: white; font-weight: 700; text-decoration: none; text-align: center; cursor: pointer; }
 	button:disabled { opacity: 0.55; cursor: default; }
 	.hint { margin: 0; font-size: 0.75rem; color: #5c6d61; }
+	.signer { margin: 0; padding: 0.5rem 0.7rem; border-radius: 0.5rem; background: #fff6d6; border: 1px solid #e6d58a; font-size: 0.8rem; line-height: 1.4; }
 	.notice { margin: 0; padding: 0.5rem 0.7rem; border-radius: 0.5rem; background: #e0e9df; font-size: 0.8rem; }
 	.error { margin: 0; color: #8b2b2b; font-size: 0.8rem; }
 	details { font-size: 0.75rem; }

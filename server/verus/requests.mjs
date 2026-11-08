@@ -396,7 +396,10 @@ export class VerusRequests {
     if (sig.systemID !== TESTNET_SYSTEM_ID) throw new VerusRequestError('UNSUPPORTED_NETWORK', 'Only VRSCTEST signatures are supported.');
     // 6. Binnenste handtekening: zelfde ID als buiten, over exact deze boodschap, en (optioneel) de verwachte speler.
     check(sig.identityID === outer.identityId && same(sig.signatureHash, sha256(message)), 'Signer or signed message mismatch.');
-    if (expectedSigner !== undefined) check(sig.identityID === expectedSigner, 'Signed by a different identity than expected.');
+    // Eigen code: de wallet stelt vaak een andere ID voor dan de ingelogde speler (live gezien op 8 nov).
+    if (expectedSigner !== undefined && sig.identityID !== expectedSigner) {
+      throw new VerusRequestError('SIGNER_MISMATCH', 'Signed by a different identity than the player who made this attempt.');
+    }
     // 7. Identiteit op tekenhoogte: niet ingetrokken, actief, één handtekening.
     const height = nativeHeight(sig.signatureAsVch);
     const innerState = await this.loadIdentity({ identityId: sig.identityID, signingHeight: height });

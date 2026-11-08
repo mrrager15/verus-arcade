@@ -332,7 +332,7 @@
 				<a href={`/verify/${encodeURIComponent(round.id)}`}>Open round verifier →</a>
 			</div>
 			{#if attempt.status === 'completed'}
-				<SignAttempt {token} attemptId={attempt.id} />
+				<SignAttempt {token} attemptId={attempt.id} playerName={friendlyName} />
 			{/if}
 		{/if}
 	{/if}

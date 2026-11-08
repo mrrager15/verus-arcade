@@ -291,7 +291,7 @@ test('verifySignResponse weigert elke afwijking van de binding', async () => {
   // andere boodschap getekend
   await assert.rejects(run(walletResponse(request, { message: MESSAGE.replace('0'.repeat(64), '1'.repeat(64)) }).toBuffer()), /message mismatch/);
   // ander ID dan verwacht (wel consistent binnen/buiten)
-  await assert.rejects(run(walletResponse(request, { signer: ARCADE }).toBuffer()), /different identity/);
+  await assert.rejects(run(walletResponse(request, { signer: ARCADE }).toBuffer()), (e) => e.code === 'SIGNER_MISMATCH' && /different identity/.test(e.message));
   // versleutelde descriptor
   await assert.rejects(run(walletResponse(request, { descriptorFlags: 1 }).toBuffer()), /encrypted response data/);
   // afgekapte bytes

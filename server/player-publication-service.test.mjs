@@ -10,6 +10,7 @@ import { migrate } from './db/migrate.mjs';
 import { ArcadeRepository } from './db/repository.mjs';
 import { PlayerPublicationService } from './player-publication-service.mjs';
 import { validatePlayerResultRecord } from './verus/player-result.mjs';
+import { P } from './verus/requests.mjs';
 import { GENERIC_RESPONSE_QUERY_KEY, VerusRequestError } from './verus/requests.mjs';
 
 const PLAYER = 'i9ARtCeKDBH84LvevYPoMxtZNxfts3c5SN';
@@ -42,6 +43,16 @@ function fakeVerus({ tip = 1000 } = {}) {
       return { requestHex: 'aa'.repeat(40), requestHashHex: 'bb'.repeat(32), walletUri: `verus://x/${input.requestIdHex}`, height: state.tip, expiryHeight: state.tip + input.ttlBlocks };
     },
     async verifyPlayerResultResponse(input) { return state.verify(input); },
+    async readIdentityContent({ identityId, keyId }) {
+      if (state.chainDown) throw new VerusRequestError('CHAIN_UNAVAILABLE', 'rpc');
+      const values = state.chainValues?.(keyId) ?? [];
+      return {
+        tip: state.tip,
+        content: { identity: { identityaddress: identityId, contentmultimap: values.length ? { [keyId]: values } : {} } },
+        history: state.chainHistory?.(keyId) ?? [],
+      };
+    },
+    async transactionStatus() { return state.receiptStatus ?? null; },
   };
 }
 
@@ -221,4 +232,61 @@ test('router: publish-request met sessie, callbacks zonder sessie (POST en GET-r
     server.close();
     ctx.database.close();
   }
+});
+
+function chainValueFor(json) {
+  const descriptor = new P.DataDescriptor({ version: new P.BigNumber(1), flags: new P.BigNumber(0), objectdata: Buffer.from(json, 'utf8') });
+  return new P.VdxfUniValue({ values: [{ [P.DataDescriptorKey.vdxfid]: descriptor }] }).toBuffer().toString('hex');
+}
+
+test('reconcile: published bij gelijke hash, mismatch bij bevestigde tx zonder record, anders wachten', async () => {
+  const ctx = setup();
+  const attemptId = completeAttempt(ctx.daily);
+  finalizeAndConfirm(ctx.repository);
+  const { publication } = await ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId });
+  await ctx.service.acceptResponse({ requestIdHex: publication.requestId, body: Buffer.from('wallet') });
+
+  // 1. Nog niets op de chain en ontvangst-tx onbevestigd → blijft 'receipt'.
+  ctx.verus.state.receiptStatus = { confirmations: 0, height: null };
+  let [r] = await ctx.service.reconcile();
+  assert.equal(r.after, 'receipt');
+  assert.equal(r.valueCount, 0);
+
+  // 2. Record staat op de chain, gekoppeld aan tx en hoogte via de geschiedenis → 'published'.
+  const stored = ctx.repository.getPlayerPublication(attemptId);
+  const hex = chainValueFor(stored.recordJson);
+  ctx.verus.state.chainValues = () => [hex];
+  ctx.verus.state.chainHistory = (keyId) => [{ height: 1003, output: { txid: RECEIPT_TXID }, identity: { contentmultimap: { [keyId]: [hex] } } }];
+  [r] = await ctx.service.reconcile();
+  assert.equal(r.after, 'published');
+  assert.equal(r.txid, RECEIPT_TXID);
+  assert.equal(r.height, 1003);
+  assert.equal(ctx.repository.getPlayerPublication(attemptId).status, 'published');
+  assert.deepEqual(await ctx.service.reconcile(), [], 'niets meer te doen');
+
+  // 3. Andere poging: tx bevestigd maar een ánder record onder de key → 'mismatch'.
+  const ctx2 = setup();
+  const attempt2 = completeAttempt(ctx2.daily);
+  finalizeAndConfirm(ctx2.repository);
+  const pub2 = (await ctx2.service.createPublishRequest({ principal: PRINCIPAL, attemptId: attempt2 })).publication;
+  await ctx2.service.acceptResponse({ requestIdHex: pub2.requestId, body: Buffer.from('wallet') });
+  ctx2.verus.state.chainValues = () => [chainValueFor('{"vervalst":true}')];
+  ctx2.verus.state.receiptStatus = { confirmations: 2, height: 1004 };
+  [r] = await ctx2.service.reconcile();
+  assert.equal(r.after, 'mismatch');
+  assert.equal(ctx2.repository.getPlayerPublication(attempt2).status, 'mismatch');
+  // Na mismatch mag de speler opnieuw (nieuw verzoek), nooit stil overschreven.
+  assert.equal((await ctx2.service.createPublishRequest({ principal: PRINCIPAL, attemptId: attempt2 })).created, true);
+
+  // 4. Chain onbereikbaar: gemeld, status ongewijzigd.
+  const ctx3 = setup();
+  const attempt3 = completeAttempt(ctx3.daily);
+  finalizeAndConfirm(ctx3.repository);
+  const pub3 = (await ctx3.service.createPublishRequest({ principal: PRINCIPAL, attemptId: attempt3 })).publication;
+  await ctx3.service.acceptResponse({ requestIdHex: pub3.requestId, body: Buffer.from('wallet') });
+  ctx3.verus.state.chainDown = true;
+  [r] = await ctx3.service.reconcile();
+  assert.equal(r.error, 'CHAIN_UNAVAILABLE');
+  assert.equal(ctx3.repository.getPlayerPublication(attempt3).status, 'receipt');
+  ctx.database.close(); ctx2.database.close(); ctx3.database.close();
 });

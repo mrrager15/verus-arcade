@@ -250,6 +250,36 @@ export class VerusRequests {
     return height;
   }
 
+  /**
+   * Fase 2, reconcile: huidige content onder één key én de geschiedenis van een
+   * identiteit, plus de hoogte waarop gelezen is. Alleen lezen.
+   */
+  async readIdentityContent({ identityId, keyId }) {
+    rawId(identityId);
+    rawId(keyId);
+    const tip = await this.tip();
+    const [content, history] = await Promise.all([
+      this.chain(() => this.client.interface.getIdentityContent(identityId, 0, tip, false, tip, keyId)),
+      this.chain(() => this.client.interface.request({ cmd: 'getidentityhistory', getParams: () => [identityId, 0, tip, false] })),
+    ]);
+    if (content?.identity?.identityaddress !== identityId) {
+      throw new VerusRequestError('CHAIN_UNAVAILABLE', 'The chain service returned mismatched identity content.');
+    }
+    const entries = Array.isArray(history?.history) ? history.history : Array.isArray(history) ? history : null;
+    if (!entries) throw new VerusRequestError('CHAIN_UNAVAILABLE', 'The chain service returned no identity history.');
+    return { tip, content, history: entries };
+  }
+
+  /** Bevestigingen van een transactie, of null als de daemon ze (nog) niet kent. */
+  async transactionStatus(txid) {
+    check(typeof txid === 'string' && /^[0-9a-f]{64}$/.test(txid), 'Invalid transaction ID.');
+    const result = await this.chain(() => this.client.interface.getRawTransaction(txid, 1));
+    if (!result || typeof result !== 'object') return null;
+    const confirmations = Number(result.confirmations ?? 0);
+    const height = Number.isSafeInteger(result.height) ? result.height : null;
+    return { confirmations: Number.isSafeInteger(confirmations) ? confirmations : 0, height };
+  }
+
   /** Controleert dat een getidentity-antwoord bij het gevraagde ID en de gevraagde hoogte hoort. */
   validateRecord(record, id, height) {
     const identity = record?.identity;

@@ -24,6 +24,7 @@ import {
   playerResultContentKey,
   serializePlayerResultRecord,
 } from './verus/player-result.mjs';
+import { locatePublishedRecord } from './verus/player-result-reader.mjs';
 import { VerusRequestError } from './verus/requests.mjs';
 
 const REQUEST_ID_HEX = /^[0-9a-f]{40}$/;
@@ -177,6 +178,57 @@ export class PlayerPublicationService {
     } catch (error) {
       throw this.#translate(error);
     }
+  }
+
+  /**
+   * Reconcile: voor elke publicatie met ontvangstbewijs de chain teruglezen.
+   *   - record onder onze key met gelijke sha256 → 'published' (met tx en hoogte);
+   *   - niets gevonden maar de ontvangst-tx is bevestigd → 'mismatch' (nooit stil);
+   *   - anders: later opnieuw.
+   * Eén chainfout stopt de rest niet; die publicatie wordt gemeld en overgeslagen.
+   */
+  async reconcile({ limit = 50 } = {}) {
+    const results = [];
+    for (const publication of this.repository.listPlayerPublicationsAwaitingConfirmation({ limit })) {
+      const summary = { attemptId: publication.attemptId, requestId: publication.requestIdHex, before: publication.status };
+      try {
+        const attempt = this.repository.getAttemptById(publication.attemptId);
+        if (!attempt) throw new DailyServiceError('ATTEMPT_NOT_FOUND', 'Attempt does not exist', 404);
+        const { tip, content, history } = await this.verus.readIdentityContent({ identityId: attempt.player_i_address, keyId: publication.contentKey });
+        let located;
+        try {
+          located = locatePublishedRecord({ content, history, keyId: publication.contentKey, recordSha256: publication.recordSha256 });
+        } catch (error) {
+          throw new DailyServiceError('CHAIN_UNAVAILABLE', error.message, 503);
+        }
+        summary.valueCount = located.valueCount;
+        summary.kinds = located.kinds;
+        if (located.found) {
+          const receipt = located.txid ? null : await this.verus.transactionStatus(publication.receiptTxid);
+          const stored = this.repository.markPlayerPublicationPublished({
+            attemptId: publication.attemptId,
+            publishedTxid: located.txid ?? publication.receiptTxid,
+            publishedHeight: located.height ?? receipt?.height ?? tip,
+            now: this.clock(),
+          });
+          Object.assign(summary, { after: stored.status, txid: stored.publishedTxid, height: stored.publishedHeight });
+        } else {
+          const receipt = await this.verus.transactionStatus(publication.receiptTxid);
+          if (receipt && receipt.confirmations >= 1) {
+            const stored = this.repository.markPlayerPublicationMismatch({ attemptId: publication.attemptId, now: this.clock() });
+            Object.assign(summary, { after: stored.status, receiptConfirmations: receipt.confirmations });
+          } else {
+            this.repository.touchPlayerPublicationChecked({ attemptId: publication.attemptId, now: this.clock() });
+            Object.assign(summary, { after: 'receipt', receiptConfirmations: receipt?.confirmations ?? 0 });
+          }
+        }
+      } catch (error) {
+        const translated = this.#translate(error);
+        Object.assign(summary, { after: publication.status, error: translated.code ?? 'INTERNAL_ERROR' });
+      }
+      results.push(summary);
+    }
+    return results;
   }
 
   /** Verwerkt het wallet-antwoord: verifieert en bewaart de txid als ontvangstbewijs. */

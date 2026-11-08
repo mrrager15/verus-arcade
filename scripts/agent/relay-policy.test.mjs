@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { checkRpc, resolveRun, RPC_ALLOWED, RPC_FORBIDDEN } from './relay-policy.mjs';
 
-const repoRoot = '/repo';
-const exists = (p) => [
-  '/repo/scripts/integration/vrsctest-daily-readiness.mjs',
-  '/repo/scripts/agent/relay-client.mjs',
-].includes(p.replace(/\\/g, '/'));
+// Platform-onafhankelijk: path.resolve geeft op Windows C:\repo\..., op Linux /repo/...
+const repoRoot = path.resolve('/repo');
+const known = new Set([
+  path.join(repoRoot, 'scripts', 'integration', 'vrsctest-daily-readiness.mjs'),
+  path.join(repoRoot, 'scripts', 'agent', 'relay-client.mjs'),
+]);
+const exists = (p) => known.has(path.resolve(p));
 const opts = { repoRoot, platform: 'linux', exists, execPath: '/usr/bin/node' };
 
 test('whitelist en verboden lijst overlappen niet', () => {
@@ -49,7 +52,7 @@ test('npm wordt npm.cmd op Windows', () => {
 test('node mag alleen bestaande scripts in de toegestane mappen draaien', () => {
   const ok = resolveRun({ cmd: 'node', args: ['scripts/integration/vrsctest-daily-readiness.mjs'] }, opts);
   assert.equal(ok.cmd, '/usr/bin/node');
-  assert.equal(ok.args[0], '/repo/scripts/integration/vrsctest-daily-readiness.mjs');
+  assert.equal(ok.args[0], path.join(repoRoot, 'scripts', 'integration', 'vrsctest-daily-readiness.mjs'));
   assert.throws(() => resolveRun({ cmd: 'node', args: ['scripts/integration/bestaat-niet.mjs'] }, opts), /niet gevonden/);
   assert.throws(() => resolveRun({ cmd: 'node', args: ['server/app.mjs'] }, opts), /niet toegestaan/);
   assert.throws(() => resolveRun({ cmd: 'node', args: ['scripts/integration/../../server/app.mjs'] }, opts), /niet toegestaan/);

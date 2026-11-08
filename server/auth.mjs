@@ -15,6 +15,7 @@ const services = createRuntimeServices({ runtime: config.runtime });
 const app = makeArcadeApp({
   dailyService: services.dailyService,
   attemptSignatureService: services.attemptSignatureService,
+  playerPublicationService: services.playerPublicationService,
 });
 console.log(
   services.attemptSignatureService

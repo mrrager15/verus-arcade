@@ -31,13 +31,13 @@ const LOGIN_RETURN_PATH = '/verus/login-return';
 const WALLET_RETURN_PATH = '/verus/wallet-return';
 
 /** Build the Express app with /verus (auth) and /api (game) mounted. */
-export function makeArcadeApp({ dailyService = null, attemptSignatureService = null } = {}) {
+export function makeArcadeApp({ dailyService = null, attemptSignatureService = null, playerPublicationService = null } = {}) {
   const app = express();
 
   // Landingspagina voor de browser op de telefoon na een wallet-actie
   // (login of handtekening). Toont alleen "gelukt"/"niet verwerkt" en een code.
   app.get(WALLET_RETURN_PATH, (request, response) => {
-    const kind = request.query.kind === 'sign' ? 'sign' : 'login';
+    const kind = ['sign', 'publish'].includes(request.query.kind) ? request.query.kind : 'login';
     const ok = request.query.signed === '1' || request.query.ok === '1';
     const error = typeof request.query.returnError === 'string' ? request.query.returnError.slice(0, 40) : null;
     response.set('Cache-Control', 'no-store');
@@ -87,8 +87,10 @@ export function makeArcadeApp({ dailyService = null, attemptSignatureService = n
         dailyService,
         resolveSession,
         attemptSignatureService,
-        // Na een handtekening landt de telefoon op dezelfde landingspagina.
-        walletReturnPath: `${WALLET_RETURN_PATH}?kind=sign`,
+        playerPublicationService,
+        // Na een handtekening of publicatie landt de telefoon op dezelfde landingspagina;
+        // de router zet zelf `kind=sign` of `kind=publish` in de query.
+        walletReturnPath: WALLET_RETURN_PATH,
       }),
     );
   }

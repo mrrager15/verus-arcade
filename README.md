@@ -194,7 +194,7 @@ confirm.
 
 The next milestones are:
 
-1. automate safe multi-day round rotation and recovery;
+1. finish safe multi-day round rotation and recovery (guarded `round-create` / `round-submit` / `round-open` exist; scheduling and recovery are still manual);
 2. expand VRSCTEST resilience, concurrency, security, and accessibility testing;
 3. run a closed web pilot;
 4. package the stable web application with Capacitor for Android and iOS;

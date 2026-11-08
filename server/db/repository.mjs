@@ -185,6 +185,19 @@ export class ArcadeRepository {
     return this.database.prepare('SELECT * FROM rounds WHERE id = ?').get(id) ?? null;
   }
 
+  /** Alle rondes van een chain, nieuwste opening eerst. Voor het operator-overzicht. */
+  listRounds({ chainId, limit = 20 }) {
+    return this.database
+      .prepare(`
+        SELECT *
+        FROM rounds
+        WHERE chain_id = ?
+        ORDER BY opens_at_ms DESC
+        LIMIT ?
+      `)
+      .all(chainId, limit);
+  }
+
   getCurrentRound({ chainId, gameId, gameVersion, now }) {
     return (
       this.database

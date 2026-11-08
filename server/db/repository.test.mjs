@@ -382,3 +382,28 @@ test('journal reconciles an uncertain submission through explicit transitions', 
   );
   database.close();
 });
+
+test('listRounds geeft de rondes van een chain, nieuwste opening eerst', () => {
+  const { database, repository } = setup();
+  for (const [id, opensAt] of [['r-oud', 1_000], ['r-nieuw', 5_000], ['r-midden', 3_000]]) {
+    repository.createRound({
+      id,
+      chainId: 'vrsctest',
+      gameId: 'word-grid',
+      gameVersion: '1.0.0',
+      roundId: id,
+      commitmentHash: 'b'.repeat(64),
+      privateDefinition: null,
+      opensAt,
+      closesAt: opensAt + 1_000,
+      now: 0,
+    });
+  }
+  assert.deepEqual(
+    repository.listRounds({ chainId: 'vrsctest' }).map((round) => round.id),
+    ['r-nieuw', 'r-midden', 'r-oud'],
+  );
+  assert.deepEqual(repository.listRounds({ chainId: 'vrsctest', limit: 1 }).map((r) => r.id), ['r-nieuw']);
+  assert.deepEqual(repository.listRounds({ chainId: 'vrsc' }), []);
+  database.close();
+});

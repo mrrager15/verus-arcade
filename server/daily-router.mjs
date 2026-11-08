@@ -10,7 +10,7 @@ function bearerToken(request) {
   return match?.[1] ?? null;
 }
 
-export function createDailyRouter({ dailyService, resolveSession, attemptSignatureService = null, walletReturnPath = '/daily' }) {
+export function createDailyRouter({ dailyService, resolveSession, attemptSignatureService = null, walletReturnPath = '/' }) {
   const router = express.Router();
 
   // --- Wallet-callbacks (fase 1): geen sessie, de handtekening bewijst de afzender. ---

@@ -192,7 +192,7 @@ test('router: callbacks zonder sessie (POST octet-stream en GET redirect), sign-
     const encoded = Buffer.from('wallet-bytes').toString('base64url');
     const ok = await fetch(`${base}/sign-jobs/${signature.requestId}/response?${GENERIC_RESPONSE_QUERY_KEY}=${encoded}`, { redirect: 'manual' });
     assert.equal(ok.status, 303);
-    assert.match(ok.headers.get('location'), new RegExp(`^/daily\\?walletReturn=${signature.requestId}&signed=1$`));
+    assert.match(ok.headers.get('location'), new RegExp(`^/\\?walletReturn=${signature.requestId}&signed=1$`));
     assert.equal(ok.headers.get('cache-control'), 'no-store');
 
     // POST met hetzelfde antwoord: idempotent

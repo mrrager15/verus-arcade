@@ -14,7 +14,10 @@
 	let qrDataUrl = $state('');
 	let deepLink = $state('');
 	let error = $state('');
-	let activeMode = $state<'practice' | 'daily'>('practice');
+	// Terugkeer uit Verus Mobile (?walletReturn=...) landt op de Daily-tab.
+	const returnedFromWallet =
+		typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('walletReturn');
+	let activeMode = $state<'practice' | 'daily'>(returnedFromWallet ? 'daily' : 'practice');
 
 	onMount(async () => {
 		const stored = localStorage.getItem(TOKEN_KEY);

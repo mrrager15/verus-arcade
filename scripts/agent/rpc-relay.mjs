@@ -70,10 +70,21 @@ function ensureDirs() {
   for (const d of Object.values(DIRS)) fs.mkdirSync(d, { recursive: true });
 }
 
+function sleepSync(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+
+/** Windows (antivirus, sync-clients) kan een bestand kort vergrendelen; daarom tot 5 pogingen. */
 function writeJsonAtomic(file, value) {
   const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2));
-  fs.renameSync(tmp, file);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      fs.writeFileSync(tmp, JSON.stringify(value, null, 2));
+      fs.renameSync(tmp, file);
+      return;
+    } catch (error) {
+      if (attempt >= 5) throw error;
+      sleepSync(200 * attempt);
+    }
+  }
 }
 
 function parseConf(file) {
@@ -199,7 +210,12 @@ async function main() {
   let lastInfo = info;
   let lastInfoAt = Date.now();
 
+  // De relay mag nooit stilletjes stoppen: alles wat ontsnapt wordt gelogd.
+  process.on('uncaughtException', (error) => log(`UNCAUGHT ${error?.stack ?? error}`));
+  process.on('unhandledRejection', (error) => log(`UNHANDLED ${error?.stack ?? error}`));
+
   setInterval(async () => {
+   try {
     if (Date.now() - lastInfoAt > 30_000) {
       try { lastInfo = await client.call('getinfo'); lastInfoAt = Date.now(); } catch { /* laat oude staan */ }
     }
@@ -214,6 +230,10 @@ async function main() {
     busy = true;
     try { for (const f of files) await processRequest(client, f); }
     finally { busy = false; }
+   } catch (error) {
+    log(`LOOP-FOUT ${error?.stack ?? error}`);
+    busy = false;
+   }
   }, POLL_MS);
 }
 

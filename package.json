@@ -4,7 +4,7 @@
 	"version": "0.0.1",
 	"type": "module",
 	"engines": {
-		"node": ">=22.13.0 <23"
+		"node": ">=22.13.0"
 	},
 	"scripts": {
 		"dev": "vite dev",
@@ -31,6 +31,16 @@
 	"dependencies": {
 		"express": "^5.2.1",
 		"qrcode": "^1.5.4",
-		"verus-connect": "file:vendor/verus-connect"
+		"verus-connect": "file:vendor/verus-connect",
+		"verus-typescript-primitives": "https://github.com/VerusCoin/verus-typescript-primitives/archive/3ffa9d77a3dd98c23fe4f66cf4368946906de780.tar.gz",
+		"verusd-rpc-ts-client": "https://github.com/VerusCoin/verusd-rpc-ts-client/archive/e8ea8c21f8a3d845e20189440dcd820d16f00891.tar.gz",
+		"verusid-ts-client": "https://github.com/VerusCoin/verusid-ts-client/archive/933e8f8da1a51b99ba7533701dddb9914b7a06b7.tar.gz"
+	},
+	"overrides": {
+		"verus-typescript-primitives": "https://github.com/VerusCoin/verus-typescript-primitives/archive/3ffa9d77a3dd98c23fe4f66cf4368946906de780.tar.gz",
+		"verusd-rpc-ts-client": "https://github.com/VerusCoin/verusd-rpc-ts-client/archive/e8ea8c21f8a3d845e20189440dcd820d16f00891.tar.gz",
+		"@bitgo/utxo-lib": "https://github.com/VerusCoin/BitGoJS/archive/2d3240429b7664fb01ca3f0f9e1c2b6da803f68d.tar.gz",
+		"bitcoin-ops": "https://github.com/VerusCoin/bitcoin-ops/archive/a5f8f56e658301bc39881d41740b3a0010530efd.tar.gz",
+		"blake2b": "https://github.com/VerusCoin/blake2b/archive/578dc12b7b68a3ce76d1e1add1402b28a5890a6b.tar.gz"
 	}
 }

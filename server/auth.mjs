@@ -11,8 +11,16 @@ import { makeArcadeApp, config } from './app.mjs';
 import { createRuntimeServices } from './runtime-services.mjs';
 
 const PORT = config.runtime.authPort;
-const services = createRuntimeServices();
-const app = makeArcadeApp({ dailyService: services.dailyService });
+const services = createRuntimeServices({ runtime: config.runtime });
+const app = makeArcadeApp({
+  dailyService: services.dailyService,
+  attemptSignatureService: services.attemptSignatureService,
+});
+console.log(
+  services.attemptSignatureService
+    ? '[arcade] wallet sign requests: enabled'
+    : '[arcade] wallet sign requests: disabled (set ARCADE_SERVICE_ID and ARCADE_SERVICE_WIF)',
+);
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[arcade] dev backend on ${config.ORIGIN}  (chains: ${config.CHAINS.join(', ')})`);

@@ -22,7 +22,7 @@ const runtime = loadConfig();
 const confOverrides = { [runtime.network]: runtime.confPath };
 
 /** Build the Express app with /verus (auth) and /api (game) mounted. */
-export function makeArcadeApp({ dailyService = null } = {}) {
+export function makeArcadeApp({ dailyService = null, attemptSignatureService = null } = {}) {
   const app = express();
 
   app.use(
@@ -53,7 +53,7 @@ export function makeArcadeApp({ dailyService = null } = {}) {
   if (dailyService) {
     app.use(
       '/api/v1',
-      createDailyRouter({ dailyService, resolveSession }),
+      createDailyRouter({ dailyService, resolveSession, attemptSignatureService }),
     );
   }
   return app;

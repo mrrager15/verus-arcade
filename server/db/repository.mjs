@@ -237,6 +237,12 @@ export class ArcadeRepository {
     return row ? JSON.parse(row.definition_json) : null;
   }
 
+  getAttemptById(attemptId) {
+    return (
+      this.database.prepare('SELECT * FROM attempts WHERE id = ?').get(attemptId) ?? null
+    );
+  }
+
   getAttemptForPlayer({ attemptId, chainId, playerIAddress }) {
     return (
       this.database
@@ -878,4 +884,119 @@ export class ArcadeRepository {
         .get(operationKey);
     });
   }
+  // ---------- fase 1: handtekeningverzoeken per poging ----------
+
+  getAttemptSignature(attemptId) {
+    const row = this.database
+      .prepare('SELECT * FROM attempt_signatures WHERE attempt_id = ?')
+      .get(attemptId);
+    return row ? mapAttemptSignature(row) : null;
+  }
+
+  getAttemptSignatureByRequestId(requestIdHex) {
+    const row = this.database
+      .prepare('SELECT * FROM attempt_signatures WHERE request_id_hex = ?')
+      .get(requestIdHex);
+    return row ? mapAttemptSignature(row) : null;
+  }
+
+  /** Maakt (of vervangt een verlopen) handtekeningverzoek voor een poging. */
+  createAttemptSignature({
+    attemptId, requestIdHex, requestHex, requestHashHex, message, walletUri,
+    responseMode, createdHeight, expiresHeight, now,
+  }) {
+    return inImmediateTransaction(this.database, () => {
+      const existing = this.getAttemptSignature(attemptId);
+      if (existing && existing.status !== 'expired') {
+        throw new RepositoryConflictError(
+          'ATTEMPT_SIGNATURE_EXISTS',
+          'Attempt already has an active signature request',
+        );
+      }
+      if (existing) {
+        this.database
+          .prepare('DELETE FROM attempt_signatures WHERE attempt_id = ?')
+          .run(attemptId);
+      }
+      this.database
+        .prepare(`
+          INSERT INTO attempt_signatures (
+            attempt_id, request_id_hex, request_hex, request_hash_hex, message, wallet_uri,
+            response_mode, status, created_height, expires_height, created_at_ms
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+        `)
+        .run(
+          attemptId, requestIdHex, requestHex, requestHashHex, message, walletUri,
+          responseMode, createdHeight, expiresHeight, now,
+        );
+      return this.getAttemptSignature(attemptId);
+    });
+  }
+
+  markAttemptSignatureExpired(attemptId) {
+    this.database
+      .prepare("UPDATE attempt_signatures SET status = 'expired' WHERE attempt_id = ? AND status = 'pending'")
+      .run(attemptId);
+    return this.getAttemptSignature(attemptId);
+  }
+
+  /** Slaat een geverifieerde handtekening op. Idempotent voor exact dezelfde handtekening. */
+  markAttemptSignatureSigned({ attemptId, signerIAddress, signingHeight, nativeSignature, now }) {
+    return inImmediateTransaction(this.database, () => {
+      const existing = this.getAttemptSignature(attemptId);
+      if (!existing) throw new RepositoryConflictError('ATTEMPT_SIGNATURE_MISSING', 'No signature request for attempt');
+      if (existing.status === 'signed') {
+        if (existing.nativeSignature === nativeSignature && existing.signerIAddress === signerIAddress) {
+          return { created: false, signature: existing };
+        }
+        throw new RepositoryConflictError(
+          'ATTEMPT_SIGNATURE_CONFLICT',
+          'Attempt already carries a different signature',
+        );
+      }
+      this.database
+        .prepare(`
+          UPDATE attempt_signatures
+          SET status = 'signed', signed_at_ms = ?, signer_i_address = ?, signing_height = ?, native_signature = ?
+          WHERE attempt_id = ?
+        `)
+        .run(now, signerIAddress, signingHeight, nativeSignature, attemptId);
+      return { created: true, signature: this.getAttemptSignature(attemptId) };
+    });
+  }
+
+  /** Alle handtekeningen van een ronde, voor het resultaatrecord. */
+  listRoundAttemptSignatures(round) {
+    return this.database
+      .prepare(`
+        SELECT s.*
+        FROM attempt_signatures s
+        JOIN attempts a ON a.id = s.attempt_id
+        WHERE a.chain_id = ? AND a.game_id = ? AND a.game_version = ? AND a.round_id = ? AND a.mode = 'daily'
+          AND s.status = 'signed'
+      `)
+      .all(round.chain_id, round.game_id, round.game_version, round.round_id)
+      .map(mapAttemptSignature);
+  }
 }
+
+function mapAttemptSignature(row) {
+  return {
+    attemptId: row.attempt_id,
+    requestIdHex: row.request_id_hex,
+    requestHex: row.request_hex,
+    requestHashHex: row.request_hash_hex,
+    message: row.message,
+    walletUri: row.wallet_uri,
+    responseMode: row.response_mode,
+    status: row.status,
+    createdHeight: Number(row.created_height),
+    expiresHeight: Number(row.expires_height),
+    createdAt: Number(row.created_at_ms),
+    signedAt: row.signed_at_ms == null ? null : Number(row.signed_at_ms),
+    signerIAddress: row.signer_i_address ?? null,
+    signingHeight: row.signing_height == null ? null : Number(row.signing_height),
+    nativeSignature: row.native_signature ?? null,
+  };
+}
+

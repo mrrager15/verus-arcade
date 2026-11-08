@@ -26,6 +26,7 @@ test('migrations are ordered and idempotent', () => {
       { version: 4, filename: '004_round_reveals.sql' },
       { version: 5, filename: '005_attempt_presentation.sql' },
       { version: 6, filename: '006_attempt_signatures.sql' },
+      { version: 7, filename: '007_player_publications.sql' },
     ],
   );
   assert.equal(database.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
@@ -405,5 +406,67 @@ test('listRounds geeft de rondes van een chain, nieuwste opening eerst', () => {
   );
   assert.deepEqual(repository.listRounds({ chainId: 'vrsctest', limit: 1 }).map((r) => r.id), ['r-nieuw']);
   assert.deepEqual(repository.listRounds({ chainId: 'vrsc' }), []);
+  database.close();
+});
+
+test('player_publications: aanmaken, ontvangstbewijs, bevestigen, en nooit stil overschrijven', () => {
+  const { database, repository } = setup();
+  repository.createRound({
+    id: 'round-record', chainId: 'vrsctest', gameId: 'word-grid', gameVersion: '1.0.0', roundId: '2026-07-25',
+    commitmentHash: 'b'.repeat(64), privateDefinition: { answer: 'crane' }, opensAt: 1_000, closesAt: 2_000, now: 0,
+  });
+  repository.openRound({ id: 'round-record', commitmentTxid: 'a'.repeat(64) });
+  reserve(repository);
+  const base = {
+    attemptId: 'attempt-1', contentKey: 'iBPk7CJiyoVSS1enhnJbyKXiqtZGoiNFcx', contentKeyFqn: 'Arcade.VRSCTEST.::arcade.player.result.x',
+    recordJson: '{"a":1}', recordSha256: 'c'.repeat(64), requestIdHex: 'd'.repeat(40), requestHex: 'ee', walletUri: 'verus://x',
+    responseMode: 'redirect', createdHeight: 100, expiresHeight: 160, now: 5,
+  };
+  const created = repository.createPlayerPublication(base);
+  assert.equal(created.status, 'pending');
+  assert.equal(repository.getPlayerPublicationByRequestId('d'.repeat(40)).attemptId, 'attempt-1');
+  assert.throws(() => repository.createPlayerPublication(base), (e) => e.code === 'PLAYER_PUBLICATION_EXISTS');
+
+  // Bevestigen zonder ontvangstbewijs kan niet.
+  assert.throws(() => repository.markPlayerPublicationPublished({ attemptId: 'attempt-1', publishedTxid: '1'.repeat(64), publishedHeight: 105, now: 6 }), (e) => e.code === 'PLAYER_PUBLICATION_CONFLICT');
+
+  const receipt = repository.markPlayerPublicationReceipt({ attemptId: 'attempt-1', receiptTxid: '1'.repeat(64), now: 6 });
+  assert.equal(receipt.created, true);
+  assert.equal(receipt.publication.status, 'receipt');
+  assert.equal(repository.markPlayerPublicationReceipt({ attemptId: 'attempt-1', receiptTxid: '1'.repeat(64), now: 7 }).created, false, 'zelfde txid is idempotent');
+  assert.throws(() => repository.markPlayerPublicationReceipt({ attemptId: 'attempt-1', receiptTxid: '2'.repeat(64), now: 7 }), (e) => e.code === 'PLAYER_PUBLICATION_CONFLICT');
+  assert.equal(repository.listPlayerPublicationsAwaitingConfirmation().length, 1);
+
+  const published = repository.markPlayerPublicationPublished({ attemptId: 'attempt-1', publishedTxid: '1'.repeat(64), publishedHeight: 105, now: 8 });
+  assert.equal(published.status, 'published');
+  assert.equal(published.publishedHeight, 105);
+  assert.equal(repository.listPlayerPublicationsAwaitingConfirmation().length, 0);
+  // Een gepubliceerd record wordt nooit vervangen door een nieuw verzoek.
+  assert.throws(() => repository.createPlayerPublication({ ...base, requestIdHex: 'f'.repeat(40) }), (e) => e.code === 'PLAYER_PUBLICATION_EXISTS');
+  // Mismatch alleen vanuit 'receipt'; daarna mag een nieuw verzoek.
+  assert.equal(repository.markPlayerPublicationMismatch({ attemptId: 'attempt-1', now: 9 }).status, 'published');
+  database.close();
+});
+
+test('player_publications: verlopen of mismatch mag vervangen worden', () => {
+  const { database, repository } = setup();
+  repository.createRound({
+    id: 'round-record', chainId: 'vrsctest', gameId: 'word-grid', gameVersion: '1.0.0', roundId: '2026-07-25',
+    commitmentHash: 'b'.repeat(64), privateDefinition: null, opensAt: 1_000, closesAt: 2_000, now: 0,
+  });
+  repository.openRound({ id: 'round-record', commitmentTxid: 'a'.repeat(64) });
+  reserve(repository);
+  const base = {
+    attemptId: 'attempt-1', contentKey: 'iBPk7CJiyoVSS1enhnJbyKXiqtZGoiNFcx', contentKeyFqn: 'fqn', recordJson: '{}',
+    recordSha256: 'c'.repeat(64), requestIdHex: 'd'.repeat(40), requestHex: 'ee', walletUri: 'verus://x',
+    responseMode: 'redirect', createdHeight: 100, expiresHeight: 160, now: 5,
+  };
+  repository.createPlayerPublication(base);
+  assert.equal(repository.markPlayerPublicationExpired('attempt-1').status, 'expired');
+  const second = repository.createPlayerPublication({ ...base, requestIdHex: 'e'.repeat(40) });
+  assert.equal(second.requestIdHex, 'e'.repeat(40));
+  repository.markPlayerPublicationReceipt({ attemptId: 'attempt-1', receiptTxid: '1'.repeat(64), now: 6 });
+  assert.equal(repository.markPlayerPublicationMismatch({ attemptId: 'attempt-1', now: 7 }).status, 'mismatch');
+  assert.equal(repository.createPlayerPublication({ ...base, requestIdHex: 'f'.repeat(40) }).status, 'pending');
   database.close();
 });

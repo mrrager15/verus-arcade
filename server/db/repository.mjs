@@ -986,6 +986,135 @@ export class ArcadeRepository {
     });
   }
 
+  // ── Fase 2: publicaties in het ID van de speler ───────────────────────────
+
+  getPlayerPublication(attemptId) {
+    const row = this.database
+      .prepare('SELECT * FROM player_publications WHERE attempt_id = ?')
+      .get(attemptId);
+    return row ? mapPlayerPublication(row) : null;
+  }
+
+  getPlayerPublicationByRequestId(requestIdHex) {
+    const row = this.database
+      .prepare('SELECT * FROM player_publications WHERE request_id_hex = ?')
+      .get(requestIdHex);
+    return row ? mapPlayerPublication(row) : null;
+  }
+
+  /**
+   * Maakt een publicatieverzoek, of vervangt een verlopen of mislukt (mismatch)
+   * verzoek. Een lopend verzoek ('pending' of 'receipt') of een afgeronde
+   * publicatie blijft staan: nooit stilzwijgend overschrijven.
+   */
+  createPlayerPublication({
+    attemptId, contentKey, contentKeyFqn, recordJson, recordSha256, requestIdHex, requestHex,
+    walletUri, responseMode, createdHeight, expiresHeight, now,
+  }) {
+    return inImmediateTransaction(this.database, () => {
+      const existing = this.getPlayerPublication(attemptId);
+      if (existing && !['expired', 'mismatch'].includes(existing.status)) {
+        throw new RepositoryConflictError(
+          'PLAYER_PUBLICATION_EXISTS',
+          'Attempt already has an active or completed publication',
+        );
+      }
+      if (existing) {
+        this.database.prepare('DELETE FROM player_publications WHERE attempt_id = ?').run(attemptId);
+      }
+      this.database
+        .prepare(`
+          INSERT INTO player_publications (
+            attempt_id, content_key, content_key_fqn, record_json, record_sha256, request_id_hex,
+            request_hex, wallet_uri, response_mode, status, created_height, expires_height, created_at_ms
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+        `)
+        .run(
+          attemptId, contentKey, contentKeyFqn, recordJson, recordSha256, requestIdHex,
+          requestHex, walletUri, responseMode, createdHeight, expiresHeight, now,
+        );
+      return this.getPlayerPublication(attemptId);
+    });
+  }
+
+  markPlayerPublicationExpired(attemptId) {
+    this.database
+      .prepare("UPDATE player_publications SET status = 'expired' WHERE attempt_id = ? AND status = 'pending'")
+      .run(attemptId);
+    return this.getPlayerPublication(attemptId);
+  }
+
+  /** Ontvangstbewijs: de wallet meldt een txid. Nog geen bevestiging. Idempotent voor dezelfde txid. */
+  markPlayerPublicationReceipt({ attemptId, receiptTxid, now }) {
+    if (!/^[0-9a-f]{64}$/.test(receiptTxid)) {
+      throw new Error('Receipt transaction ID must be 64 lowercase hex characters');
+    }
+    return inImmediateTransaction(this.database, () => {
+      const existing = this.getPlayerPublication(attemptId);
+      if (!existing) throw new RepositoryConflictError('PLAYER_PUBLICATION_MISSING', 'No publication request for attempt');
+      if (existing.status !== 'pending') {
+        if (existing.receiptTxid === receiptTxid) return { created: false, publication: existing };
+        throw new RepositoryConflictError(
+          'PLAYER_PUBLICATION_CONFLICT',
+          'Publication already carries a different receipt or is no longer pending',
+        );
+      }
+      this.database
+        .prepare(`
+          UPDATE player_publications
+          SET status = 'receipt', receipt_txid = ?, receipt_at_ms = ?
+          WHERE attempt_id = ?
+        `)
+        .run(receiptTxid, now, attemptId);
+      return { created: true, publication: this.getPlayerPublication(attemptId) };
+    });
+  }
+
+  /** Bevestiging na teruglezen van de chain: het record staat er en de hash klopt. */
+  markPlayerPublicationPublished({ attemptId, publishedTxid, publishedHeight, now }) {
+    if (!/^[0-9a-f]{64}$/.test(publishedTxid) || !Number.isSafeInteger(publishedHeight) || publishedHeight < 1) {
+      throw new Error('Published transaction ID and height are required');
+    }
+    const updated = this.database
+      .prepare(`
+        UPDATE player_publications
+        SET status = 'published', published_txid = ?, published_height = ?, published_at_ms = ?, last_checked_at_ms = ?
+        WHERE attempt_id = ? AND status = 'receipt'
+      `)
+      .run(publishedTxid, publishedHeight, now, now, attemptId);
+    if (updated.changes !== 1) {
+      throw new RepositoryConflictError('PLAYER_PUBLICATION_CONFLICT', 'Publication is missing or not awaiting confirmation');
+    }
+    return this.getPlayerPublication(attemptId);
+  }
+
+  /** Het record op de chain wijkt af van wat wij gaven: nooit 'published'. */
+  markPlayerPublicationMismatch({ attemptId, now }) {
+    this.database
+      .prepare("UPDATE player_publications SET status = 'mismatch', last_checked_at_ms = ? WHERE attempt_id = ? AND status = 'receipt'")
+      .run(now, attemptId);
+    return this.getPlayerPublication(attemptId);
+  }
+
+  touchPlayerPublicationChecked({ attemptId, now }) {
+    this.database
+      .prepare('UPDATE player_publications SET last_checked_at_ms = ? WHERE attempt_id = ?')
+      .run(now, attemptId);
+  }
+
+  /** Publicaties die op bevestiging wachten, oudste controle eerst (voor de reconcile-taak). */
+  listPlayerPublicationsAwaitingConfirmation({ limit = 50 } = {}) {
+    return this.database
+      .prepare(`
+        SELECT * FROM player_publications
+        WHERE status = 'receipt'
+        ORDER BY COALESCE(last_checked_at_ms, 0) ASC, receipt_at_ms ASC
+        LIMIT ?
+      `)
+      .all(limit)
+      .map(mapPlayerPublication);
+  }
+
   /** Alle handtekeningen van een ronde, voor het resultaatrecord. */
   listRoundAttemptSignatures(round) {
     return this.database
@@ -999,6 +1128,30 @@ export class ArcadeRepository {
       .all(round.chain_id, round.game_id, round.game_version, round.round_id)
       .map(mapAttemptSignature);
   }
+}
+
+function mapPlayerPublication(row) {
+  return {
+    attemptId: row.attempt_id,
+    contentKey: row.content_key,
+    contentKeyFqn: row.content_key_fqn,
+    recordJson: row.record_json,
+    recordSha256: row.record_sha256,
+    requestIdHex: row.request_id_hex,
+    requestHex: row.request_hex,
+    walletUri: row.wallet_uri,
+    responseMode: row.response_mode,
+    status: row.status,
+    createdHeight: Number(row.created_height),
+    expiresHeight: Number(row.expires_height),
+    createdAtMs: Number(row.created_at_ms),
+    receiptTxid: row.receipt_txid ?? null,
+    receiptAtMs: row.receipt_at_ms == null ? null : Number(row.receipt_at_ms),
+    publishedTxid: row.published_txid ?? null,
+    publishedHeight: row.published_height == null ? null : Number(row.published_height),
+    publishedAtMs: row.published_at_ms == null ? null : Number(row.published_at_ms),
+    lastCheckedAtMs: row.last_checked_at_ms == null ? null : Number(row.last_checked_at_ms),
+  };
 }
 
 function mapAttemptSignature(row) {

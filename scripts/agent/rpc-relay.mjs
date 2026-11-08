@@ -122,12 +122,12 @@ function handleRun(req) {
     const started = Date.now();
     let stdout = '';
     let stderr = '';
-    const child = spawn(cmd, args, {
-      cwd: REPO_ROOT,
-      env: { ...process.env, ...env },
-      shell: process.platform === 'win32',
-      windowsHide: true,
-    });
+    // Geen shell:true (DEP0190): op Windows is npm een .cmd-bestand, dus via cmd.exe
+    // met een argumentenlijst; node-scripts draaien direct via process.execPath.
+    const viaCmd = process.platform === 'win32' && /\.cmd$/i.test(cmd);
+    const child = viaCmd
+      ? spawn('cmd.exe', ['/d', '/s', '/c', cmd, ...args], { cwd: REPO_ROOT, env: { ...process.env, ...env }, windowsHide: true })
+      : spawn(cmd, args, { cwd: REPO_ROOT, env: { ...process.env, ...env }, windowsHide: true });
     const timer = setTimeout(() => child.kill(), RUN_TIMEOUT_MS);
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
@@ -219,10 +219,14 @@ async function main() {
     if (Date.now() - lastInfoAt > 30_000) {
       try { lastInfo = await client.call('getinfo'); lastInfoAt = Date.now(); } catch { /* laat oude staan */ }
     }
-    writeJsonAtomic(HEARTBEAT, {
-      time: now(), pid: process.pid, chain: lastInfo.name, height: lastInfo.blocks,
-      connections: lastInfo.connections, version: lastInfo.VRSCversion,
-    });
+    // Heartbeat: direct schrijven, geen rename. Windows weigert een rename over een
+    // bestand dat de client net leest (EPERM); een half geschreven heartbeat is onschuldig.
+    try {
+      fs.writeFileSync(HEARTBEAT, JSON.stringify({
+        time: now(), pid: process.pid, chain: lastInfo.name, height: lastInfo.blocks,
+        connections: lastInfo.connections, version: lastInfo.VRSCversion,
+      }, null, 2));
+    } catch { /* volgende seconde opnieuw */ }
     if (busy) return;
     const files = fs.readdirSync(DIRS.requests).filter((f) => f.endsWith('.json') && !f.endsWith('.tmp'))
       .map((f) => path.join(DIRS.requests, f)).sort();

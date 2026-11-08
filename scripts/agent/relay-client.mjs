@@ -27,13 +27,18 @@ const WAIT_MS = Number(process.env.ARCADE_RELAY_WAIT_MS ?? 11 * 60 * 1000);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function heartbeat() {
-  try {
-    const hb = JSON.parse(fs.readFileSync(path.join(RELAY_DIR, 'heartbeat.json'), 'utf8'));
-    const ageMs = Date.now() - Date.parse(hb.time);
-    return { ...hb, ageMs, alive: ageMs < 15_000 };
-  } catch {
-    return { alive: false };
+  // De relay schrijft dit bestand elke seconde zonder rename; een lees-actie kan dus
+  // een half bestand treffen. Twee pogingen met korte pauze.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const hb = JSON.parse(fs.readFileSync(path.join(RELAY_DIR, 'heartbeat.json'), 'utf8'));
+      const ageMs = Date.now() - Date.parse(hb.time);
+      return { ...hb, ageMs, alive: ageMs < 15_000 };
+    } catch {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
+    }
   }
+  return { alive: false };
 }
 
 async function send(request) {

@@ -87,6 +87,18 @@ export function createDailyRouter({
     }
   });
 
+  if (playerPublicationService) {
+    // Publiek, zonder sessie: leest alleen van de chain.
+    router.get('/profile/:iAddress', async (request, response, next) => {
+      try {
+        response.set('Cache-Control', 'public, max-age=30');
+        response.json(await playerPublicationService.profile({ playerId: request.params.iAddress }));
+      } catch (error) {
+        next(error);
+      }
+    });
+  }
+
   router.get('/games/word-grid/rounds/current', (_request, response) => {
     const round = dailyService.getCurrentRound();
     response.status(round ? 200 : 404).json(

@@ -251,15 +251,15 @@ export class VerusRequests {
   }
 
   /**
-   * Fase 2, reconcile: huidige content onder één key én de geschiedenis van een
-   * identiteit, plus de hoogte waarop gelezen is. Alleen lezen.
+   * Fase 2: huidige content (onder één key, of alles als `keyId` ontbreekt) én de
+   * geschiedenis van een identiteit, plus de hoogte waarop gelezen is. Alleen lezen.
    */
   async readIdentityContent({ identityId, keyId }) {
     rawId(identityId);
-    rawId(keyId);
+    if (keyId !== undefined) rawId(keyId);
     const tip = await this.tip();
     const [content, history] = await Promise.all([
-      this.chain(() => this.client.interface.getIdentityContent(identityId, 0, tip, false, tip, keyId)),
+      this.chain(() => this.client.interface.getIdentityContent(identityId, 0, tip, false, tip, ...(keyId ? [keyId] : []))),
       this.chain(() => this.client.interface.request({ cmd: 'getidentityhistory', getParams: () => [identityId, 0, tip, false] })),
     ]);
     if (content?.identity?.identityaddress !== identityId) {

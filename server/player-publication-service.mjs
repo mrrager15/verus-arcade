@@ -24,7 +24,9 @@ import {
   playerResultContentKey,
   serializePlayerResultRecord,
 } from './verus/player-result.mjs';
+import { collectPlayerResults } from './verus/player-profile.mjs';
 import { locatePublishedRecord } from './verus/player-result-reader.mjs';
+import { rawId } from './verus/requests.mjs';
 import { VerusRequestError } from './verus/requests.mjs';
 
 const REQUEST_ID_HEX = /^[0-9a-f]{40}$/;
@@ -229,6 +231,29 @@ export class PlayerPublicationService {
       results.push(summary);
     }
     return results;
+  }
+
+  /**
+   * Publiek profiel: alle geldige Arcade-resultaten in de identiteit van een
+   * speler, puur uit de chain (geen database, geen sessie).
+   */
+  async profile({ playerId }) {
+    try {
+      try { rawId(playerId); } catch { throw new DailyServiceError('INVALID_IDENTITY', 'Player identity must be an i-address', 400); }
+      const { serviceId, serviceFqn } = await this.#service();
+      const { tip, content, history } = await this.verus.readIdentityContent({ identityId: playerId });
+      const collected = collectPlayerResults({ playerId, content, history, serviceId, serviceFqn });
+      return {
+        playerId,
+        name: content?.fullyqualifiedname ?? content?.identity?.name ?? null,
+        readAtHeight: tip,
+        namespace: { serviceId, serviceFqn },
+        results: collected.results,
+        ignoredValues: collected.ignored,
+      };
+    } catch (error) {
+      throw this.#translate(error);
+    }
   }
 
   /** Verwerkt het wallet-antwoord: verifieert en bewaart de txid als ontvangstbewijs. */

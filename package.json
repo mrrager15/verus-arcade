@@ -14,7 +14,9 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test": "node --test server/*.test.mjs server/db/*.test.mjs server/games/word-grid/*.test.mjs server/verus/*.test.mjs scripts/storage-poc/*.test.mjs scripts/agent/*.test.mjs",
-		"test:storage-poc": "node --test scripts/storage-poc/*.test.mjs"
+		"test:storage-poc": "node --test scripts/storage-poc/*.test.mjs",
+		"server": "node --env-file-if-exists=.env server/auth.mjs",
+		"server:prod": "node --env-file-if-exists=.env server/prod.mjs"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.1",

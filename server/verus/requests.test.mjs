@@ -1,9 +1,10 @@
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import {
   P, TESTNET_SYSTEM_ID, GENERIC_RESPONSE_QUERY_KEY, VerusRequestError, VerusRequests,
   rawId, compact, compactId, requestId, nativeHeight, signatureWrapper, exactParse, parseConf,
-  createVerusRequestsFromEnv,
+  createVerusRequestsFromEnv, parseStoredSignRequest,
 } from './requests.mjs';
 
 const ARCADE = 'i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp';
@@ -176,4 +177,153 @@ test('parseConf en createVerusRequestsFromEnv', () => {
   assert.equal(fromUrl.client.interface.instance.defaults.baseURL, 'https://api.verustest.net');
   assert.equal(fromUrl.serviceId, ARCADE);
   assert.throws(() => createVerusRequestsFromEnv({ env: {} }), (e) => e.code === 'CHAIN_UNAVAILABLE');
+});
+
+// ---------- fase 1: createSignRequest / verifySignResponse ----------
+
+const PLAYER = 'i9ARtCeKDBH84LvevYPoMxtZNxfts3c5SN';
+const PLAYER_R = 'RDj4ePxriVANbxdyBapJUjf23LkBYsVxa7';
+const MESSAGE = 'Verus Arcade attempt v1\nround:word-grid:1.0.0:2026-10-20\nplayer:' + PLAYER + '\nactions:sha256:' + '0'.repeat(64);
+const NOW_MS = 1_800_000_000_000;
+
+/** Nep-client die tekent door een geldige 73-bytes vector te zetten en alles cryptografisch goedkeurt. */
+function signingClient({ tip = 2000, records, verifyResponse = true, verifyInner = true } = {}) {
+  const c = fakeClient({ tip, records: records ?? {
+    [`${ARCADE}@${tip}`]: identityRecord({ height: tip - 1 }), [`${ARCADE}@now`]: identityRecord({ height: tip - 1 }),
+    [`${PLAYER}@1500`]: identityRecord({ id: PLAYER, height: 1490, primary: [PLAYER_R], name: 'arcade-storage-poc' }),
+    [`${PLAYER}@now`]: identityRecord({ id: PLAYER, height: 1490, primary: [PLAYER_R], name: 'arcade-storage-poc' }),
+  } });
+  c.signGenericRequest = async (req, _wif, _hist, height) => { req.signature.signatureAsVch = fakeNative(height); return req; };
+  c.verifyGenericRequest = async () => true;
+  c.verifyGenericResponse = async () => verifyResponse;
+  c.getSignatureInfo = async () => ({ version: 2, hashtype: 5, height: 1500 });
+  c.verifyHash = async () => verifyInner;
+  return c;
+}
+
+function service(client) {
+  return new VerusRequests({ client, serviceId: ARCADE, serviceWif: 'Uxxx', now: () => NOW_MS });
+}
+
+/** Bouwt een wallet-antwoord zoals Mobile het zou maken, met instelbare afwijkingen. */
+function walletResponse(request, { signer = PLAYER, message = MESSAGE, height = 1500, outerHeight = 1500, requestIdHex = REQUEST_HEX, requestHash, handledBy = true, outerVersion = 0, descriptorFlags = 0 } = {}) {
+  const id = requestId(requestIdHex);
+  const sig = new P.SignatureData({
+    version: new P.BigNumber(1), systemID: TESTNET_SYSTEM_ID, hashType: new P.BigNumber(5),
+    signatureHash: createHashSha(message), identityID: signer, sigType: new P.BigNumber(1),
+    vdxfKeys: [], vdxfKeyNames: [], boundHashes: [], signatureAsVch: fakeNative(height),
+  });
+  const uni = new P.VdxfUniValue({ values: [{ [P.SignatureDataKey.vdxfid]: sig }] });
+  const descriptor = new P.DataDescriptor({ version: new P.BigNumber(1), flags: new P.BigNumber(descriptorFlags), objectdata: uni.toBuffer() });
+  const detail = new P.DataResponseDetails({ flags: new P.BigNumber(1), requestID: id, data: descriptor });
+  const envelope = {
+    version: new P.BigNumber(1),
+    requestID: id,
+    createdAt: new P.BigNumber(Math.floor(NOW_MS / 1000)),
+    requestHash: requestHash ?? request.getRawDataSha256(),
+    requestHashType: new P.BigNumber(5),
+    signature: fakeWrapper(outerHeight, { version: outerVersion, flags: 16, identityId: signer }),
+    details: [new P.DataResponseOrdinalVDXFObject({ data: detail })],
+  };
+  if (handledBy) envelope.handledBy = P.VERUS_MOBILE_GENERIC_REQUEST_HANDLER_ID;
+  const response = new P.GenericResponse(envelope);
+  response.flags = new P.BigNumber(handledBy ? 407 : 151);
+  return response;
+}
+
+function createHashSha(text) { return createHash('sha256').update(text).digest(); }
+
+async function makeRequest(client = signingClient(), overrides = {}) {
+  const vr = service(client);
+  const built = await vr.createSignRequest({ message: MESSAGE, callbackUrl: 'http://192.168.1.10:8100/api/v1/sign-jobs/x/response', requestIdHex: REQUEST_HEX, responseMode: 'redirect', ...overrides });
+  const request = new P.GenericRequest(); request.fromBuffer(Buffer.from(built.requestHex, 'hex'), 0);
+  return { vr, built, request };
+}
+
+test('createSignRequest bouwt een getekend DataPacketRequest met één transport', async () => {
+  const { built, request } = await makeRequest();
+  assert.equal(built.height, 2000);
+  assert.match(built.requestHashHex, /^[0-9a-f]{64}$/);
+  assert.ok(built.walletUri.includes('://'));
+  assert.equal(request.details.length, 1);
+  assert.equal(request.details[0].data.signableObjects[0], MESSAGE);
+  assert.equal(request.details[0].data.flags.toNumber(), 9);
+  assert.equal(request.responseURIs.length, 1);
+  assert.equal(compactId(request.signature.identityID), ARCADE);
+  // byte-exact opnieuw parseerbaar via parseStoredSignRequest
+  assert.doesNotThrow(() => parseStoredSignRequest(built.requestHex, MESSAGE, requestId(REQUEST_HEX).toIAddress()));
+  assert.throws(() => parseStoredSignRequest(built.requestHex, MESSAGE + 'x', requestId(REQUEST_HEX).toIAddress()), /message mismatch/);
+});
+
+test('createSignRequest: POST vereist https, redirect mag http; geen hash/credentials in URL', async () => {
+  await assert.rejects(makeRequest(signingClient(), { responseMode: 'post' }), /require HTTPS/);
+  await assert.doesNotReject(makeRequest(signingClient(), { responseMode: 'post', callbackUrl: 'https://arcade.example/api/cb' }));
+  await assert.rejects(makeRequest(signingClient(), { callbackUrl: 'http://u:p@host/cb' }), /Invalid callback URL/);
+  await assert.rejects(makeRequest(signingClient(), { callbackUrl: 'http://host/cb#frag' }), /Invalid callback URL/);
+  await assert.rejects(makeRequest(signingClient(), { responseMode: 'sms' }), /response mode/);
+});
+
+test('createSignRequest zonder service-WIF is SERVICE_UNAVAILABLE', async () => {
+  const vr = new VerusRequests({ client: signingClient() });
+  await assert.rejects(vr.createSignRequest({ message: MESSAGE, callbackUrl: 'http://h/cb', requestIdHex: REQUEST_HEX, responseMode: 'redirect' }), (e) => e.code === 'SERVICE_UNAVAILABLE');
+});
+
+test('verifySignResponse accepteert een correct wallet-antwoord', async () => {
+  const { vr, built, request } = await makeRequest();
+  const body = walletResponse(request).toBuffer();
+  const result = await vr.verifySignResponse({ body, requestHex: built.requestHex, message: MESSAGE, requestIdHex: REQUEST_HEX, expectedSigner: PLAYER });
+  assert.equal(result.identityId, PLAYER);
+  assert.equal(result.signingHeight, 1500);
+  assert.equal(result.name, 'arcade-storage-poc');
+  assert.equal(Buffer.from(result.nativeSignature, 'base64').length, 73);
+  // zonder handledBy (flags 151) ook goed
+  const body151 = walletResponse(request, { handledBy: false }).toBuffer();
+  await assert.doesNotReject(vr.verifySignResponse({ body: body151, requestHex: built.requestHex, message: MESSAGE, requestIdHex: REQUEST_HEX }));
+});
+
+test('verifySignResponse weigert elke afwijking van de binding', async () => {
+  const { vr, built, request } = await makeRequest();
+  const run = (body, extra = {}) => vr.verifySignResponse({ body, requestHex: built.requestHex, message: MESSAGE, requestIdHex: REQUEST_HEX, expectedSigner: PLAYER, ...extra });
+  // andere request-hash
+  await assert.rejects(run(walletResponse(request, { requestHash: Buffer.alloc(32, 7) }).toBuffer()), /different request/);
+  // ander request-ID in het antwoord
+  await assert.rejects(run(walletResponse(request, { requestIdHex: 'ff'.repeat(20) }).toBuffer()), /different request/);
+  // andere boodschap getekend
+  await assert.rejects(run(walletResponse(request, { message: MESSAGE.replace('0'.repeat(64), '1'.repeat(64)) }).toBuffer()), /message mismatch/);
+  // ander ID dan verwacht (wel consistent binnen/buiten)
+  await assert.rejects(run(walletResponse(request, { signer: ARCADE }).toBuffer()), /different identity/);
+  // versleutelde descriptor
+  await assert.rejects(run(walletResponse(request, { descriptorFlags: 1 }).toBuffer()), /encrypted response data/);
+  // afgekapte bytes
+  const bytes = walletResponse(request).toBuffer();
+  await assert.rejects(run(bytes.subarray(0, bytes.length - 5)), (e) => e.code === 'INVALID_SIGNATURE');
+  // verkeerde opgeslagen request-hex
+  // verkeerde opgeslagen request-hex: één byte in het midden omgedraaid (de staart is in de nep-handtekening al nul)
+  const mid = Math.floor(built.requestHex.length / 4) * 2;
+  const flipped = (parseInt(built.requestHex.slice(mid, mid + 2), 16) ^ 0xff).toString(16).padStart(2, '0');
+  await assert.rejects(run(bytes, { requestHex: built.requestHex.slice(0, mid) + flipped + built.requestHex.slice(mid + 2) }), (e) => e.code === 'INVALID_SIGNATURE');
+});
+
+test('verifySignResponse faalt bij cryptografische afwijzing en bij ingetrokken ID', async () => {
+  // envelop-handtekening ongeldig
+  { const { vr, built, request } = await makeRequest(signingClient({ verifyResponse: false }));
+    await assert.rejects(vr.verifySignResponse({ body: walletResponse(request).toBuffer(), requestHex: built.requestHex, message: MESSAGE, requestIdHex: REQUEST_HEX }), /Invalid wallet response signature/); }
+  // binnenste handtekening ongeldig
+  { const { vr, built, request } = await makeRequest(signingClient({ verifyInner: false }));
+    await assert.rejects(vr.verifySignResponse({ body: walletResponse(request).toBuffer(), requestHex: built.requestHex, message: MESSAGE, requestIdHex: REQUEST_HEX }), /Invalid signature/); }
+  // speler intussen ingetrokken
+  { const tip = 2000;
+    const records = {
+      [`${ARCADE}@${tip}`]: identityRecord({ height: tip - 1 }), [`${ARCADE}@now`]: identityRecord({ height: tip - 1 }),
+      [`${PLAYER}@1500`]: identityRecord({ id: PLAYER, height: 1490, primary: [PLAYER_R] }),
+      [`${PLAYER}@now`]: identityRecord({ id: PLAYER, height: 1900, primary: [PLAYER_R], status: 'revoked', flags: 0x8000 }),
+    };
+    const { vr, built, request } = await makeRequest(signingClient({ records }));
+    await assert.rejects(vr.verifySignResponse({ body: walletResponse(request).toBuffer(), requestHex: built.requestHex, message: MESSAGE, requestIdHex: REQUEST_HEX }), /revoked or inactive/); }
+});
+
+test('verifySignResponse weigert een antwoord uit de toekomst en van een vreemde handler', async () => {
+  const { vr, built, request } = await makeRequest();
+  const late = walletResponse(request); late.createdAt = new P.BigNumber(Math.floor(NOW_MS / 1000) + 600);
+  await assert.rejects(vr.verifySignResponse({ body: late.toBuffer(), requestHex: built.requestHex, message: MESSAGE, requestIdHex: REQUEST_HEX }), /timestamp/);
 });

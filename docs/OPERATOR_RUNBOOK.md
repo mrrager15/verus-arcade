@@ -24,10 +24,12 @@ For a short-lived round that can be exercised in one session, first follow
 The CLI uses the server environment:
 
 ```powershell
-$env:ARCADE_DATABASE_PATH = (Resolve-Path 'server/data/vrsctest-round-lifecycle.sqlite').Path
-$env:VERUS_CHAIN = 'VRSCTEST'
-$env:VERUS_OPERATOR_IDENTITY_NAME = 'arcade-storage-poc@'
-$env:VERUS_OPERATOR_IDENTITY_I_ADDRESS = 'i9ARtCeKDBH84LvevYPoMxtZNxfts3c5SN'
+# Optional. Defaults to server/data/arcade.sqlite, the same database the game
+# server uses, so a round created here is immediately visible to players.
+$env:ARCADE_DATABASE_PATH = (Resolve-Path 'server/data/arcade.sqlite').Path
+# Optional. Defaults to Arcade@ (i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp) on VRSCTEST.
+$env:VERUS_OPERATOR_IDENTITY_NAME = 'Arcade@'
+$env:VERUS_OPERATOR_IDENTITY_I_ADDRESS = 'i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp'
 ```
 
 RPC credentials must point to a synchronized VRSCTEST daemon that controls the
@@ -37,9 +39,66 @@ operator identity.
 node scripts/operator/round-lifecycle.mjs <action> <round-record-id>
 ```
 
-Actions are `inspect`, `finalize`, `results-prepare`, `results-submit`,
-`results-reconcile`, `reveal-prepare`, `reveal-submit`, and
-`reveal-reconcile`.
+Actions are `list`, `inspect`, `round-create`, `round-submit`, `round-open`,
+`finalize`, `results-prepare`, `results-submit`, `results-reconcile`,
+`reveal-prepare`, `reveal-submit`, and `reveal-reconcile`. `list` and
+`round-create` take no round id.
+
+## 0. Create a new round (rotation)
+
+A Daily round is identified by its UTC date: `word-grid:1.0.0:YYYY-MM-DD`.
+It opens at 00:00 UTC and closes at 00:00 UTC the next day unless you pass
+`--opens-at` / `--closes-at` (ISO 8601). Creating a round is three guarded
+steps, like every other identity update in this project.
+
+List what exists (read-only):
+
+```powershell
+node scripts/operator/round-lifecycle.mjs list
+```
+
+Step 1 — create the round and sign the commitment. This picks a random answer,
+stores the hidden definition locally, and journals a signed `updateidentity`
+transaction for `Arcade@` that is **not** broadcast yet. The CLI prints the
+commitment (metadata plus the sha256 of the hidden definition), never the
+answer.
+
+```powershell
+$env:VERUS_OPERATOR_ACK = 'CREATE_VRSCTEST_ROUND'
+node scripts/operator/round-lifecycle.mjs round-create            # today (UTC)
+node scripts/operator/round-lifecycle.mjs round-create --date 2026-11-09
+Remove-Item Env:VERUS_OPERATOR_ACK
+```
+
+Running `round-create` again for the same date changes nothing and tells you
+which step comes next. A past date, or a `--closes-at` in the past, is refused.
+
+Step 2 — broadcast the signed commitment:
+
+```powershell
+$env:VERUS_OPERATOR_ACK = 'SUBMIT_VRSCTEST_ROUND'
+node scripts/operator/round-lifecycle.mjs round-submit word-grid:1.0.0:2026-11-09
+Remove-Item Env:VERUS_OPERATOR_ACK
+```
+
+Step 3 — wait for one confirmation (about a minute on VRSCTEST) and open the
+round. Repeat until `roundStatus` is `open`; the server only accepts play for
+rounds that are `open` with a confirmed `commitmentTxid`.
+
+```powershell
+$env:VERUS_OPERATOR_ACK = 'OPEN_VRSCTEST_ROUND'
+node scripts/operator/round-lifecycle.mjs round-open word-grid:1.0.0:2026-11-09
+Remove-Item Env:VERUS_OPERATOR_ACK
+```
+
+Only one Daily round should be open at a time. The server serves the earliest
+round that has not closed yet, so create tomorrow's round at most one day
+ahead. The commitment overwrites the previous value under the commitment VDXF
+key on `Arcade@`; the history remains on chain.
+
+If `round-create` fails after the round was inserted (for example the daemon
+refused to sign), the round is stuck with a failed journal. Use another date or
+remove the round from the database; the CLI will not silently re-sign.
 
 ## 1. Inspect
 

@@ -18,20 +18,47 @@ function nodeHash(left, right) {
   return hash(Buffer.from([1]), left, right);
 }
 
+const BASE_KEYS = [
+  'schemaVersion',
+  'roundId',
+  'chainId',
+  'gameId',
+  'gameVersion',
+  'playerIAddress',
+  'status',
+  'guesses',
+  'score',
+];
+
+/**
+ * Schema 1: het v1-record. Schema 2 (fase 1): identiek plus `playerSignature`,
+ * null of { height, signature } met de native Verus-handtekening (73 bytes,
+ * base64) van de speler over het bericht uit server/verus/attempt-message.mjs.
+ * Oude rondes blijven schema 1 en verifiëren ongewijzigd.
+ */
+function validatePlayerSignature(value) {
+  if (value === null) return true;
+  return (
+    value !== undefined &&
+    typeof value === 'object' &&
+    Object.keys(value).length === 2 &&
+    Number.isSafeInteger(value.height) &&
+    value.height >= 1 &&
+    value.height <= 0xffff_ffff &&
+    typeof value.signature === 'string' &&
+    /^[A-Za-z0-9+/]{98}==$/.test(value.signature) &&
+    Buffer.from(value.signature, 'base64').length === 73 &&
+    Buffer.from(value.signature, 'base64').toString('base64') === value.signature
+  );
+}
+
 function validateRecord(record) {
-  const keys = [
-    'schemaVersion',
-    'roundId',
-    'chainId',
-    'gameId',
-    'gameVersion',
-    'playerIAddress',
-    'status',
-    'guesses',
-    'score',
-  ];
+  const version = record?.schemaVersion;
+  if (version !== 1 && version !== 2) {
+    throw new Error('Result record does not match schema version 1 or 2');
+  }
+  const keys = version === 2 ? [...BASE_KEYS, 'playerSignature'] : BASE_KEYS;
   if (
-    record?.schemaVersion !== 1 ||
     Object.keys(record).length !== keys.length ||
     keys.some((key) => !(key in record)) ||
     !record.roundId ||
@@ -54,9 +81,10 @@ function validateRecord(record) {
     typeof record.score.solved !== 'boolean' ||
     !Number.isSafeInteger(record.score.guessesUsed) ||
     record.score.guessesUsed !== record.guesses.length ||
-    record.score.solved !== (record.status === 'solved')
+    record.score.solved !== (record.status === 'solved') ||
+    (version === 2 && !validatePlayerSignature(record.playerSignature))
   ) {
-    throw new Error('Result record does not match schema version 1');
+    throw new Error(`Result record does not match schema version ${version}`);
   }
 }
 

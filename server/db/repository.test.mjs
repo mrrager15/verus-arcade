@@ -25,6 +25,7 @@ test('migrations are ordered and idempotent', () => {
       { version: 3, filename: '003_round_results.sql' },
       { version: 4, filename: '004_round_reveals.sql' },
       { version: 5, filename: '005_attempt_presentation.sql' },
+      { version: 6, filename: '006_attempt_signatures.sql' },
     ],
   );
   assert.equal(database.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
@@ -379,5 +380,30 @@ test('journal reconciles an uncertain submission through explicit transitions', 
       }),
     (error) => error.code === 'CHAIN_OPERATION_STATE_CONFLICT',
   );
+  database.close();
+});
+
+test('listRounds geeft de rondes van een chain, nieuwste opening eerst', () => {
+  const { database, repository } = setup();
+  for (const [id, opensAt] of [['r-oud', 1_000], ['r-nieuw', 5_000], ['r-midden', 3_000]]) {
+    repository.createRound({
+      id,
+      chainId: 'vrsctest',
+      gameId: 'word-grid',
+      gameVersion: '1.0.0',
+      roundId: id,
+      commitmentHash: 'b'.repeat(64),
+      privateDefinition: null,
+      opensAt,
+      closesAt: opensAt + 1_000,
+      now: 0,
+    });
+  }
+  assert.deepEqual(
+    repository.listRounds({ chainId: 'vrsctest' }).map((round) => round.id),
+    ['r-nieuw', 'r-midden', 'r-oud'],
+  );
+  assert.deepEqual(repository.listRounds({ chainId: 'vrsctest', limit: 1 }).map((r) => r.id), ['r-nieuw']);
+  assert.deepEqual(repository.listRounds({ chainId: 'vrsc' }), []);
   database.close();
 });

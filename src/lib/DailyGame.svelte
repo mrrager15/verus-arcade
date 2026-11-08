@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { MAX_GUESSES, WORD_LENGTH } from '../../shared/word-grid.mjs';
+	import SignAttempt from './SignAttempt.svelte';
 
 	let {
 		token,
@@ -330,6 +331,9 @@
 				<p>{answer ? `Answer: ${answer.toUpperCase()}. ` : ''}Your result awaits round finalization.</p>
 				<a href={`/verify/${encodeURIComponent(round.id)}`}>Open round verifier →</a>
 			</div>
+			{#if attempt.status === 'completed'}
+				<SignAttempt {token} attemptId={attempt.id} />
+			{/if}
 		{/if}
 	{/if}
 

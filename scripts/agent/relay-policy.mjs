@@ -36,6 +36,20 @@ export const RUN_ALLOWED = [
   { cmd: 'npm', args: ['install'] },
   { cmd: 'npm', args: ['ci'] },
 ];
+/** git: alleen push naar origin van gewone branchnamen, geen opties. Haalt de commits online zonder dat Simon moet pushen. */
+const BRANCH_NAME = /^[A-Za-z0-9][A-Za-z0-9._\/-]{0,100}$/;
+export function resolveGit(args) {
+  if (!Array.isArray(args) || args.length < 3 || args[0] !== 'push' || args[1] !== 'origin') {
+    throw new Error(`git-commando niet toegestaan: git ${Array.isArray(args) ? args.join(' ') : ''}`);
+  }
+  for (const b of args.slice(2)) {
+    if (typeof b !== 'string' || !BRANCH_NAME.test(b) || b.startsWith('-') || b.includes('..') || b.includes(':')) {
+      throw new Error(`ongeldige branchnaam voor push: ${b}`);
+    }
+  }
+  return { cmd: 'git', args, env: {} };
+}
+
 export const SCRIPT_DIRS = ['scripts/integration', 'scripts/operator', 'scripts/storage-poc', 'scripts/agent'];
 export const ENV_ALLOWED = /^(VERUS_[A-Z0-9_]+_ACK|ARCADE_[A-Z0-9_]+|NODE_ENV)$/;
 
@@ -62,6 +76,7 @@ export function resolveRun({ cmd, args = [], env = {} }, { repoRoot, platform = 
       throw new Error(`omgevingsvariabele niet toegestaan: ${key}`);
     }
   }
+  if (cmd === 'git') return resolveGit(args);
   if (cmd === 'node') {
     const script = args[0] ?? '';
     const normalized = script.replace(/\\/g, '/');

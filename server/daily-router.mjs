@@ -1,6 +1,7 @@
 import express from 'express';
 
 import { DailyServiceError } from './daily-service.mjs';
+import { GENERIC_RESPONSE_QUERY_KEY } from './verus/requests.mjs';
 
 function bearerToken(request) {
   const match = /^Bearer ([A-Za-z0-9_-]{32,256})$/.exec(
@@ -9,8 +10,60 @@ function bearerToken(request) {
   return match?.[1] ?? null;
 }
 
-export function createDailyRouter({ dailyService, resolveSession }) {
+export function createDailyRouter({ dailyService, resolveSession, attemptSignatureService = null, walletReturnPath = '/' }) {
   const router = express.Router();
+
+  // --- Wallet-callbacks (fase 1): geen sessie, de handtekening bewijst de afzender. ---
+  // Vóór express.json: het POST-lichaam is binair (application/octet-stream).
+  if (attemptSignatureService) {
+    router.post(
+      '/sign-jobs/:requestId/response',
+      express.raw({ type: 'application/octet-stream', limit: '64kb' }),
+      async (request, response, next) => {
+        try {
+          if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+            throw new DailyServiceError('INVALID_CALLBACK', 'Send a binary GenericResponse as application/octet-stream', 415);
+          }
+          const result = await attemptSignatureService.acceptResponse({
+            requestId: request.params.requestId,
+            requestIdHex: request.params.requestId,
+            body: request.body,
+          });
+          response.json({ accepted: true, replayed: result.replayed, status: result.signature.status });
+        } catch (error) {
+          next(error);
+        }
+      },
+    );
+
+    router.get('/sign-jobs/:requestId/response', async (request, response) => {
+      // Redirect-transport: Mobile opent de browser met het antwoord in de query.
+      // De bestemming krijgt alleen een code, nooit de bytes of een foutmelding.
+      const destination = new URLSearchParams();
+      const requestId = String(request.params.requestId);
+      destination.set('walletReturn', /^[0-9a-f]{40}$/.test(requestId) ? requestId : 'invalid');
+      try {
+        const query = new URL(request.originalUrl, 'http://callback.invalid').searchParams;
+        const values = query.getAll(GENERIC_RESPONSE_QUERY_KEY);
+        const encoded = values[0] ?? '';
+        if (values.length !== 1 || encoded.length > 87_382 || !/^[A-Za-z0-9_-]+$/.test(encoded)) {
+          throw new DailyServiceError('INVALID_CALLBACK', 'Invalid wallet response encoding', 400);
+        }
+        const body = Buffer.from(encoded, 'base64url');
+        if (body.toString('base64url') !== encoded) {
+          throw new DailyServiceError('INVALID_CALLBACK', 'Noncanonical wallet response encoding', 400);
+        }
+        const result = await attemptSignatureService.acceptResponse({ requestIdHex: requestId, body });
+        destination.set('signed', result.signature.status === 'signed' ? '1' : '0');
+      } catch (error) {
+        destination.set('returnError', error instanceof DailyServiceError ? error.code : 'INTERNAL_ERROR');
+      }
+      response.set('Cache-Control', 'no-store');
+      response.set('Referrer-Policy', 'no-referrer');
+      response.redirect(303, `${walletReturnPath}${walletReturnPath.includes('?') ? '&' : '?'}${destination.toString()}`);
+    });
+  }
+
   router.use(express.json({ limit: '4kb' }));
 
   router.get('/rounds/:roundId/proof', (request, response, next) => {
@@ -118,6 +171,33 @@ export function createDailyRouter({ dailyService, resolveSession }) {
       next(error);
     }
   });
+
+  if (attemptSignatureService) {
+    router.post('/attempts/:attemptId/sign-request', async (request, response, next) => {
+      try {
+        const result = await attemptSignatureService.createSignRequest({
+          principal: request.principal,
+          attemptId: request.params.attemptId,
+        });
+        response.status(result.created ? 201 : 200).json(result);
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    router.get('/attempts/:attemptId/sign-request', async (request, response, next) => {
+      try {
+        response.json(
+          await attemptSignatureService.getSignRequest({
+            principal: request.principal,
+            attemptId: request.params.attemptId,
+          }),
+        );
+      } catch (error) {
+        next(error);
+      }
+    });
+  }
 
   router.post('/attempts/:attemptId/actions', (request, response, next) => {
     try {

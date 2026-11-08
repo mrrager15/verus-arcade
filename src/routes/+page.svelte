@@ -14,7 +14,10 @@
 	let qrDataUrl = $state('');
 	let deepLink = $state('');
 	let error = $state('');
-	let activeMode = $state<'practice' | 'daily'>('practice');
+	// Terugkeer uit Verus Mobile (?walletReturn=...) landt op de Daily-tab.
+	const returnedFromWallet =
+		typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('walletReturn');
+	let activeMode = $state<'practice' | 'daily'>(returnedFromWallet ? 'daily' : 'practice');
 
 	onMount(async () => {
 		const stored = localStorage.getItem(TOKEN_KEY);
@@ -51,8 +54,10 @@
 			});
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.error ?? response.statusText);
-			deepLink = body.deepLinkPost;
-			qrDataUrl = await QRCode.toDataURL(body.deepLinkPost, { width: 300, margin: 1 });
+			// Redirect-envelop als de server die aanbiedt (werkt zonder HTTPS; Verus Mobile
+			// weigert POST naar http://), anders de POST-envelop.
+			deepLink = body.deepLinkRedirect ?? body.deepLinkPost;
+			qrDataUrl = await QRCode.toDataURL(deepLink, { width: 300, margin: 1 });
 			void poll(body.challengeId);
 		} catch (caught) {
 			status = 'error';

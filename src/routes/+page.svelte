@@ -54,8 +54,10 @@
 			});
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.error ?? response.statusText);
-			deepLink = body.deepLinkPost;
-			qrDataUrl = await QRCode.toDataURL(body.deepLinkPost, { width: 300, margin: 1 });
+			// Redirect-envelop als de server die aanbiedt (werkt zonder HTTPS; Verus Mobile
+			// weigert POST naar http://), anders de POST-envelop.
+			deepLink = body.deepLinkRedirect ?? body.deepLinkPost;
+			qrDataUrl = await QRCode.toDataURL(deepLink, { width: 300, margin: 1 });
 			void poll(body.challengeId);
 		} catch (caught) {
 			status = 'error';

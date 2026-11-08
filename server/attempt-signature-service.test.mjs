@@ -242,3 +242,29 @@ test('een ongetekende poging krijgt playerSignature null in schema 2', async () 
   assert.equal(verifyInclusionProof(proof), true);
   ctx.database.close();
 });
+
+test('router: walletReturnPath met eigen query wordt met & aangevuld', async () => {
+  const ctx = setup();
+  const attemptId = completeAttempt(ctx.daily);
+  const app = express();
+  app.use('/api/v1', createDailyRouter({
+    dailyService: ctx.daily,
+    attemptSignatureService: ctx.service,
+    resolveSession: (token) => (token === TOKEN ? { user: PRINCIPAL, expiresAt: 10_000 } : null),
+    walletReturnPath: '/verus/wallet-return?kind=sign',
+  }));
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const base = `http://127.0.0.1:${server.address().port}/api/v1`;
+  try {
+    const created = await fetch(`${base}/attempts/${attemptId}/sign-request`, { method: 'POST', headers: { authorization: `Bearer ${TOKEN}` } });
+    const { signature } = await created.json();
+    const encoded = Buffer.from('wallet-bytes').toString('base64url');
+    const ok = await fetch(`${base}/sign-jobs/${signature.requestId}/response?${GENERIC_RESPONSE_QUERY_KEY}=${encoded}`, { redirect: 'manual' });
+    assert.equal(ok.status, 303);
+    assert.equal(ok.headers.get('location'), `/verus/wallet-return?kind=sign&walletReturn=${signature.requestId}&signed=1`);
+  } finally {
+    server.close();
+    ctx.database.close();
+  }
+});

@@ -60,7 +60,7 @@ export function createDailyRouter({ dailyService, resolveSession, attemptSignatu
       }
       response.set('Cache-Control', 'no-store');
       response.set('Referrer-Policy', 'no-referrer');
-      response.redirect(303, `${walletReturnPath}?${destination.toString()}`);
+      response.redirect(303, `${walletReturnPath}${walletReturnPath.includes('?') ? '&' : '?'}${destination.toString()}`);
     });
   }
 

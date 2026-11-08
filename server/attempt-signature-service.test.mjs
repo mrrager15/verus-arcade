@@ -10,6 +10,7 @@ import { createDailyRouter } from './daily-router.mjs';
 import { migrate } from './db/migrate.mjs';
 import { ArcadeRepository } from './db/repository.mjs';
 import { parseAttemptMessage, actionsSha256 } from './verus/attempt-message.mjs';
+import { verifyInclusionProof } from './result-set.mjs';
 import { GENERIC_RESPONSE_QUERY_KEY, VerusRequestError } from './verus/requests.mjs';
 
 const PLAYER = 'i9ARtCeKDBH84LvevYPoMxtZNxfts3c5SN';
@@ -210,4 +211,34 @@ test('router: callbacks zonder sessie (POST octet-stream en GET redirect), sign-
     await once(server, 'close');
     ctx.database.close();
   }
+});
+
+test('een getekende poging krijgt zijn handtekening in het resultaatrecord (schema 2) en het bewijs verifieert', async () => {
+  const ctx = setup();
+  const attemptId = completeAttempt(ctx.daily);
+  const { signature } = await ctx.service.createSignRequest({ principal: PRINCIPAL, attemptId });
+  const native = Buffer.alloc(73, 1).toString('base64');
+  ctx.verus.state.verify = async () => ({ identityId: PLAYER, nativeSignature: native, signingHeight: 1000, name: 'poc' });
+  await ctx.service.acceptResponse({ requestIdHex: signature.requestId, body: Buffer.from('x') });
+
+  ctx.repository.finalizeRoundResults({ roundRecordId: 'round-1', now: 10_000 });
+  const proof = ctx.repository.getResultProof({ roundRecordId: 'round-1', playerIAddress: PLAYER });
+  assert.equal(proof.record.schemaVersion, 2);
+  assert.deepEqual(proof.record.playerSignature, { height: 1000, signature: native });
+  assert.deepEqual(proof.record.guesses, [{ sequence: 1, word: 'slate' }, { sequence: 2, word: 'crane' }]);
+  assert.equal(verifyInclusionProof(proof), true);
+  // het bericht dat getekend werd, is reconstrueerbaar uit het record alleen
+  assert.equal(actionsSha256(proof.record.guesses), parseAttemptMessage(signature.message).actionsSha256);
+  ctx.database.close();
+});
+
+test('een ongetekende poging krijgt playerSignature null in schema 2', async () => {
+  const ctx = setup();
+  completeAttempt(ctx.daily);
+  ctx.repository.finalizeRoundResults({ roundRecordId: 'round-1', now: 10_000 });
+  const proof = ctx.repository.getResultProof({ roundRecordId: 'round-1', playerIAddress: PLAYER });
+  assert.equal(proof.record.schemaVersion, 2);
+  assert.equal(proof.record.playerSignature, null);
+  assert.equal(verifyInclusionProof(proof), true);
+  ctx.database.close();
 });

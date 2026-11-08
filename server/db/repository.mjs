@@ -575,7 +575,11 @@ export class ArcadeRepository {
           round.game_version,
           round.round_id,
         );
+      const signatures = new Map(
+        this.listRoundAttemptSignatures(round).map((signature) => [signature.attemptId, signature]),
+      );
       const records = attempts.map((attempt) => {
+        const signed = signatures.get(attempt.id);
         const actions = this.database
           .prepare(`
             SELECT sequence, canonical_action, response_json
@@ -599,7 +603,7 @@ export class ArcadeRepository {
         const status =
           attempt.status === 'completed' ? (solved ? 'solved' : 'unsolved') : 'abandoned';
         return {
-          schemaVersion: 1,
+          schemaVersion: 2,
           roundId: round.round_id,
           chainId: round.chain_id,
           gameId: round.game_id,
@@ -608,6 +612,10 @@ export class ArcadeRepository {
           status,
           guesses,
           score: { solved, guessesUsed: guesses.length },
+          // Fase 1: handtekening van de speler over zijn invoer, of null.
+          playerSignature: signed
+            ? { height: signed.signingHeight, signature: signed.nativeSignature }
+            : null,
         };
       });
       const built = buildResultSet(records);

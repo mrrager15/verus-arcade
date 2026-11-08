@@ -67,3 +67,24 @@ test('duplicate identities and malformed records fail closed', () => {
     /schema version 1/,
   );
 });
+
+test('schema 2 records require a null or well-formed playerSignature; schema 1 forbids it', () => {
+  const base = {
+    roundId: 'word-grid:1.0.0:2026-10-20', chainId: 'vrsctest', gameId: 'word-grid', gameVersion: '1.0.0',
+    playerIAddress: 'i9ARtCeKDBH84LvevYPoMxtZNxfts3c5SN', status: 'solved',
+    guesses: [{ sequence: 1, word: 'crane' }], score: { solved: true, guessesUsed: 1 },
+  };
+  const sig = Buffer.alloc(73, 2).toString('base64');
+  assert.doesNotThrow(() => buildResultSet([{ schemaVersion: 2, ...base, playerSignature: null }]));
+  assert.doesNotThrow(() => buildResultSet([{ schemaVersion: 2, ...base, playerSignature: { height: 1500, signature: sig } }]));
+  assert.throws(() => buildResultSet([{ schemaVersion: 2, ...base }]), /schema version 2/);
+  assert.throws(() => buildResultSet([{ schemaVersion: 2, ...base, playerSignature: { height: 0, signature: sig } }]), /schema version 2/);
+  assert.throws(() => buildResultSet([{ schemaVersion: 2, ...base, playerSignature: { height: 1500, signature: Buffer.alloc(72).toString('base64') } }]), /schema version 2/);
+  assert.throws(() => buildResultSet([{ schemaVersion: 2, ...base, playerSignature: { height: 1500, signature: sig, extra: 1 } }]), /schema version 2/);
+  assert.throws(() => buildResultSet([{ schemaVersion: 1, ...base, playerSignature: null }]), /schema version 1/);
+  assert.throws(() => buildResultSet([{ schemaVersion: 3, ...base }]), /schema version 1 or 2/);
+  // de handtekening maakt deel uit van de leaf: zelfde record, andere handtekening, andere root
+  const a = buildResultSet([{ schemaVersion: 2, ...base, playerSignature: { height: 1500, signature: sig } }]);
+  const b = buildResultSet([{ schemaVersion: 2, ...base, playerSignature: null }]);
+  assert.notEqual(a.rootSha256, b.rootSha256);
+});

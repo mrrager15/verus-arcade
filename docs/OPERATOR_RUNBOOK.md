@@ -193,6 +193,69 @@ After confirmation:
 5. Confirm that the leaderboard displays `chain-verified`.
 6. Record evidence without credentials, signed payloads, or pre-reveal secrets.
 
+## 6. Player publications (phase 2)
+
+After step 3 (the round's result root is confirmed), a player can store their
+own result and Merkle proof in their own VerusID, under the key
+`Arcade.VRSCTEST.::arcade.player.result.<round-id>`. The player approves an
+identity update in Verus Mobile and pays the fee; Arcade only signs the request.
+Normally this runs through the game UI ("Put in my VerusID"). The scripts below
+do the same through the same service, without the web server, e.g. for a test
+while the player is away from the LAN.
+
+All of them load `.env` themselves (service ID and WIF stay in that process).
+
+```powershell
+# Create (or reuse) the publish request for an attempt; prints the wallet link.
+$env:VERUS_OPERATOR_ACK = 'CREATE_VRSCTEST_PUBLISH_REQUEST'
+node scripts/operator/publish-request.mjs create <attempt-id>
+
+# After approval the phone opens <ARCADE_ORIGIN>/api/v1/publish-jobs/<id>/response?...
+# If that page cannot load (player not on the LAN), paste the full URL here:
+$env:VERUS_OPERATOR_ACK = 'ACCEPT_VRSCTEST_PUBLISH_RESPONSE'
+node scripts/operator/publish-request.mjs accept "<full callback url>"
+
+# Read-only status.
+node scripts/operator/publish-request.mjs status <attempt-id>
+
+# Read the chain back; only an exact sha256 match becomes `published`.
+node scripts/operator/publications-reconcile.mjs --list
+$env:VERUS_OPERATOR_ACK = 'RECONCILE_VRSCTEST_PUBLICATIONS'
+node scripts/operator/publications-reconcile.mjs
+
+# What any verifier sees (read-only, chain only).
+node scripts/operator/player-profile.mjs <player-i-address>
+Remove-Item Env:VERUS_OPERATOR_ACK
+```
+
+Statuses: `pending` (request issued) → `receipt` (wallet returned a txid; not
+yet proof) → `published` (record read back from the chain with the same hash).
+`expired` and `mismatch` allow a new request; nothing is overwritten silently.
+
+How Verus Mobile stores the record: the data goes into the update transaction
+as encrypted evidence, and the identity's content holds an encrypted
+DataDescriptor (flags 13) that carries its own viewing key and points to that
+evidence. Reading therefore needs `decryptdata` with `retrieve: true` and the
+txid of the update; the reconcile and profile do this automatically.
+
+Known wallet limitation (Nov 2026): Verus Mobile rejects identity updates for
+testnet sub-identities of a namespace (e.g. `name.Verus Arcade@`) with
+"Unable to parse response identityaddress". The request endpoint refuses those
+up front with `WALLET_UNSUPPORTED_IDENTITY`. Top-level testnet identities
+(`name.VRSCTEST@`) work.
+
+To test the wallet path without a finished round, use the smoke test, which
+writes a tiny record under `Arcade.VRSCTEST.::arcade.test.ping`:
+
+```powershell
+$env:VERUS_OPERATOR_ACK = 'CREATE_VRSCTEST_SMOKETEST'
+node scripts/operator/publish-smoketest.mjs create <top-level-testnet-i-address>
+$env:VERUS_OPERATOR_ACK = 'ACCEPT_VRSCTEST_SMOKETEST'
+node scripts/operator/publish-smoketest.mjs accept "<full callback url>"
+node scripts/operator/publish-smoketest.mjs check
+Remove-Item Env:VERUS_OPERATOR_ACK
+```
+
 ## Recovery
 
 - Preparation is journaled and can be inspected before submission.

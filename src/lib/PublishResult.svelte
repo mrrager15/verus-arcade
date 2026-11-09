@@ -50,7 +50,8 @@
 	async function apply(value: Publication | null) {
 		publication = value;
 		if (value?.status === 'pending' && value.walletUri) {
-			qr = await QRCode.toDataURL(value.walletUri, { margin: 1, width: 240, errorCorrectionLevel: 'M' });
+			// Het verzoek bevat het volledige record (~2000 tekens): lage foutcorrectie en groot genoeg om te scannen.
+			qr = await QRCode.toDataURL(value.walletUri, { margin: 2, width: 720, errorCorrectionLevel: 'L' });
 			startPolling();
 		} else {
 			qr = '';
@@ -136,7 +137,7 @@
 				In Verus Mobile, choose <strong>{playerName}</strong> as the identity to update.
 			</p>
 			<div class="qr-row">
-				{#if qr}<img class="qr" src={qr} alt="QR code for Verus Mobile" width="240" height="240" />{/if}
+				{#if qr}<img class="qr" src={qr} alt="QR code for Verus Mobile" width="360" height="360" />{/if}
 				<div class="actions">
 					<a class="button" href={publication.walletUri}>Open in Verus Mobile</a>
 					<p class="hint">Waiting for your wallet… valid until block {publication.expiresHeight}.</p>
@@ -174,7 +175,7 @@
 	.explain { margin: 0; font-size: 0.85rem; line-height: 1.45; color: #2a3a2e; }
 	.explain code, .hint code { overflow-wrap: anywhere; }
 	.qr-row { display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
-	.qr { border-radius: 0.6rem; background: white; padding: 0.4rem; border: 1px solid #c7d1c7; }
+	.qr { border-radius: 0.6rem; background: white; padding: 0.4rem; border: 1px solid #c7d1c7; width: min(360px, 100%); height: auto; image-rendering: pixelated; }
 	.actions { display: grid; gap: 0.5rem; min-width: 14rem; flex: 1; }
 	.button, button { display: inline-block; padding: 0.6rem 1rem; border-radius: 0.6rem; border: 0; background: #193d26; color: white; font-weight: 700; text-decoration: none; text-align: center; cursor: pointer; }
 	button:disabled { opacity: 0.55; cursor: default; }

@@ -43,6 +43,7 @@ function fakeVerus({ tip = 1000 } = {}) {
       return { requestHex: 'aa'.repeat(40), requestHashHex: 'bb'.repeat(32), walletUri: `verus://x/${input.requestIdHex}`, height: state.tip, expiryHeight: state.tip + input.ttlBlocks };
     },
     async verifyPlayerResultResponse(input) { return state.verify(input); },
+    async identityContentName() { return state.contentFqn ?? 'arcade-storage-poc.VRSCTEST@'; },
     async readIdentityContent({ identityId, keyId }) {
       if (state.chainDown) throw new VerusRequestError('CHAIN_UNAVAILABLE', 'rpc');
       const values = state.chainValues?.(keyId) ?? [];
@@ -289,4 +290,20 @@ test('reconcile: published bij gelijke hash, mismatch bij bevestigde tx zonder r
   assert.equal(r.error, 'CHAIN_UNAVAILABLE');
   assert.equal(ctx3.repository.getPlayerPublication(attempt3).status, 'receipt');
   ctx.database.close(); ctx2.database.close(); ctx3.database.close();
+});
+
+test('sub-ID die Verus Mobile verkeerd oplost: duidelijke fout in plaats van een QR die faalt', async () => {
+  const ctx = setup();
+  const attemptId = completeAttempt(ctx.daily);
+  finalizeAndConfirm(ctx.repository);
+  // Zoals de VRSCTEST-daemon het teruggeeft voor een sub-ID: zonder .VRSCTEST → mainnet-adres in Mobile.
+  ctx.verus.state.contentFqn = 'arcade-storage-poc@';
+  await assert.rejects(
+    ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId }),
+    (e) => e.code === 'WALLET_UNSUPPORTED_IDENTITY' && e.httpStatus === 409 && /name\.VRSCTEST@/.test(e.message),
+  );
+  assert.equal(ctx.verus.state.created.length, 0, 'geen verzoek naar de wallet');
+  ctx.verus.state.contentFqn = 'arcade-storage-poc.VRSCTEST@';
+  assert.equal((await ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId })).created, true);
+  ctx.database.close();
 });

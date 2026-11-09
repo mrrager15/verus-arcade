@@ -186,6 +186,24 @@ export function assertContentOnlyIdentityUpdate(detail, { playerId, keyId, recor
 }
 
 /**
+ * Verus Mobile (dev/master, okt 2026) controleert bij een identity-update dat
+ * `toIAddress(fullyqualifiedname)` uit `getidentitycontent` gelijk is aan het
+ * i-adres, zonder testnet als root mee te geven. De VRSCTEST-daemon laat
+ * `.VRSCTEST` weg bij sub-ID's van een namespace (bv. `testerrr.Verus Arcade@`),
+ * waardoor Mobile een mainnet-adres berekent en het verzoek weigert met
+ * "Unable to parse response identityaddress". Top-level testnet-ID's
+ * (`naam.VRSCTEST@`) slagen wel. Zelfde berekening als Mobile, zodat we vooraf
+ * kunnen waarschuwen.
+ */
+export function walletCompatibleIdentity({ identityId, contentFqn }) {
+  try {
+    return P.toIAddress(contentFqn) === identityId;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Parseert een eerder opgeslagen, getekend IdentityUpdate-verzoek en controleert
  * dat het exact bij het verwachte record, de key en de speler hoort.
  */
@@ -268,6 +286,22 @@ export class VerusRequests {
     const entries = Array.isArray(history?.history) ? history.history : Array.isArray(history) ? history : null;
     if (!entries) throw new VerusRequestError('CHAIN_UNAVAILABLE', 'The chain service returned no identity history.');
     return { tip, content, history: entries };
+  }
+
+  /**
+   * De `fullyqualifiedname` zoals `getidentitycontent` hem teruggeeft (gefilterd
+   * op één key zodat het antwoord klein blijft). Verus Mobile leidt hier het
+   * i-adres van af met mainnet als standaard; zie walletCompatibleIdentity.
+   */
+  async identityContentName({ identityId, keyId }) {
+    rawId(identityId);
+    rawId(keyId);
+    const tip = await this.tip();
+    const content = await this.chain(() => this.client.interface.getIdentityContent(identityId, 0, tip, false, tip, keyId));
+    if (content?.identity?.identityaddress !== identityId || typeof content?.fullyqualifiedname !== 'string') {
+      throw new VerusRequestError('CHAIN_UNAVAILABLE', 'The chain service returned mismatched identity content.');
+    }
+    return content.fullyqualifiedname;
   }
 
   /** Bevestigingen van een transactie, of null als de daemon ze (nog) niet kent. */

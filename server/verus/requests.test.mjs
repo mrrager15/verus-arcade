@@ -5,7 +5,7 @@ import {
   P, TESTNET_SYSTEM_ID, GENERIC_RESPONSE_QUERY_KEY, VerusRequestError, VerusRequests,
   rawId, compact, compactId, requestId, nativeHeight, signatureWrapper, exactParse, parseConf,
   createVerusRequestsFromEnv, parseStoredSignRequest,
-  parseStoredPublishRequest, assertContentOnlyIdentityUpdate,
+  parseStoredPublishRequest, assertContentOnlyIdentityUpdate, walletCompatibleIdentity,
 } from './requests.mjs';
 
 const ARCADE = 'i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp';
@@ -442,4 +442,12 @@ test('verifyPlayerResultResponse weigert elke afwijking', async () => {
   // afgekapt
   const bytes = publishResponse(request).toBuffer();
   await assert.rejects(run(bytes.subarray(0, bytes.length - 3)), (e) => e.code === 'INVALID_SIGNATURE');
+});
+
+test('walletCompatibleIdentity rekent zoals Verus Mobile (mainnet-root als standaard)', () => {
+  // Live gezien op 9 nov: getidentitycontent geeft deze namen terug.
+  assert.equal(walletCompatibleIdentity({ identityId: 'i46DSxQV6VwA6xZYvcVrAdENrZCVi3Gc8g', contentFqn: 'mrrager.VRSCTEST@' }), true);
+  assert.equal(walletCompatibleIdentity({ identityId: 'iQZGcAzSXaeciUhoh3ZbkmcgJHmdy3seBK', contentFqn: 'testerrr.Verus Arcade@' }), false);
+  assert.equal(walletCompatibleIdentity({ identityId: 'iQZGcAzSXaeciUhoh3ZbkmcgJHmdy3seBK', contentFqn: 'testerrr.Verus Arcade.VRSCTEST@' }), true);
+  assert.equal(walletCompatibleIdentity({ identityId: ARCADE, contentFqn: '' }), false);
 });

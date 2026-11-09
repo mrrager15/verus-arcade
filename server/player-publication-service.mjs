@@ -27,7 +27,7 @@ import {
 import { collectPlayerResults } from './verus/player-profile.mjs';
 import { locatePublishedRecord } from './verus/player-result-reader.mjs';
 import { rawId } from './verus/requests.mjs';
-import { VerusRequestError } from './verus/requests.mjs';
+import { VerusRequestError, walletCompatibleIdentity } from './verus/requests.mjs';
 
 const REQUEST_ID_HEX = /^[0-9a-f]{40}$/;
 
@@ -148,6 +148,16 @@ export class PlayerPublicationService {
       const serialized = serializePlayerResultRecord(record);
       const key = playerResultContentKey({ roundId: round.round_id, serviceId, serviceFqn });
       const player = await this.#playerIdentity(attempt.player_i_address, tip);
+      // Vooraf de bekende Mobile-beperking herkennen in plaats van een QR te geven die faalt.
+      const contentFqn = await this.verus.identityContentName({ identityId: attempt.player_i_address, keyId: key.keyId });
+      if (!walletCompatibleIdentity({ identityId: attempt.player_i_address, contentFqn })) {
+        throw new DailyServiceError(
+          'WALLET_UNSUPPORTED_IDENTITY',
+          `Verus Mobile cannot update ${contentFqn} yet: it resolves this sub-identity name to a different address. ` +
+            'Play with a top-level testnet identity (name.VRSCTEST@) to store results in your identity.',
+          409,
+        );
+      }
       const requestIdHex = this.createRequestIdHex();
       const built = await this.verus.createPlayerResultRequest({
         playerId: attempt.player_i_address, playerName: player.name, playerParent: player.parent,

@@ -2,6 +2,7 @@ import express from 'express';
 
 import { DailyServiceError } from './daily-service.mjs';
 import { GENERIC_RESPONSE_QUERY_KEY } from './verus/requests.mjs';
+import { WalletReturnError, parseGenericResponseQuery } from './wallet-return.mjs';
 
 function bearerToken(request) {
   const match = /^Bearer ([A-Za-z0-9_-]{32,256})$/.exec(
@@ -50,19 +51,14 @@ export function createDailyRouter({
       destination.set('kind', kind);
       try {
         const query = new URL(request.originalUrl, 'http://callback.invalid').searchParams;
-        const values = query.getAll(GENERIC_RESPONSE_QUERY_KEY);
-        const encoded = values[0] ?? '';
-        if (values.length !== 1 || encoded.length > 87_382 || !/^[A-Za-z0-9_-]+$/.test(encoded)) {
-          throw new DailyServiceError('INVALID_CALLBACK', 'Invalid wallet response encoding', 400);
-        }
-        const body = Buffer.from(encoded, 'base64url');
-        if (body.toString('base64url') !== encoded) {
-          throw new DailyServiceError('INVALID_CALLBACK', 'Noncanonical wallet response encoding', 400);
-        }
+        const body = parseGenericResponseQuery(query, GENERIC_RESPONSE_QUERY_KEY);
         const result = await service.acceptResponse({ requestIdHex: requestId, body });
         destination.set('signed', statusOf(result) === 'signed' || statusOf(result) === 'receipt' ? '1' : '0');
       } catch (error) {
-        destination.set('returnError', error instanceof DailyServiceError ? error.code : 'INTERNAL_ERROR');
+        destination.set(
+          'returnError',
+          error instanceof DailyServiceError || error instanceof WalletReturnError ? error.code : 'INTERNAL_ERROR',
+        );
       }
       response.set('Cache-Control', 'no-store');
       response.set('Referrer-Policy', 'no-referrer');

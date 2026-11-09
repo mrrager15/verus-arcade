@@ -45,6 +45,24 @@ export function parseLoginReturnQuery(query) {
   return { challengeId, body };
 }
 
+/**
+ * Haalt de GenericResponse-bytes uit de query van een wallet-redirect
+ * (fase 1 en 2: `?<GENERIC_RESPONSE_QUERY_KEY>=<base64url>`). Eén waarde,
+ * canonieke base64url, hooguit 87382 tekens. Gooit WalletReturnError.
+ */
+export function parseGenericResponseQuery(query, queryKey) {
+  const values = query.getAll(queryKey);
+  const encoded = values[0] ?? '';
+  if (values.length !== 1 || encoded.length === 0 || encoded.length > MAX_ENCODED_LENGTH || !/^[A-Za-z0-9_-]+$/.test(encoded)) {
+    throw new WalletReturnError('INVALID_CALLBACK', 'Invalid wallet response encoding');
+  }
+  const body = Buffer.from(encoded, 'base64url');
+  if (body.toString('base64url') !== encoded) {
+    throw new WalletReturnError('INVALID_CALLBACK', 'Noncanonical wallet response encoding');
+  }
+  return body;
+}
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }

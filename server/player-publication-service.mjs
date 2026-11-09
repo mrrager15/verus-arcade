@@ -74,6 +74,15 @@ export class PlayerPublicationService {
     this.locks = new Map();
   }
 
+  /** Ontsleutelt een versleutelde verwijzing (zie resolveContentValue); fouten = niet leesbaar. */
+  #decrypt = async (descriptor, txid) => {
+    try {
+      return await this.verus.decryptDataDescriptor({ descriptor, txid });
+    } catch {
+      return null;
+    }
+  };
+
   callbackUrl(requestIdHex) {
     return `${this.origin}/api/v1/publish-jobs/${requestIdHex}/response`;
   }
@@ -209,7 +218,10 @@ export class PlayerPublicationService {
         const { tip, content, history } = await this.verus.readIdentityContent({ identityId: attempt.player_i_address, keyId: publication.contentKey });
         let located;
         try {
-          located = locatePublishedRecord({ content, history, keyId: publication.contentKey, recordSha256: publication.recordSha256 });
+          located = await locatePublishedRecord({
+            content, history, keyId: publication.contentKey, recordSha256: publication.recordSha256,
+            fallbackTxid: publication.receiptTxid, decrypt: this.#decrypt,
+          });
         } catch (error) {
           throw new DailyServiceError('CHAIN_UNAVAILABLE', error.message, 503);
         }
@@ -252,7 +264,7 @@ export class PlayerPublicationService {
       try { rawId(playerId); } catch { throw new DailyServiceError('INVALID_IDENTITY', 'Player identity must be an i-address', 400); }
       const { serviceId, serviceFqn } = await this.#service();
       const { tip, content, history } = await this.verus.readIdentityContent({ identityId: playerId });
-      const collected = collectPlayerResults({ playerId, content, history, serviceId, serviceFqn });
+      const collected = await collectPlayerResults({ playerId, content, history, serviceId, serviceFqn, decrypt: this.#decrypt });
       return {
         playerId,
         name: content?.fullyqualifiedname ?? content?.identity?.name ?? null,

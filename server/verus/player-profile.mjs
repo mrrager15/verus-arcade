@@ -10,7 +10,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { decodeContentValue } from './player-result-reader.mjs';
+import { contentValueId, firstAppearance, resolveContentValue } from './player-result-reader.mjs';
 import { parsePlayerResultRecord, playerResultContentKey } from './player-result.mjs';
 
 const sha256hex = (buffer) => createHash('sha256').update(buffer).digest('hex');
@@ -19,31 +19,25 @@ const sha256hex = (buffer) => createHash('sha256').update(buffer).digest('hex');
  * @param {{ playerId: string, content: object, history: object[]|null, serviceId: string, serviceFqn: string }} input
  * @returns {{ playerId: string, results: object[], ignored: number }}
  */
-export function collectPlayerResults({ playerId, content, history, serviceId, serviceFqn }) {
+export async function collectPlayerResults({ playerId, content, history, serviceId, serviceFqn, decrypt = null }) {
   const cmm = content?.identity?.contentmultimap ?? {};
-  const entries = Array.isArray(history) ? [...history].sort((a, b) => Number(a.height ?? 0) - Number(b.height ?? 0)) : [];
   const results = [];
+  const seenValues = new Set();
   let ignored = 0;
   for (const [keyId, values] of Object.entries(cmm)) {
     if (!Array.isArray(values)) continue;
-    for (const hex of values.slice(0, 32)) {
-      const decoded = decodeContentValue(hex);
-      if (!decoded) { ignored += 1; continue; }
+    for (const value of values.slice(0, 32)) {
+      const id = `${keyId}:${contentValueId(value)}`;
+      if (seenValues.has(id)) continue;
+      seenValues.add(id);
+      const appeared = firstAppearance({ history, keyId, value });
+      const resolved = await resolveContentValue(value, { txid: appeared?.txid ?? null, decrypt });
+      if (!resolved) { ignored += 1; continue; }
       let record;
-      try { record = parsePlayerResultRecord(decoded.bytes); } catch { ignored += 1; continue; }
+      try { record = parsePlayerResultRecord(resolved.bytes); } catch { ignored += 1; continue; }
       let expectedKey;
       try { expectedKey = playerResultContentKey({ roundId: record.round, serviceId, serviceFqn }).keyId; } catch { ignored += 1; continue; }
       if (expectedKey !== keyId || record.player !== playerId) { ignored += 1; continue; }
-      let txid = null;
-      let height = null;
-      for (const entry of entries) {
-        const list = entry?.identity?.contentmultimap?.[keyId];
-        if (Array.isArray(list) && list.some((v) => typeof v === 'string' && v.toLowerCase() === hex.toLowerCase())) {
-          txid = entry.output?.txid ?? null;
-          height = Number.isSafeInteger(Number(entry.height)) ? Number(entry.height) : null;
-          break;
-        }
-      }
       results.push({
         round: record.round,
         game: record.game,
@@ -53,9 +47,10 @@ export function collectPlayerResults({ playerId, content, history, serviceId, se
         resultRoot: record.resultRoot,
         resultRootTxid: record.resultRootTxid,
         contentKey: keyId,
-        recordSha256: sha256hex(decoded.bytes),
-        txid,
-        height,
+        recordSha256: sha256hex(resolved.bytes),
+        storage: resolved.kind,
+        txid: appeared?.txid ?? null,
+        height: appeared?.height ?? null,
         record,
       });
     }

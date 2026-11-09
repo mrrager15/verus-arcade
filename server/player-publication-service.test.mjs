@@ -54,6 +54,7 @@ function fakeVerus({ tip = 1000 } = {}) {
       };
     },
     async transactionStatus() { return state.receiptStatus ?? null; },
+    async decryptDataDescriptor({ descriptor, txid }) { return state.decrypt ? state.decrypt(descriptor, txid) : null; },
   };
 }
 
@@ -305,5 +306,25 @@ test('sub-ID die Verus Mobile verkeerd oplost: duidelijke fout in plaats van een
   assert.equal(ctx.verus.state.created.length, 0, 'geen verzoek naar de wallet');
   ctx.verus.state.contentFqn = 'arcade-storage-poc.VRSCTEST@';
   assert.equal((await ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId })).created, true);
+  ctx.database.close();
+});
+
+test('reconcile leest de versleutelde verwijzing van Verus Mobile terug via het ontvangstbewijs', async () => {
+  const ctx = setup();
+  const attemptId = completeAttempt(ctx.daily);
+  finalizeAndConfirm(ctx.repository);
+  const { publication } = await ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId });
+  await ctx.service.acceptResponse({ requestIdHex: publication.requestId, body: Buffer.from('wallet') });
+  const stored = ctx.repository.getPlayerPublication(attemptId);
+  const value = { [P.DataDescriptorKey.vdxfid]: { version: 1, flags: 13, objectdata: 'aa', epk: '8a'.repeat(32), ivk: '0d'.repeat(32) } };
+  ctx.verus.state.chainValues = () => [value];
+  ctx.verus.state.chainHistory = (keyId) => [{ height: 1003, output: { txid: RECEIPT_TXID }, identity: { contentmultimap: { [keyId]: [value] } } }];
+  ctx.verus.state.decrypt = (_descriptor, txid) => (txid === RECEIPT_TXID
+    ? [{ version: 1, flags: 2, objectdata: Buffer.from(stored.recordJson, 'utf8').toString('hex'), salt: '58'.repeat(32) }]
+    : null);
+  const [r] = await ctx.service.reconcile();
+  assert.equal(r.after, 'published');
+  assert.deepEqual(r.kinds, ['encrypted-ref']);
+  assert.equal(r.height, 1003);
   ctx.database.close();
 });

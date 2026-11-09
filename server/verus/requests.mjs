@@ -304,6 +304,20 @@ export class VerusRequests {
     return content.fullyqualifiedname;
   }
 
+  /**
+   * `decryptdata` voor een DataDescriptor die zijn eigen viewing key (ivk) bevat,
+   * met `retrieve: true` zodat de daemon de verwezen data uit de transactie haalt.
+   * Alleen lezen; geen wallet-sleutels nodig.
+   */
+  async decryptDataDescriptor({ descriptor, txid }) {
+    check(descriptor && typeof descriptor === 'object' && typeof descriptor.ivk === 'string', 'Descriptor carries no viewing key.');
+    check(typeof txid === 'string' && /^[0-9a-f]{64}$/.test(txid), 'Invalid transaction ID.');
+    return this.chain(() => this.client.interface.request({
+      cmd: 'decryptdata',
+      getParams: () => [{ datadescriptor: descriptor, txid, retrieve: true }],
+    }));
+  }
+
   /** Bevestigingen van een transactie, of null als de daemon ze (nog) niet kent. */
   async transactionStatus(txid) {
     check(typeof txid === 'string' && /^[0-9a-f]{64}$/.test(txid), 'Invalid transaction ID.');

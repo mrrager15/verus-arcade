@@ -92,7 +92,10 @@ try {
   } else {
     const state = readState();
     const { tip, content, history } = await verus.readIdentityContent({ identityId: state.playerId, keyId: state.keyId });
-    const located = locatePublishedRecord({ content, history, keyId: state.keyId, recordSha256: state.recordSha256 });
+    const decrypt = (descriptor, txid) => verus.decryptDataDescriptor({ descriptor, txid }).catch(() => null);
+    const located = await locatePublishedRecord({
+      content, history, keyId: state.keyId, recordSha256: state.recordSha256, fallbackTxid: state.receiptTxid, decrypt,
+    });
     const receipt = state.receiptTxid ? await verus.transactionStatus(state.receiptTxid) : null;
     output = { operation: 'smoketest-check', tip, playerName: state.playerName, receiptTxid: state.receiptTxid, receipt, located };
   }

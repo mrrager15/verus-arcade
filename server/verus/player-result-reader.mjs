@@ -16,6 +16,7 @@
  */
 import { createHash } from 'node:crypto';
 
+import { canonicalJson } from '../canonical-json.mjs';
 import { P } from './requests.mjs';
 
 /** Grenzen uit de Vatermark-review: meer is verdacht of te duur om te lezen. */
@@ -59,41 +60,104 @@ export function decodeContentValue(hex) {
   return null;
 }
 
+/** Vaste sleutel voor een DataDescriptor in de JSON-weergave van de daemon. */
+const DATA_DESCRIPTOR_KEY = P.DataDescriptorKey.vdxfid;
+const HEX = /^(?:[0-9a-f]{2})*$/i;
+const FLAG_ENCRYPTED = 1;
+
+/** Stabiele vergelijkingsvorm voor een waarde (hex-tekst of JSON-object van de daemon). */
+export function contentValueId(value) {
+  return typeof value === 'string' ? value.toLowerCase() : canonicalJson(value ?? null);
+}
+
+/**
+ * Transactie en hoogte waarin een waarde onder `keyId` voor het eerst
+ * verscheen, uit `getidentityhistory`. Null als niet gevonden.
+ */
+export function firstAppearance({ history, keyId, value }) {
+  const entries = Array.isArray(history) ? history : [];
+  if (entries.length > MAX_HISTORY_ENTRIES) throw new Error('CHAIN_UNAVAILABLE: identity history too long');
+  const wanted = contentValueId(value);
+  const sorted = [...entries].sort((a, b) => Number(a.height ?? a.blockheight ?? 0) - Number(b.height ?? b.blockheight ?? 0));
+  for (const entry of sorted) {
+    const list = entry?.identity?.contentmultimap?.[keyId];
+    if (Array.isArray(list) && list.some((item) => contentValueId(item) === wanted)) {
+      const txid = entry.output?.txid ?? entry.txid ?? null;
+      const height = Number(entry.height ?? entry.blockheight);
+      if (typeof txid === 'string' && /^[0-9a-f]{64}$/.test(txid) && Number.isSafeInteger(height) && height > 0) {
+        return { txid, height };
+      }
+    }
+  }
+  return null;
+}
+
+function bytesFromDescriptorJson(descriptor) {
+  const data = descriptor?.objectdata;
+  if (typeof data === 'string' && HEX.test(data) && data.length > 0) return Buffer.from(data, 'hex');
+  if (data && typeof data === 'object' && typeof data.message === 'string') return Buffer.from(data.message, 'utf8');
+  return null;
+}
+
+/**
+ * Haalt de record-bytes uit één waarde zoals `getidentitycontent` hem geeft.
+ *
+ * Live gezien (9 nov, Verus Mobile + signdata met createmmr): de waarde is een
+ * JSON-object `{ <DataDescriptorKey>: { flags: 13, objectdata, epk, ivk } }`,
+ * dus een VERSLEUTELDE verwijzing (CrossChainDataRef) met de viewing key erbij.
+ * `decryptdata` met `retrieve: true` en de txid van de update geeft dan de
+ * gezouten DataDescriptor met het record zelf. `decrypt(descriptor, txid)` is
+ * injecteerbaar (VerusRequests.decryptDataDescriptor in productie).
+ *
+ * @returns {Promise<{ kind: string, bytes: Buffer }|null>} nooit een throw voor onbekende vormen
+ */
+export async function resolveContentValue(value, { txid = null, decrypt = null } = {}) {
+  if (typeof value === 'string') {
+    const decoded = decodeContentValue(value);
+    return decoded ? { kind: `hex-${decoded.kind}`, bytes: decoded.bytes } : null;
+  }
+  const descriptor = value && typeof value === 'object' ? value[DATA_DESCRIPTOR_KEY] : null;
+  if (!descriptor || typeof descriptor !== 'object') return null;
+  const flags = Number(descriptor.flags ?? 0);
+  if ((flags & FLAG_ENCRYPTED) === 0) {
+    const bytes = bytesFromDescriptorJson(descriptor);
+    return bytes ? { kind: 'descriptor-json', bytes } : null;
+  }
+  if (!decrypt || !txid || typeof descriptor.ivk !== 'string') return null;
+  const result = await decrypt(descriptor, txid);
+  for (const item of Array.isArray(result) ? result : [result]) {
+    const candidates = [item, ...(item && typeof item === 'object' ? Object.values(item) : [])];
+    for (const candidate of candidates) {
+      const bytes = candidate && typeof candidate === 'object' ? bytesFromDescriptorJson(candidate) : null;
+      if (bytes && bytes.length <= 4096) return { kind: 'encrypted-ref', bytes };
+    }
+  }
+  return null;
+}
+
 /**
  * Zoekt in de huidige content en de geschiedenis van een identiteit naar het
  * record met de verwachte sha256 onder onze key.
  *
- * @param {{ content: object|null, history: object[]|null, keyId: string, recordSha256: string }} input
- *   `content` is het `getidentitycontent`-resultaat (identity.contentmultimap gefilterd op de key),
- *   `history` de lijst uit `getidentityhistory` (`history`-veld).
- * @returns {{ found: boolean, valueCount: number, txid: string|null, height: number|null, kinds: string[] }}
+ * @param {{ content: object|null, history: object[]|null, keyId: string, recordSha256: string,
+ *           fallbackTxid?: string|null, decrypt?: Function|null }} input
+ *   `content` is het `getidentitycontent`-resultaat (gefilterd op de key), `history` de lijst uit
+ *   `getidentityhistory`. `fallbackTxid` (bv. het ontvangstbewijs) wordt gebruikt om te ontsleutelen
+ *   als de geschiedenis de waarde (nog) niet toont.
+ * @returns {Promise<{ found: boolean, valueCount: number, txid: string|null, height: number|null, kinds: string[] }>}
  */
-export function locatePublishedRecord({ content, history, keyId, recordSha256 }) {
+export async function locatePublishedRecord({ content, history, keyId, recordSha256, fallbackTxid = null, decrypt = null }) {
   const values = content?.identity?.contentmultimap?.[keyId] ?? [];
   if (!Array.isArray(values)) throw new Error('CHAIN_UNAVAILABLE: unexpected contentmultimap shape');
   if (values.length > MAX_RECORDS_PER_KEY) throw new Error('CHAIN_UNAVAILABLE: too many records under key');
   const kinds = [];
-  let matchHex = null;
-  for (const hex of values) {
-    const decoded = decodeContentValue(hex);
-    kinds.push(decoded?.kind ?? 'undecodable');
-    if (decoded && sha256hex(decoded.bytes) === recordSha256) { matchHex = hex; break; }
-  }
-  if (!matchHex) return { found: false, valueCount: values.length, txid: null, height: null, kinds };
-
-  // Koppel aan de eerste geschiedenis-entry waarin precies deze waarde verscheen.
-  const entries = Array.isArray(history) ? history : [];
-  if (entries.length > MAX_HISTORY_ENTRIES) throw new Error('CHAIN_UNAVAILABLE: identity history too long');
-  const sorted = [...entries].sort((a, b) => Number(a.height ?? a.blockheight ?? 0) - Number(b.height ?? b.blockheight ?? 0));
-  for (const entry of sorted) {
-    const list = entry?.identity?.contentmultimap?.[keyId];
-    if (Array.isArray(list) && list.some((hex) => typeof hex === 'string' && hex.toLowerCase() === matchHex.toLowerCase())) {
-      const txid = entry.output?.txid ?? entry.txid ?? null;
-      const height = Number(entry.height ?? entry.blockheight);
-      if (typeof txid === 'string' && /^[0-9a-f]{64}$/.test(txid) && Number.isSafeInteger(height) && height > 0) {
-        return { found: true, valueCount: values.length, txid, height, kinds };
-      }
+  for (const value of values) {
+    const seen = firstAppearance({ history, keyId, value });
+    const resolved = await resolveContentValue(value, { txid: seen?.txid ?? fallbackTxid, decrypt });
+    kinds.push(resolved?.kind ?? 'undecodable');
+    if (resolved && sha256hex(resolved.bytes) === recordSha256) {
+      return { found: true, valueCount: values.length, txid: seen?.txid ?? null, height: seen?.height ?? null, kinds };
     }
   }
-  return { found: true, valueCount: values.length, txid: null, height: null, kinds };
+  return { found: false, valueCount: values.length, txid: null, height: null, kinds };
 }

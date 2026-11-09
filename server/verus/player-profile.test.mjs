@@ -34,7 +34,7 @@ function chainValue(json) {
 }
 const keyFor = (date) => playerResultContentKey({ roundId: `word-grid:1.0.0:${date}`, serviceId: ARCADE, serviceFqn: FQN }).keyId;
 
-test('profiel: alleen geldige records onder de juiste key en voor deze speler, nieuwste eerst', () => {
+test('profiel: alleen geldige records onder de juiste key en voor deze speler, nieuwste eerst', async () => {
   const good1 = chainValue(publishedJson(PLAYER, '2026-11-08', ['crane', 'plane']));
   const good2 = chainValue(publishedJson(PLAYER, '2026-11-09'));
   const wrongKey = chainValue(publishedJson(PLAYER, '2026-11-10'));          // record van ronde 10 onder de key van ronde 09
@@ -53,7 +53,7 @@ test('profiel: alleen geldige records onder de juiste key en voor deze speler, n
     { height: 1500, output: { txid: '11'.repeat(32) }, identity: { contentmultimap: { [keyFor('2026-11-08')]: [good1] } } },
     { height: 1600, output: { txid: '22'.repeat(32) }, identity: { contentmultimap: { [keyFor('2026-11-09')]: [good2] } } },
   ];
-  const profile = collectPlayerResults({ playerId: PLAYER, content, history, serviceId: ARCADE, serviceFqn: FQN });
+  const profile = await collectPlayerResults({ playerId: PLAYER, content, history, serviceId: ARCADE, serviceFqn: FQN });
   assert.equal(profile.results.length, 2);
   assert.equal(profile.ignored, 3);
   assert.deepEqual(profile.results.map((r) => [r.round, r.guesses, r.txid, r.height]), [
@@ -61,5 +61,20 @@ test('profiel: alleen geldige records onder de juiste key en voor deze speler, n
     ['word-grid:1.0.0:2026-11-08', 2, '11'.repeat(32), 1500],
   ]);
   assert.match(profile.results[0].recordSha256, /^[0-9a-f]{64}$/);
-  assert.equal(collectPlayerResults({ playerId: PLAYER, content: { identity: { contentmultimap: {} } }, history: [], serviceId: ARCADE, serviceFqn: FQN }).results.length, 0);
+  assert.equal((await collectPlayerResults({ playerId: PLAYER, content: { identity: { contentmultimap: {} } }, history: [], serviceId: ARCADE, serviceFqn: FQN })).results.length, 0);
+});
+
+test('profiel leest ook de versleutelde verwijzing die Verus Mobile schrijft', async () => {
+  const json = publishedJson(PLAYER, '2026-11-12', ['crane', 'slate', 'plane']);
+  const value = { [P.DataDescriptorKey.vdxfid]: { version: 1, flags: 13, objectdata: 'aa', epk: '8a'.repeat(32), ivk: '0d'.repeat(32) } };
+  const content = { identity: { identityaddress: PLAYER, contentmultimap: { [keyFor('2026-11-12')]: [value] } } };
+  const history = [{ height: 1700, output: { txid: '33'.repeat(32) }, identity: { contentmultimap: { [keyFor('2026-11-12')]: [value] } } }];
+  const decrypt = async (_descriptor, txid) => (txid === '33'.repeat(32)
+    ? [{ version: 1, flags: 2, objectdata: Buffer.from(json, 'utf8').toString('hex'), salt: '58'.repeat(32) }]
+    : null);
+  const profile = await collectPlayerResults({ playerId: PLAYER, content, history, serviceId: ARCADE, serviceFqn: FQN, decrypt });
+  assert.equal(profile.results.length, 1);
+  assert.equal(profile.results[0].storage, 'encrypted-ref');
+  assert.equal(profile.results[0].guesses, 3);
+  assert.equal(profile.results[0].txid, '33'.repeat(32));
 });

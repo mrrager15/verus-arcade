@@ -207,8 +207,11 @@ All of them load `.env` themselves (service ID and WIF stay in that process).
 
 ```powershell
 # Create (or reuse) the publish request for an attempt; prints the wallet link.
+# The request is valid for REQUEST_TTL_BLOCKS (default 60, about an hour). When
+# the player will scan hours later, pass a longer lifetime (max 10000 blocks):
 $env:VERUS_OPERATOR_ACK = 'CREATE_VRSCTEST_PUBLISH_REQUEST'
 node scripts/operator/publish-request.mjs create <attempt-id>
+node scripts/operator/publish-request.mjs create <attempt-id> --ttl-blocks 1000
 
 # After approval the phone opens <ARCADE_ORIGIN>/api/v1/publish-jobs/<id>/response?...
 # If that page cannot load (player not on the LAN), paste the full URL here:

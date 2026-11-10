@@ -4,7 +4,11 @@
  * draaiende webserver, rechtstreeks op dezelfde database en met dezelfde
  * PlayerPublicationService (zelfde controles als de endpoints).
  *
- *   create <attempt-id>     → nieuw (of bestaand) publicatieverzoek; toont de wallet-link
+ *   create <attempt-id> [--ttl-blocks <n>]
+ *                           → nieuw (of bestaand) publicatieverzoek; toont de wallet-link.
+ *                             --ttl-blocks: geldigheid in blokken (standaard REQUEST_TTL_BLOCKS
+ *                             of 60 ≈ 1 uur; max 10000). Voor een test op afstand waarbij de
+ *                             speler pas uren later scant, bv. 1000 ≈ 16 uur.
  *   accept  <callback-url>  → de volledige URL die de telefoon na goedkeuren opende
  *                             (…/api/v1/publish-jobs/<id>/response?<key>=<base64url>)
  *   status  <attempt-id>    → alleen lezen
@@ -21,10 +25,20 @@ const { createRuntimeServices } = await import('../../server/runtime-services.mj
 const { parseGenericResponseQuery } = await import('../../server/wallet-return.mjs');
 const { GENERIC_RESPONSE_QUERY_KEY } = await import('../../server/verus/requests.mjs');
 
-const [action, argument] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const ttlFlag = args.indexOf('--ttl-blocks');
+const ttlBlocks = ttlFlag === -1 ? null : args.splice(ttlFlag, 2)[1];
+const [action, argument] = args;
 const acks = { create: 'CREATE_VRSCTEST_PUBLISH_REQUEST', accept: 'ACCEPT_VRSCTEST_PUBLISH_RESPONSE' };
 if (!['create', 'accept', 'status'].includes(action) || !argument) {
-  throw new Error('Gebruik: node scripts/operator/publish-request.mjs create|status <attempt-id> | accept <callback-url>');
+  throw new Error('Gebruik: node scripts/operator/publish-request.mjs create <attempt-id> [--ttl-blocks <n>] | status <attempt-id> | accept <callback-url>');
+}
+if (ttlBlocks !== null) {
+  const n = Number(ttlBlocks);
+  if (action !== 'create') throw new Error('--ttl-blocks hoort alleen bij create');
+  if (!Number.isSafeInteger(n) || n < 1 || n > 10_000) throw new Error('--ttl-blocks moet een geheel getal tussen 1 en 10000 zijn');
+  // Na het laden van .env gezet, dus wint van een waarde daar; createRuntimeServices leest process.env.
+  process.env.REQUEST_TTL_BLOCKS = String(n);
 }
 if (acks[action] && process.env.VERUS_OPERATOR_ACK !== acks[action]) {
   throw new Error(`Zet VERUS_OPERATOR_ACK=${acks[action]} voor ${action}`);

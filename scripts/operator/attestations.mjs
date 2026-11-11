@@ -21,6 +21,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 try { if (fs.existsSync('.env')) process.loadEnvFile('.env'); } catch { /* omgeving levert het */ }
+// ARCADE_TEST_ROUNDS=1 → testdatabase (server/test-rounds.mjs); na .env, zodat de schakelaar wint.
+(await import('../../server/test-rounds.mjs')).applyTestRoundEnvironment();
 const { loadConfig } = await import('../../server/config.mjs');
 const { createRuntimeServices } = await import('../../server/runtime-services.mjs');
 const { createRoundAttestations, sealedAttestationRecord } = await import('../../server/attestation-service.mjs');

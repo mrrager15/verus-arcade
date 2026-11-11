@@ -19,14 +19,18 @@
  *
  * De operator-ID is `Arcade@` op VRSCTEST; te overschrijven met
  * VERUS_OPERATOR_IDENTITY_NAME en VERUS_OPERATOR_IDENTITY_I_ADDRESS.
+ *
+ * Testrondes (server/test-rounds.mjs): met ARCADE_TEST_ROUNDS=1 gebruikt dit
+ * script de testdatabase en de test-operator `arcade-storage-poc@`, en maakt
+ * `round-create --test-minutes <n>` een korte ronde met tijdslot in het ID.
  */
-import path from 'node:path';
-
 import {
   createDailyHiddenDefinition,
   dailyRoundSchedule,
   parseRoundCreateOptions,
+  testRoundSchedule,
 } from '../../server/daily-round-schedule.mjs';
+import { applyTestRoundEnvironment, assertRoundMatchesMode, REAL_OPERATOR } from '../../server/test-rounds.mjs';
 import { ResultCoordinator } from '../../server/result-coordinator.mjs';
 import { RevealCoordinator } from '../../server/reveal-coordinator.mjs';
 import { RoundCoordinator } from '../../server/round-coordinator.mjs';
@@ -34,10 +38,13 @@ import { createRuntimeServices } from '../../server/runtime-services.mjs';
 import { VerusGateway } from '../../server/verus/gateway.mjs';
 import { rpc } from '../../server/rpc.mjs';
 
-const IDENTITY_NAME = process.env.VERUS_OPERATOR_IDENTITY_NAME ?? 'Arcade@';
+const mode = applyTestRoundEnvironment();
+const IDENTITY_NAME = process.env.VERUS_OPERATOR_IDENTITY_NAME ?? mode.operator.name;
 const IDENTITY_I_ADDRESS =
-  process.env.VERUS_OPERATOR_IDENTITY_I_ADDRESS ??
-  'i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp';
+  process.env.VERUS_OPERATOR_IDENTITY_I_ADDRESS ?? mode.operator.iAddress;
+if (mode.testMode && IDENTITY_I_ADDRESS === REAL_OPERATOR.iAddress) {
+  throw new Error('Testrondes mogen nooit op Arcade@: de echte Daily zou botsen');
+}
 // VDXF-keys v1 (zie Arcade v2/STATUS.md, "Vaste gegevens").
 const COMMITMENT_VDXF_KEY = 'i5m7tdxizT2PWqLakjjdwsnMAoUqFQXEj7';
 const RESULTS_VDXF_KEY = 'iEuNeBozij6ZkEYeDaz7w5BCYAU5r714cA';
@@ -66,6 +73,7 @@ function usage() {
     'Gebruik:',
     '  node scripts/operator/round-lifecycle.mjs list',
     '  node scripts/operator/round-lifecycle.mjs round-create [--date JJJJ-MM-DD] [--opens-at ISO] [--closes-at ISO]',
+    '  ARCADE_TEST_ROUNDS=1 node scripts/operator/round-lifecycle.mjs round-create --test-minutes <3-180>',
     `  node scripts/operator/round-lifecycle.mjs ${supported.filter((a) => !withoutRoundId.includes(a)).join('|')} <ronde-id>`,
   ].join('\n');
 }
@@ -73,12 +81,12 @@ function usage() {
 if (!supported.includes(action)) throw new Error(usage());
 const roundRecordId = withoutRoundId.includes(action) ? null : rest[0];
 if (!withoutRoundId.includes(action) && !roundRecordId) throw new Error(usage());
+if (roundRecordId) assertRoundMatchesMode(roundRecordId, mode.testMode);
 if (!readOnly.includes(action) && process.env.VERUS_OPERATOR_ACK !== acknowledgements[action]) {
   throw new Error(`Zet VERUS_OPERATOR_ACK=${acknowledgements[action]} voor ${action}`);
 }
 
-const databasePath =
-  process.env.ARCADE_DATABASE_PATH ?? path.resolve('server', 'data', 'arcade.sqlite');
+const { databasePath } = mode;
 const services = createRuntimeServices({ databasePath });
 
 function journalSummary(entry) {
@@ -129,13 +137,16 @@ try {
   } else if (action === 'round-create') {
     // Stap 1 van 3: ronde in de database + getekende (niet uitgezonden) commitment.
     const options = parseRoundCreateOptions(rest);
-    const schedule = dailyRoundSchedule(options);
+    if (('testMinutes' in options) !== mode.testMode) {
+      throw new Error(mode.testMode ? 'Met ARCADE_TEST_ROUNDS=1 alleen round-create --test-minutes <n>' : '--test-minutes vereist ARCADE_TEST_ROUNDS=1');
+    }
+    const schedule = mode.testMode ? testRoundSchedule({ minutes: options.testMinutes }) : dailyRoundSchedule(options);
     const coordinator = new RoundCoordinator({
       repository,
       gateway,
       commitmentVdxfKey: COMMITMENT_VDXF_KEY,
     });
-    const recordId = `word-grid:1.0.0:${schedule.date}`;
+    const recordId = schedule.recordId ?? `word-grid:1.0.0:${schedule.date}`;
     const existing = repository.getRound(recordId);
     let outcome;
     if (existing) {

@@ -29,7 +29,8 @@ export const ALWAYS_DISCLOSED = Object.freeze(['player', 'round']);
 export const NO_PREVIOUS = 'none';
 
 const I_ADDRESS = /^i[1-9A-HJ-NP-Za-km-z]{33}$/;
-const DAILY_ROUND = /^([a-z0-9-]+):(\d+\.\d+\.\d+):(\d{4}-\d{2}-\d{2})$/;
+// Daily `…:JJJJ-MM-DD` of testronde `…:JJJJ-MM-DDTUUMM` (server/test-rounds.mjs).
+const DAILY_ROUND = /^([a-z0-9-]+):(\d+\.\d+\.\d+):(\d{4}-\d{2}-\d{2}(?:T\d{4})?)$/;
 const HEX32 = /^[0-9a-f]{64}$/;
 
 export class AttestationError extends Error {
@@ -44,7 +45,7 @@ const fail = (message) => { throw new AttestationError('INVALID_ATTESTATION', me
 const sha256 = (bytes) => new Uint8Array(crypto.createHash('sha256').update(bytes).digest());
 const utf8 = (text) => new TextEncoder().encode(text);
 
-/** `word-grid:1.0.0:2026-11-10` → `{ game, version, date }`. */
+/** `word-grid:1.0.0:2026-11-10` → `{ game, version, date }` (bij een testronde: `date` met tijdslot, sorteerbaar). */
 export function parseDailyRoundId(roundId) {
   const match = DAILY_ROUND.exec(roundId ?? '');
   if (!match) fail(`Not a Daily round id: ${roundId}`);

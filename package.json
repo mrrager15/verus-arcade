@@ -16,6 +16,7 @@
 		"test": "node --test server/*.test.mjs server/db/*.test.mjs server/games/word-grid/*.test.mjs server/verus/*.test.mjs shared/*.test.mjs scripts/storage-poc/*.test.mjs scripts/agent/*.test.mjs",
 		"test:storage-poc": "node --test scripts/storage-poc/*.test.mjs",
 		"server": "node --env-file-if-exists=.env server/auth.mjs",
+		"server:test": "node --env-file-if-exists=.env server/test-server.mjs",
 		"server:prod": "node --env-file-if-exists=.env server/prod.mjs"
 	},
 	"devDependencies": {

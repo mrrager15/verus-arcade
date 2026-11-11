@@ -1115,6 +1115,63 @@ export class ArcadeRepository {
       .map(mapPlayerPublication);
   }
 
+  // ---- Fase 2b: attestaties ------------------------------------------------
+
+  getAttestation({ playerIAddress, roundRecordId }) {
+    const row = this.database
+      .prepare('SELECT * FROM attestations WHERE player_i_address = ? AND round_record_id = ?')
+      .get(playerIAddress, roundRecordId);
+    return row ? mapAttestation(row) : null;
+  }
+
+  listRoundAttestations(roundRecordId) {
+    return this.database
+      .prepare('SELECT * FROM attestations WHERE round_record_id = ? ORDER BY player_i_address')
+      .all(roundRecordId)
+      .map(mapAttestation);
+  }
+
+  /** Alle attestaties van een speler voor één spel, oudste ronde eerst. */
+  listPlayerAttestations({ chainId, gameId, gameVersion, playerIAddress }) {
+    return this.database
+      .prepare(`
+        SELECT a.*
+        FROM attestations a
+        JOIN rounds r ON r.id = a.round_record_id
+        WHERE a.chain_id = ? AND a.game_id = ? AND a.game_version = ? AND a.player_i_address = ?
+        ORDER BY r.opens_at_ms
+      `)
+      .all(chainId, gameId, gameVersion, playerIAddress)
+      .map(mapAttestation);
+  }
+
+  /** Slaat een attestatie op. Weigert een tweede voor dezelfde speler en ronde. */
+  insertAttestation(attestation) {
+    try {
+      this.database
+        .prepare(`
+          INSERT INTO attestations (
+            player_i_address, round_record_id, attempt_id, chain_id, game_id, game_version,
+            schema_version, descriptor_json, root, prev_root, streak, rounds, solved,
+            signature_json, signature_height, created_at_ms
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          attestation.playerIAddress, attestation.roundRecordId, attestation.attemptId,
+          attestation.chainId, attestation.gameId, attestation.gameVersion,
+          attestation.schemaVersion, JSON.stringify(attestation.descriptor), attestation.root,
+          attestation.prevRoot ?? null, attestation.streak, attestation.rounds, attestation.solved,
+          JSON.stringify(attestation.signaturedata), attestation.signatureHeight, attestation.now,
+        );
+    } catch (error) {
+      if (/UNIQUE|PRIMARY KEY/.test(error.message)) {
+        throw new RepositoryConflictError('ATTESTATION_EXISTS', 'Attestation already exists for this player and round');
+      }
+      throw error;
+    }
+    return this.getAttestation(attestation);
+  }
+
   /** Alle handtekeningen van een ronde, voor het resultaatrecord. */
   listRoundAttemptSignatures(round) {
     return this.database
@@ -1128,6 +1185,27 @@ export class ArcadeRepository {
       .all(round.chain_id, round.game_id, round.game_version, round.round_id)
       .map(mapAttemptSignature);
   }
+}
+
+function mapAttestation(row) {
+  return {
+    playerIAddress: row.player_i_address,
+    roundRecordId: row.round_record_id,
+    attemptId: row.attempt_id,
+    chainId: row.chain_id,
+    gameId: row.game_id,
+    gameVersion: row.game_version,
+    schemaVersion: Number(row.schema_version),
+    descriptor: JSON.parse(row.descriptor_json),
+    root: row.root,
+    prevRoot: row.prev_root,
+    streak: Number(row.streak),
+    rounds: Number(row.rounds),
+    solved: Number(row.solved),
+    signaturedata: JSON.parse(row.signature_json),
+    signatureHeight: Number(row.signature_height),
+    createdAt: Number(row.created_at_ms),
+  };
 }
 
 function mapPlayerPublication(row) {

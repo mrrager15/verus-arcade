@@ -30,12 +30,21 @@ export class PlayerResultError extends Error {
   }
 }
 
-/** Korte naam van de key voor een ronde, zonder namespace. */
-export function playerResultKeyName(roundId) {
+function checkRoundIdForKey(roundId) {
   if (typeof roundId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9.:_-]{0,120}$/.test(roundId)) {
     throw new PlayerResultError('INVALID_ROUND_ID', 'Round ID is not usable in a VDXF key name');
   }
-  return `arcade.player.result.${roundId}`;
+  return roundId;
+}
+
+/** Korte naam van de key voor een ronde, zonder namespace. */
+export function playerResultKeyName(roundId) {
+  return `arcade.player.result.${checkRoundIdForKey(roundId)}`;
+}
+
+/** Fase 2b: korte naam van de key voor de (verzegelde) attestatie van een ronde. */
+export function attestationKeyName(roundId) {
+  return `arcade.player.attestation.${checkRoundIdForKey(roundId)}`;
 }
 
 /**
@@ -60,10 +69,14 @@ export function serviceNamespace(serviceFqn) {
  * @returns {{ name: string, fqn: string, keyId: string }}
  */
 export function playerResultContentKey({ roundId, serviceId, serviceFqn }) {
+  return serviceContentKey({ name: playerResultKeyName(roundId), serviceId, serviceFqn });
+}
+
+/** Zelfde controle voor elke korte key-naam onder de namespace van de service-ID. */
+export function serviceContentKey({ name, serviceId, serviceFqn }) {
   if (typeof serviceId !== 'string' || !I_ADDRESS.test(serviceId)) {
     throw new PlayerResultError('INVALID_SERVICE_ID', 'Service identity i-address is invalid');
   }
-  const name = playerResultKeyName(roundId);
   const fqn = `${serviceNamespace(serviceFqn)}::${name}`;
   const viaName = P.getDataKey(name, serviceId, TESTNET_SYSTEM_ID).id;
   const viaFqn = P.getDataKey(fqn, serviceId, TESTNET_SYSTEM_ID).id;

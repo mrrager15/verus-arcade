@@ -20,6 +20,28 @@
 	let activeMode = $state<'practice' | 'daily'>(returnedFromWallet ? 'daily' : 'practice');
 
 	onMount(async () => {
+		// Inloggen op hetzelfde toestel als Verus Mobile: de landingspagina stuurt hierheen
+		// met de challenge; de tab die wachtte staat in de achtergrond (mobiele browsers
+		// pauzeren die). De sessie ophalen zoals het pollen doet, daarna de URL opschonen.
+		const loginChallenge = new URLSearchParams(window.location.search).get('loginChallenge');
+		if (loginChallenge !== null) {
+			history.replaceState(null, '', window.location.pathname);
+			try {
+				const response = await fetch(`/verus/result/${encodeURIComponent(loginChallenge)}`);
+				const body = await response.json();
+				if (response.ok && body.status === 'verified' && body.data?.sessionToken) {
+					localStorage.setItem(TOKEN_KEY, body.data.sessionToken);
+				} else {
+					status = 'error';
+					error = 'This login expired (5 minutes). Please log in again.';
+					return;
+				}
+			} catch {
+				status = 'error';
+				error = 'Could not finish the login on this device. Please log in again.';
+				return;
+			}
+		}
 		const stored = localStorage.getItem(TOKEN_KEY);
 		if (!stored) {
 			status = 'idle';

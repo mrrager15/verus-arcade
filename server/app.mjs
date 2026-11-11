@@ -41,7 +41,8 @@ export function makeArcadeApp({ dailyService = null, attemptSignatureService = n
     const ok = request.query.signed === '1' || request.query.ok === '1';
     const error = typeof request.query.returnError === 'string' ? request.query.returnError.slice(0, 40) : null;
     response.set('Cache-Control', 'no-store');
-    response.type('html').send(walletReturnPage({ kind, ok, error }));
+    const challenge = typeof request.query.challenge === 'string' ? request.query.challenge : null;
+    response.type('html').send(walletReturnPage({ kind, ok, error, challenge }));
   });
 
   // Redirect-transport voor de login: Mobile opent deze URL met het getekende

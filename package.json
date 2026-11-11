@@ -17,6 +17,7 @@
 		"test:storage-poc": "node --test scripts/storage-poc/*.test.mjs",
 		"server": "node --env-file-if-exists=.env server/auth.mjs",
 		"server:test": "node --env-file-if-exists=.env server/test-server.mjs",
+		"server:watch": "node server/dev-watch.mjs",
 		"server:prod": "node --env-file-if-exists=.env server/prod.mjs"
 	},
 	"devDependencies": {

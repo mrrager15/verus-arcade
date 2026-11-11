@@ -467,6 +467,7 @@ export class DailyService {
     const actionsLeft = Math.max(0, rules.meta.maxActions - score.actionsUsed);
     const response = generic
       ? {
+          value,
           feedback: applied.feedback,
           solved,
           actionsUsed: score.actionsUsed,

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import QRCode from 'qrcode';
 	import DailyGame from '$lib/DailyGame.svelte';
+	import GameDaily from '$lib/GameDaily.svelte';
 	import PracticeGame from '$lib/PracticeGame.svelte';
 
 	type LoginStatus = 'restoring' | 'idle' | 'waiting' | 'verified' | 'error';
@@ -56,9 +57,17 @@
 	// Terugkeer uit Verus Mobile (?walletReturn=...) landt op de Daily-tab.
 	const returnedFromWallet =
 		typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('walletReturn');
-	let activeMode = $state<'practice' | 'daily'>(returnedFromWallet ? 'daily' : 'practice');
+	let activeMode = $state<string>(returnedFromWallet ? 'daily' : 'practice');
+	// Fase 8: elke andere game uit het register krijgt een eigen Daily-kaart.
+	type GameInfo = { slug: string; version: string; name: string; maxActions: number; inputHint: string };
+	let otherGames = $state<GameInfo[]>([]);
+	const activeGame = $derived(otherGames.find((g) => activeMode === `game:${g.slug}`) ?? null);
 
 	onMount(async () => {
+		fetch('/api/v1/games')
+			.then((response) => (response.ok ? response.json() : { games: [] }))
+			.then((body) => (otherGames = (body.games ?? []).filter((g: GameInfo) => g.slug !== 'word-grid')))
+			.catch(() => {});
 		// Inloggen op hetzelfde toestel als Verus Mobile: de landingspagina stuurt hierheen
 		// met de challenge; de tab die wachtte staat in de achtergrond (mobiele browsers
 		// pauzeren die). De sessie ophalen zoals het pollen doet, daarna de URL opschonen.
@@ -233,11 +242,27 @@
 			<p>One server-authoritative ranked attempt per VerusID and day.</p>
 			<span>{status === 'verified' ? 'Open Daily' : 'VerusID required'}</span>
 		</button>
+		{#each otherGames as game, index}
+			<button
+				class="mode-card"
+				class:active={activeMode === `game:${game.slug}`}
+				onclick={() => (activeMode = `game:${game.slug}`)}
+			>
+				<p class="number">{String(index + 3).padStart(2, '0')}</p>
+				<h2>{game.name}</h2>
+				<p>New: daily ranked puzzle, same VerusID, same proofs. {game.maxActions} tries.</p>
+				<span>{status === 'verified' ? 'Open Daily' : 'VerusID required'}</span>
+			</button>
+		{/each}
 	</section>
 
 	<section class="play-area">
 		{#if activeMode === 'practice'}
 			<PracticeGame />
+		{:else if status === 'verified' && user && activeGame}
+			{#key activeGame.slug}
+				<GameDaily token={sessionToken} friendlyName={user.friendlyName ?? user.iAddress} game={activeGame} />
+			{/key}
 		{:else if status === 'verified' && user}
 			<DailyGame token={sessionToken} friendlyName={user.friendlyName ?? user.iAddress} />
 		{:else}
@@ -310,7 +335,7 @@
 	.intro { max-width:43rem; margin:1.5rem 0 0; color:#58675d; font-size:clamp(1rem,2vw,1.22rem); line-height:1.6; }
 	.capabilities { display:grid; grid-template-columns:1fr 1fr; border-top:1px solid #aebbae; }
 	.capabilities span { padding:.8rem 0; border-bottom:1px solid #cad4ca; color:#59685e; font-size:.78rem; }
-	.modes { max-width:76rem; margin:0 auto 2rem; padding:0 1.5rem; display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+	.modes { max-width:76rem; margin:0 auto 2rem; padding:0 1.5rem; display:grid; grid-template-columns:repeat(auto-fit,minmax(15rem,1fr)); gap:1rem; }
 	.mode-card { border:1px solid #c7d1c7; border-radius:1rem; padding:1.25rem; background:#edf0e9; color:#17231b; text-align:left; cursor:pointer; }
 	.mode-card.active { background:#193d26; color:white; border-color:#193d26; }
 	.mode-card .number { float:right; margin:0; opacity:.55; font-family:monospace; }

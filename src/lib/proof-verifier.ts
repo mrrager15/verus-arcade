@@ -1,5 +1,20 @@
 import { sha256Hex as sha256HexBytes } from './browser-safe';
-export type HiddenDefinition = {
+import { gameRules } from '../../shared/games/index.mjs';
+/** Schema 2 (fase 8): elke game; de puzzel controleert de game zelf. */
+export type HiddenDefinitionV2 = {
+	schemaVersion: 2;
+	roundId: string;
+	chainId: string;
+	gameId: string;
+	gameVersion: string;
+	date: string;
+	opensAt: string;
+	closesAt: string;
+	puzzle: Record<string, unknown>;
+	salt: string;
+};
+
+export type HiddenDefinitionV1 = {
 	schemaVersion: 1;
 	roundId: string;
 	chainId: string;
@@ -12,6 +27,30 @@ export type HiddenDefinition = {
 	answer: string;
 	salt: string;
 };
+
+export type HiddenDefinition = HiddenDefinitionV1 | HiddenDefinitionV2;
+
+/** Controleert de vorm van schema 2, inclusief de puzzel volgens de regels van de game. */
+function validDefinitionV2(definition: HiddenDefinitionV2): boolean {
+	const keys = ['schemaVersion', 'roundId', 'chainId', 'gameId', 'gameVersion', 'date', 'opensAt', 'closesAt', 'puzzle', 'salt'];
+	if (
+		Object.keys(definition).length !== keys.length ||
+		!keys.every((key) => key in definition) ||
+		!definition.roundId.startsWith(`${definition.gameId}:${definition.gameVersion}:`) ||
+		!/^\d{4}-\d{2}-\d{2}$/.test(definition.date) ||
+		!/^[0-9a-f]{64}$/.test(definition.salt) ||
+		!Number.isFinite(Date.parse(definition.opensAt)) ||
+		!(Date.parse(definition.closesAt) > Date.parse(definition.opensAt))
+	) {
+		return false;
+	}
+	try {
+		gameRules(definition.gameId, definition.gameVersion).validatePuzzle(definition.puzzle);
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 export type Commitment = {
 	schemaVersion: 1;
@@ -78,7 +117,9 @@ export async function verifyRoundReveal(
 		'salt'
 	];
 	const schemaValid =
-		definition?.schemaVersion === 1 &&
+		definition?.schemaVersion === 2
+			? validDefinitionV2(definition)
+			: definition?.schemaVersion === 1 &&
 		Object.keys(definition).length === requiredKeys.length &&
 		requiredKeys.every((key) => key in definition) &&
 		/^\d{4}-\d{2}-\d{2}$/.test(definition.date) &&

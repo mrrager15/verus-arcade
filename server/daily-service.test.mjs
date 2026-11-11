@@ -400,7 +400,7 @@ test('fase 8: Number Target speelt via dezelfde service en geeft resultaatschema
   assert.throws(() => act(1, '8*100', 'nt-bad-1'), (error) => error.code === 'INVALID_ACTION' && /not one of the numbers/.test(error.message));
   assert.throws(() => act(1, '100/3', 'nt-bad-2'), (error) => error.code === 'INVALID_ACTION');
   const miss = act(1, ' 100 × 7 ');
-  assert.deepEqual(miss.result, { feedback: { value: 700, distance: 28, solved: false, actionsUsed: 1, actionsLeft: 4 }, solved: false, actionsUsed: 1, actionsLeft: 4, terminal: false });
+  assert.deepEqual(miss.result, { value: '100*7', feedback: { value: 700, distance: 28, solved: false, actionsUsed: 1, actionsLeft: 4 }, solved: false, actionsUsed: 1, actionsLeft: 4, terminal: false });
   const hit = act(2, '(100+3)*7+7');
   assert.equal(hit.result.solved, true);
   assert.equal(hit.result.terminal, true);

@@ -81,8 +81,13 @@
 					hash locally with Web Crypto.
 				</p>
 				<dl>
-					<dt>Answer</dt>
-					<dd>{data.reveal.hiddenDefinition.answer}</dd>
+					{#if data.reveal.hiddenDefinition.schemaVersion === 2}
+						<dt>Puzzle ({data.reveal.hiddenDefinition.gameId})</dt>
+						<dd><code>{JSON.stringify(data.reveal.hiddenDefinition.puzzle)}</code></dd>
+					{:else}
+						<dt>Answer</dt>
+						<dd>{data.reveal.hiddenDefinition.answer}</dd>
+					{/if}
 					<dt>Recomputed SHA-256</dt>
 					<dd>{recomputed}</dd>
 					<dt>Reveal transaction</dt>

@@ -8,6 +8,45 @@
 	type User = { friendlyName: string; iAddress: string; chain: string };
 
 	const TOKEN_KEY = 'arcade-session-token';
+	// A3: geheim dat alleen deze browser kent; zonder geeft de server de sessie niet vrij.
+	// In localStorage zodat ook een nieuwe tab op hetzelfde toestel (terugkeer uit Verus Mobile) het vindt.
+	const SECRET_PREFIX = 'arcade-login-secret:';
+	const OTHER_BROWSER =
+		'This login was started on another screen. Finish it there: that screen logs in by itself.';
+	let loginSecret = '';
+
+	function rememberSecret(challengeId: string, secret: string) {
+		try {
+			for (const key of Object.keys(localStorage)) {
+				if (key.startsWith(SECRET_PREFIX)) localStorage.removeItem(key);
+			}
+			localStorage.setItem(SECRET_PREFIX + challengeId, secret);
+		} catch {
+			// Privémodus e.d.: dan werkt alleen deze tab, wat voor pc + gsm volstaat.
+		}
+	}
+
+	function storedSecret(challengeId: string): string {
+		try {
+			return localStorage.getItem(SECRET_PREFIX + challengeId) ?? '';
+		} catch {
+			return '';
+		}
+	}
+
+	function forgetSecret(challengeId: string) {
+		try {
+			localStorage.removeItem(SECRET_PREFIX + challengeId);
+		} catch {
+			// niets te doen
+		}
+	}
+
+	function fetchLoginResult(challengeId: string, secret: string) {
+		return fetch(`/verus/result/${encodeURIComponent(challengeId)}`, {
+			headers: { 'x-login-secret': secret }
+		});
+	}
 	let status: LoginStatus = $state('restoring');
 	let sessionToken = $state('');
 	let user = $state<User | null>(null);
@@ -26,11 +65,22 @@
 		const loginChallenge = new URLSearchParams(window.location.search).get('loginChallenge');
 		if (loginChallenge !== null) {
 			history.replaceState(null, '', window.location.pathname);
+			const secret = storedSecret(loginChallenge);
+			if (!secret) {
+				status = 'error';
+				error = OTHER_BROWSER;
+				return;
+			}
 			try {
-				const response = await fetch(`/verus/result/${encodeURIComponent(loginChallenge)}`);
+				const response = await fetchLoginResult(loginChallenge, secret);
 				const body = await response.json();
 				if (response.ok && body.status === 'verified' && body.data?.sessionToken) {
 					localStorage.setItem(TOKEN_KEY, body.data.sessionToken);
+					forgetSecret(loginChallenge);
+				} else if (response.status === 403) {
+					status = 'error';
+					error = OTHER_BROWSER;
+					return;
 				} else {
 					status = 'error';
 					error = 'This login expired (5 minutes). Please log in again.';
@@ -79,6 +129,8 @@
 			// Redirect-envelop als de server die aanbiedt (werkt zonder HTTPS; Verus Mobile
 			// weigert POST naar http://), anders de POST-envelop.
 			deepLink = body.deepLinkRedirect ?? body.deepLinkPost;
+			loginSecret = typeof body.loginSecret === 'string' ? body.loginSecret : '';
+			rememberSecret(body.challengeId, loginSecret);
 			qrDataUrl = await QRCode.toDataURL(deepLink, { width: 300, margin: 1 });
 			void poll(body.challengeId);
 		} catch (caught) {
@@ -90,7 +142,7 @@
 	async function poll(challengeId: string) {
 		while (status === 'waiting') {
 			await new Promise((resolve) => setTimeout(resolve, 1500));
-			const response = await fetch(`/verus/result/${challengeId}`);
+			const response = await fetchLoginResult(challengeId, loginSecret);
 			if (!response.ok) {
 				status = 'error';
 				error = 'The login challenge expired. Please try again.';
@@ -105,6 +157,7 @@
 					return;
 				}
 				localStorage.setItem(TOKEN_KEY, sessionToken);
+				forgetSecret(challengeId);
 				const me = await fetch('/api/v1/me', {
 					headers: { authorization: `Bearer ${sessionToken}` }
 				});

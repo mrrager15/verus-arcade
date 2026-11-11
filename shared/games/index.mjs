@@ -6,9 +6,11 @@
  * `vectors.json` (testgevallen). Statische imports, zodat de browser-build ze meeneemt.
  * Een game toevoegen = een regel hieronder; het platform zelf verandert niet.
  */
+import * as numberTarget100 from './number-target/1.0.0/rules.mjs';
 import * as wordGrid100 from './word-grid/1.0.0/rules.mjs';
 
 const REGISTRY = Object.freeze({
+  'number-target': Object.freeze({ '1.0.0': numberTarget100 }),
   'word-grid': Object.freeze({ '1.0.0': wordGrid100 }),
 });
 

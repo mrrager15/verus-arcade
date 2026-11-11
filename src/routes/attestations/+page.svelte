@@ -6,6 +6,7 @@
 	 */
 	import { onMount } from 'svelte';
 	import PublishResult from '$lib/PublishResult.svelte';
+	import { copyText } from '$lib/browser-safe';
 
 	const TOKEN_KEY = 'arcade-session-token';
 	const SHAREABLE = ['streak', 'rounds', 'solved', 'prev'] as const;
@@ -82,12 +83,7 @@
 	}
 
 	async function copy(id: string) {
-		try {
-			await navigator.clipboard.writeText(links[id]);
-			copied = id;
-		} catch {
-			copied = '';
-		}
+		copied = (await copyText(links[id])) ? id : '';
 	}
 </script>
 

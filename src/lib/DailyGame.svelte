@@ -3,6 +3,7 @@
 	import { MAX_GUESSES, WORD_LENGTH } from '../../shared/word-grid.mjs';
 	import SignAttempt from './SignAttempt.svelte';
 	import PublishResult from './PublishResult.svelte';
+	import { randomId } from './browser-safe';
 
 	let {
 		token,
@@ -150,7 +151,7 @@
 		const action =
 			pendingAction ??
 			({
-				actionId: crypto.randomUUID(),
+				actionId: randomId(), // crypto.randomUUID bestaat niet op http://<LAN-IP>
 				sequence: guesses.length + 1,
 				word: current
 			} satisfies PendingAction);

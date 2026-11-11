@@ -28,6 +28,8 @@ const services = createRuntimeServices({ runtime });
 try {
   const service = services.playerPublicationService;
   if (!service) throw new Error('Publicaties staan uit: ARCADE_SERVICE_ID en ARCADE_SERVICE_WIF ontbreken in .env');
+  // Eerst teruglezen, dan tonen: zo toont de lijst de toestand ná deze run.
+  const reconciled = listOnly ? null : await service.reconcile({ limit: 200 });
   const awaiting = services.repository.listPlayerPublicationsAwaitingConfirmation({ limit: 200 });
   const all = services.database.prepare('SELECT attempt_id, kind, status, content_key, receipt_txid, published_txid, published_height, expires_height FROM player_publications ORDER BY created_at_ms DESC LIMIT 100').all();
   const output = {
@@ -39,7 +41,7 @@ try {
     })),
     awaitingConfirmation: awaiting.length,
   };
-  if (!listOnly) output.reconciled = await service.reconcile({ limit: 200 });
+  if (!listOnly) output.reconciled = reconciled;
   console.log(JSON.stringify(output, null, 2));
 } finally {
   services.close();

@@ -17,6 +17,7 @@
 		resultRoot: string;
 		resultRootTxid: string | null;
 		rootChecked?: boolean;
+		replay?: 'ok' | 'pending' | 'failed';
 		contentKey: string;
 		recordSha256: string;
 		txid: string | null;
@@ -86,6 +87,7 @@
 						</p>
 						<dl>
 							<dt>Result root</dt><dd><code>{result.resultRoot}</code>{#if result.rootChecked} ✓ matches the root Arcade@ published{/if}</dd>
+							<dt>Replay</dt><dd>{result.replay === 'ok' ? '✓ replayed with the game rules: the moves give this result' : result.replay === 'failed' ? '✗ the moves do not give this result' : 'after the reveal'}</dd>
 							{#if result.resultRootTxid}<dt>Root published in</dt><dd><code>{result.resultRootTxid}</code></dd>{/if}
 							<dt>Stored in identity</dt>
 							<dd>{#if result.txid}<code>{result.txid}</code> (block {result.height}){:else}transaction not found in history{/if}</dd>

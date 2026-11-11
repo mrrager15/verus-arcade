@@ -12,6 +12,7 @@
  * niet aan te pas: dit is wat elke onafhankelijke verifier ook kan doen.
  */
 import { createHash } from 'node:crypto';
+import { replayResultRecord } from '../replay.mjs';
 
 import { contentValueId, firstAppearance, resolveContentValue } from './player-result-reader.mjs';
 import { parsePlayerResultRecord, playerResultContentKey } from './player-result.mjs';
@@ -22,7 +23,7 @@ const sha256hex = (buffer) => createHash('sha256').update(buffer).digest('hex');
  * @param {{ playerId: string, content: object, history: object[]|null, serviceId: string, serviceFqn: string }} input
  * @returns {{ playerId: string, results: object[], ignored: number }}
  */
-export async function collectPlayerResults({ playerId, content, history, serviceId, serviceFqn, decrypt = null, resolveRoot = null }) {
+export async function collectPlayerResults({ playerId, content, history, serviceId, serviceFqn, decrypt = null, resolveRoot = null, resolvePuzzle = null }) {
   const cmm = content?.identity?.contentmultimap ?? {};
   const results = [];
   const seenValues = new Set();
@@ -48,6 +49,12 @@ export async function collectPlayerResults({ playerId, content, history, service
         if (official && official !== record.resultRoot) { ignored += 1; continue; }
         rootChecked = Boolean(official);
       }
+      // Fase 8: na de reveal de zetten naspelen met de regels van de game.
+      let replay = 'pending';
+      if (resolvePuzzle && record.proof?.record) {
+        const puzzle = await resolvePuzzle(record.round);
+        if (puzzle) replay = replayResultRecord(record.proof.record, puzzle).ok ? 'ok' : 'failed';
+      }
       results.push({
         round: record.round,
         game: record.game,
@@ -57,6 +64,7 @@ export async function collectPlayerResults({ playerId, content, history, service
         resultRoot: record.resultRoot,
         resultRootTxid: record.resultRootTxid,
         rootChecked,
+        replay,
         contentKey: keyId,
         recordSha256: sha256hex(resolved.bytes),
         storage: resolved.kind,

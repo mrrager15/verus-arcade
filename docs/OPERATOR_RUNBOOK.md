@@ -15,7 +15,9 @@ For a short-lived round that can be exercised in one session, first follow
 - Inspect the round before every state-changing command.
 - Do not finalize a round before `closesAt`.
 - Confirm the result transaction before preparing the reveal.
-- Run one command at a time; do not automate consecutive submissions.
+- Run one command at a time; do not automate consecutive submissions. The only
+  exception is `daily-cycle.mjs` (section 7), which waits for each confirmation
+  before the next identity update.
 - Back up the SQLite database before operating on production-like test data.
 - Keep databases, RPC credentials, and transaction journals out of Git.
 
@@ -258,6 +260,41 @@ node scripts/operator/publish-smoketest.mjs accept "<full callback url>"
 node scripts/operator/publish-smoketest.mjs check
 Remove-Item Env:VERUS_OPERATOR_ACK
 ```
+
+## 7. Nightly cycle in one command
+
+`scripts/operator/daily-cycle.mjs` runs sections 2–4 plus attestations and the
+rotation of section 0 for every round that needs it, oldest first. It calls the
+same operator commands with their own ACKs and always waits for a confirmation
+before the next identity update on the operator ID.
+
+```powershell
+$env:VERUS_OPERATOR_ACK = 'RUN_VRSCTEST_DAILY_CYCLE'
+node scripts/operator/daily-cycle.mjs --max-wait 900
+Remove-Item Env:VERUS_OPERATOR_ACK
+```
+
+Per round it does, depending on `inspect`: finalize (only after `closesAt`) →
+results prepare/submit/reconcile → `attestations.mjs create` → reveal
+prepare/submit/reconcile. Rounds that are still open are skipped. Afterwards it
+makes sure the Daily for today and tomorrow (UTC) exist and are open
+(create → submit → open). With `ARCADE_TEST_ROUNDS=1` it only closes test
+rounds and never creates rounds. `--no-create` skips the rotation.
+
+| Exit code | Outcome | Meaning |
+| --- | --- | --- |
+| 0 | `done` | Nothing left to do. |
+| 3 | `pending` | `--max-wait` (default 480 s, 10–3600) reached while waiting for a confirmation; run it again. |
+| 1 | `blocked` | A step failed or another cycle holds the lock; read the JSON output. |
+
+Every run appends one JSON line to `server/data/daily-cycle.log`. The lock file
+`server/data/daily-cycle.lock` prevents two cycles at once (Task Scheduler and
+an operator, say); a lock older than 30 minutes is treated as stale.
+
+For Windows Task Scheduler use `scripts/operator/daily-cycle.cmd`, which sets
+the ACK, runs the cycle with `--max-wait 900`, and runs it once more on exit
+code 3. A daily trigger at 01:10 local time with a one-hour repetition for three
+hours covers both winter time (close at 01:00) and summer time (close at 02:00).
 
 ## Recovery
 

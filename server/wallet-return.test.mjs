@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   LOGIN_RESPONSE_QUERY_KEY,
+  parseGenericResponseQuery,
   parseLoginReturnQuery,
   walletReturnPage,
 } from './wallet-return.mjs';
@@ -80,4 +81,13 @@ test('login-return geeft bytes door aan de POST-route en landt op de pagina', as
   } finally {
     server.close();
   }
+});
+
+test('parseGenericResponseQuery: één canonieke base64url-waarde onder de gevraagde key', () => {
+  const key = 'iAbcKey';
+  assert.deepEqual(parseGenericResponseQuery(query([[key, ENCODED]]), key), BYTES);
+  assert.throws(() => parseGenericResponseQuery(query([]), key), /encoding/);
+  assert.throws(() => parseGenericResponseQuery(query([[key, ENCODED], [key, ENCODED]]), key), /encoding/);
+  assert.throws(() => parseGenericResponseQuery(query([[key, 'AR']]), key), /Noncanonical/);
+  assert.throws(() => parseGenericResponseQuery(query([[key, 'a+b']]), key), /encoding/);
 });

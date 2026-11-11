@@ -192,7 +192,7 @@ test('router: callbacks zonder sessie (POST octet-stream en GET redirect), sign-
     const encoded = Buffer.from('wallet-bytes').toString('base64url');
     const ok = await fetch(`${base}/sign-jobs/${signature.requestId}/response?${GENERIC_RESPONSE_QUERY_KEY}=${encoded}`, { redirect: 'manual' });
     assert.equal(ok.status, 303);
-    assert.match(ok.headers.get('location'), new RegExp(`^/\\?walletReturn=${signature.requestId}&signed=1$`));
+    assert.match(ok.headers.get('location'), new RegExp(`^/\\?walletReturn=${signature.requestId}&kind=sign&signed=1$`));
     assert.equal(ok.headers.get('cache-control'), 'no-store');
 
     // POST met hetzelfde antwoord: idempotent
@@ -251,7 +251,7 @@ test('router: walletReturnPath met eigen query wordt met & aangevuld', async () 
     dailyService: ctx.daily,
     attemptSignatureService: ctx.service,
     resolveSession: (token) => (token === TOKEN ? { user: PRINCIPAL, expiresAt: 10_000 } : null),
-    walletReturnPath: '/verus/wallet-return?kind=sign',
+    walletReturnPath: '/verus/wallet-return?x=1',
   }));
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -262,7 +262,7 @@ test('router: walletReturnPath met eigen query wordt met & aangevuld', async () 
     const encoded = Buffer.from('wallet-bytes').toString('base64url');
     const ok = await fetch(`${base}/sign-jobs/${signature.requestId}/response?${GENERIC_RESPONSE_QUERY_KEY}=${encoded}`, { redirect: 'manual' });
     assert.equal(ok.status, 303);
-    assert.equal(ok.headers.get('location'), `/verus/wallet-return?kind=sign&walletReturn=${signature.requestId}&signed=1`);
+    assert.equal(ok.headers.get('location'), `/verus/wallet-return?x=1&walletReturn=${signature.requestId}&kind=sign&signed=1`);
   } finally {
     server.close();
     ctx.database.close();

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { MAX_GUESSES, WORD_LENGTH } from '../../shared/word-grid.mjs';
 	import SignAttempt from './SignAttempt.svelte';
+	import PublishResult from './PublishResult.svelte';
 
 	let {
 		token,
@@ -332,7 +333,8 @@
 				<a href={`/verify/${encodeURIComponent(round.id)}`}>Open round verifier →</a>
 			</div>
 			{#if attempt.status === 'completed'}
-				<SignAttempt {token} attemptId={attempt.id} />
+				<SignAttempt {token} attemptId={attempt.id} playerName={friendlyName} />
+				<PublishResult {token} attemptId={attempt.id} playerName={friendlyName} />
 			{/if}
 		{/if}
 	{/if}

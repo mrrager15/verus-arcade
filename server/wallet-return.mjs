@@ -45,20 +45,40 @@ export function parseLoginReturnQuery(query) {
   return { challengeId, body };
 }
 
+/**
+ * Haalt de GenericResponse-bytes uit de query van een wallet-redirect
+ * (fase 1 en 2: `?<GENERIC_RESPONSE_QUERY_KEY>=<base64url>`). Eén waarde,
+ * canonieke base64url, hooguit 87382 tekens. Gooit WalletReturnError.
+ */
+export function parseGenericResponseQuery(query, queryKey) {
+  const values = query.getAll(queryKey);
+  const encoded = values[0] ?? '';
+  if (values.length !== 1 || encoded.length === 0 || encoded.length > MAX_ENCODED_LENGTH || !/^[A-Za-z0-9_-]+$/.test(encoded)) {
+    throw new WalletReturnError('INVALID_CALLBACK', 'Invalid wallet response encoding');
+  }
+  const body = Buffer.from(encoded, 'base64url');
+  if (body.toString('base64url') !== encoded) {
+    throw new WalletReturnError('INVALID_CALLBACK', 'Noncanonical wallet response encoding');
+  }
+  return body;
+}
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
 /**
  * Kale landingspagina voor de browser op de telefoon na een wallet-actie.
- * `kind` is 'login' of 'sign'; `ok` zegt of de server het antwoord aanvaardde;
+ * `kind` is 'login', 'sign' of 'publish'; `ok` zegt of de server het antwoord aanvaardde;
  * `error` is een foutcode (nooit een boodschap met details).
  */
 export function walletReturnPage({ kind, ok, error = null }) {
-  const what = kind === 'login' ? 'Inloggen' : 'Handtekening';
-  const title = ok ? `${what} gelukt` : `${what} niet verwerkt`;
+  const what = kind === 'login' ? 'Inloggen' : kind === 'publish' ? 'Publicatie' : 'Handtekening';
+  const title = ok ? (kind === 'publish' ? 'Publicatie ontvangen' : `${what} gelukt`) : `${what} niet verwerkt`;
   const hint = ok
-    ? 'Je kunt dit venster sluiten. Kijk op het scherm waar je Verus Arcade speelt.'
+    ? kind === 'publish'
+      ? 'Je wallet heeft de transactie gemaakt. Zodra ze bevestigd is, staat je resultaat in je VerusID; het scherm waar je speelt toont dat. Je kunt dit venster sluiten.'
+      : 'Je kunt dit venster sluiten. Kijk op het scherm waar je Verus Arcade speelt.'
     : `De server heeft het antwoord niet aanvaard${error ? ` (code ${escapeHtml(error)})` : ''}. Probeer het opnieuw vanaf het scherm waar je speelt.`;
   return `<!doctype html>
 <html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

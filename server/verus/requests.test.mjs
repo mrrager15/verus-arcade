@@ -5,6 +5,7 @@ import {
   P, TESTNET_SYSTEM_ID, GENERIC_RESPONSE_QUERY_KEY, VerusRequestError, VerusRequests,
   rawId, compact, compactId, requestId, nativeHeight, signatureWrapper, exactParse, parseConf,
   createVerusRequestsFromEnv, parseStoredSignRequest,
+  parseStoredPublishRequest, assertContentOnlyIdentityUpdate, walletCompatibleIdentity,
 } from './requests.mjs';
 
 const ARCADE = 'i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp';
@@ -291,7 +292,7 @@ test('verifySignResponse weigert elke afwijking van de binding', async () => {
   // andere boodschap getekend
   await assert.rejects(run(walletResponse(request, { message: MESSAGE.replace('0'.repeat(64), '1'.repeat(64)) }).toBuffer()), /message mismatch/);
   // ander ID dan verwacht (wel consistent binnen/buiten)
-  await assert.rejects(run(walletResponse(request, { signer: ARCADE }).toBuffer()), /different identity/);
+  await assert.rejects(run(walletResponse(request, { signer: ARCADE }).toBuffer()), (e) => e.code === 'SIGNER_MISMATCH' && /different identity/.test(e.message));
   // versleutelde descriptor
   await assert.rejects(run(walletResponse(request, { descriptorFlags: 1 }).toBuffer()), /encrypted response data/);
   // afgekapte bytes
@@ -326,4 +327,127 @@ test('verifySignResponse weigert een antwoord uit de toekomst en van een vreemde
   const { vr, built, request } = await makeRequest();
   const late = walletResponse(request); late.createdAt = new P.BigNumber(Math.floor(NOW_MS / 1000) + 600);
   await assert.rejects(vr.verifySignResponse({ body: late.toBuffer(), requestHex: built.requestHex, message: MESSAGE, requestIdHex: REQUEST_HEX }), /timestamp/);
+});
+
+// ── Fase 2: IdentityUpdateRequest / -Response ──────────────────────────────────
+
+const PUBLISH_ID_HEX = 'aa'.repeat(20);
+const KEY_FQN = 'Arcade.VRSCTEST.::arcade.player.result.word-grid:1.0.0:2026-11-08';
+const KEY_ID = P.getDataKey('arcade.player.result.word-grid:1.0.0:2026-11-08', ARCADE, TESTNET_SYSTEM_ID).id;
+const RECORD_JSON = '{"schema":"arcade-player-result","version":1,"x":1}';
+const PUBLISH_INPUT = {
+  playerId: PLAYER, playerName: 'arcade-storage-poc', playerParent: TESTNET_SYSTEM_ID, keyFqn: KEY_FQN, keyId: KEY_ID,
+  recordJson: RECORD_JSON, callbackUrl: 'http://192.168.1.10:8100/api/v1/publish-jobs/x/response', requestIdHex: PUBLISH_ID_HEX, responseMode: 'redirect',
+};
+
+async function makePublishRequest(client = signingClient(), overrides = {}) {
+  const vr = service(client);
+  const built = await vr.createPlayerResultRequest({ ...PUBLISH_INPUT, ...overrides });
+  const request = new P.GenericRequest(); request.fromBuffer(Buffer.from(built.requestHex, 'hex'), 0);
+  return { vr, built, request };
+}
+
+/** Wallet-antwoord op een IdentityUpdateRequest, zoals Mobile het zou maken. */
+function publishResponse(request, { signer = PLAYER, height = 1500, requestIdHex = PUBLISH_ID_HEX, requestHash, txid = Buffer.alloc(32, 9), withRequestId = true, handledBy = true } = {}) {
+  const id = requestId(requestIdHex);
+  // De SDK herberekent de vlaggen bij serialisatie uit de aanwezige velden.
+  const detail = new P.IdentityUpdateResponseDetails({ flags: new P.BigNumber(withRequestId ? 3 : 1), ...(withRequestId ? { requestID: id } : {}), txid });
+  const envelope = {
+    version: new P.BigNumber(1),
+    requestID: id,
+    createdAt: new P.BigNumber(Math.floor(NOW_MS / 1000)),
+    requestHash: requestHash ?? request.getRawDataSha256(),
+    requestHashType: new P.BigNumber(5),
+    signature: fakeWrapper(height, { version: 0, flags: 16, identityId: signer }),
+    details: [new P.IdentityUpdateResponseOrdinalVDXFObject({ data: detail })],
+  };
+  if (handledBy) envelope.handledBy = P.VERUS_MOBILE_GENERIC_REQUEST_HANDLER_ID;
+  const response = new P.GenericResponse(envelope);
+  response.flags = new P.BigNumber(handledBy ? 407 : 151);
+  return response;
+}
+
+test('createPlayerResultRequest bouwt een alleen-content IdentityUpdateRequest voor de speler', async () => {
+  const { built, request } = await makePublishRequest();
+  assert.equal(built.height, 2000);
+  assert.equal(built.expiryHeight, 2060);
+  assert.match(built.requestHashHex, /^[0-9a-f]{64}$/);
+  assert.equal(request.details.length, 1);
+  const detail = request.details[0].data;
+  assert.ok(detail instanceof P.IdentityUpdateRequestDetails);
+  assert.equal(detail.getIdentityAddress(true), PLAYER);
+  assert.equal(detail.identity.contains.toNumber(), 3);
+  assert.equal(detail.signDataMap.size, 1);
+  assert.deepEqual(detail.getContentMultiMapKeys(), [KEY_FQN]);
+  const [[signKey, signData]] = [...detail.signDataMap.entries()];
+  assert.equal(signKey.toAddress(), KEY_ID);
+  assert.equal(signData.data.toString('utf8'), RECORD_JSON);
+  assert.equal(request.responseURIs.length, 1);
+  assert.equal(compactId(request.signature.identityID), ARCADE);
+  assert.doesNotThrow(() => parseStoredPublishRequest(built.requestHex, { expectedId: requestId(PUBLISH_ID_HEX).toIAddress(), playerId: PLAYER, keyId: KEY_ID, recordBytes: Buffer.from(RECORD_JSON) }));
+});
+
+test('createPlayerResultRequest weigert verkeerde invoer en POST zonder HTTPS', async () => {
+  await assert.rejects(makePublishRequest(undefined, { playerParent: ARCADE }), /different identity/, 'naam+ouder moet het i-adres van de speler geven');
+  await assert.rejects(makePublishRequest(undefined, { keyId: ARCADE }), /unexpected key/);
+  await assert.rejects(makePublishRequest(undefined, { recordJson: 'x'.repeat(2049) }), /record payload/);
+  await assert.rejects(makePublishRequest(undefined, { playerName: 'met.punt' }), /identity name/);
+  await assert.rejects(makePublishRequest(undefined, { responseMode: 'post' }), /HTTPS/);
+  await assert.rejects(makePublishRequest(undefined, { keyFqn: 'Arcade::x' }), /content key name/, 'zonder expliciete punt geen namespace-zekerheid');
+});
+
+test('assertContentOnlyIdentityUpdate weigert adressen, autoriteiten en platte content', () => {
+  const base = { name: 'arcade-storage-poc', parent: TESTNET_SYSTEM_ID, contentmultimap: { [KEY_FQN]: { data: { message: RECORD_JSON, createmmr: true, hashtype: 'sha256' } } } };
+  const opts = { requestid: requestId(PUBLISH_ID_HEX).toJson(), systemid: TESTNET_SYSTEM_ID, expiryheight: '2060' };
+  const expect = { playerId: PLAYER, keyId: KEY_ID, recordBytes: Buffer.from(RECORD_JSON), expiryHeight: 2060 };
+  assert.doesNotThrow(() => assertContentOnlyIdentityUpdate(P.IdentityUpdateRequestDetails.fromCLIJson(base, opts), expect));
+  assert.throws(() => assertContentOnlyIdentityUpdate(P.IdentityUpdateRequestDetails.fromCLIJson({ ...base, primaryaddresses: [PLAYER_R] }, opts), expect), /name and parent/);
+  assert.throws(() => assertContentOnlyIdentityUpdate(P.IdentityUpdateRequestDetails.fromCLIJson({ ...base, revocationauthority: ARCADE }, opts), expect), /name and parent/);
+  assert.throws(() => assertContentOnlyIdentityUpdate(P.IdentityUpdateRequestDetails.fromCLIJson({ ...base, contentmultimap: { ...base.contentmultimap, [KEY_ID]: ['0102'] } }, opts), expect), /plain content|name and parent/);
+  assert.throws(() => assertContentOnlyIdentityUpdate(P.IdentityUpdateRequestDetails.fromCLIJson(base, { ...opts, expiryheight: '2061' }), expect), /expiry/);
+  assert.throws(() => assertContentOnlyIdentityUpdate(P.IdentityUpdateRequestDetails.fromCLIJson(base, { ...opts, systemid: 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq'.replace('iJh', 'i5m') }), expect), /./);
+});
+
+test('verifyPlayerResultResponse aanvaardt een geldig antwoord en geeft de txid als ontvangstbewijs', async () => {
+  const { vr, built, request } = await makePublishRequest();
+  const body = publishResponse(request).toBuffer();
+  const result = await vr.verifyPlayerResultResponse({ body, requestHex: built.requestHex, requestIdHex: PUBLISH_ID_HEX, playerId: PLAYER, keyId: KEY_ID, recordJson: RECORD_JSON });
+  assert.equal(result.identityId, PLAYER);
+  assert.equal(result.txid, '09'.repeat(32));
+  assert.equal(result.signingHeight, 1500);
+  assert.equal(result.expiryHeight, 2060);
+});
+
+test('verifyPlayerResultResponse weigert elke afwijking', async () => {
+  const { vr, built, request } = await makePublishRequest();
+  const run = (body, extra = {}) => vr.verifyPlayerResultResponse({ body, requestHex: built.requestHex, requestIdHex: PUBLISH_ID_HEX, playerId: PLAYER, keyId: KEY_ID, recordJson: RECORD_JSON, ...extra });
+  await assert.rejects(run(publishResponse(request, { requestHash: Buffer.alloc(32, 7) }).toBuffer()), /different request/);
+  await assert.rejects(run(publishResponse(request, { requestIdHex: 'ff'.repeat(20) }).toBuffer()), /different request/);
+  await assert.rejects(run(publishResponse(request, { signer: ARCADE }).toBuffer()), (e) => e.code === 'SIGNER_MISMATCH');
+  await assert.rejects(run(publishResponse(request, { withRequestId: false }).toBuffer()), /txid and request ID/);
+  await assert.rejects(run(publishResponse(request, { txid: Buffer.alloc(32, 0) }).toBuffer()), /Invalid transaction ID/);
+  // getekend ná de vervaldatum van het verzoek
+  const fresh = signingClient({ records: {
+    [`${ARCADE}@2000`]: identityRecord({ height: 1999 }), [`${ARCADE}@now`]: identityRecord({ height: 1999 }),
+    [`${PLAYER}@1500`]: identityRecord({ id: PLAYER, height: 1490, primary: [PLAYER_R] }), [`${PLAYER}@now`]: identityRecord({ id: PLAYER, height: 1490, primary: [PLAYER_R] }),
+    [`${PLAYER}@3000`]: identityRecord({ id: PLAYER, height: 1490, primary: [PLAYER_R] }),
+  } });
+  const far = await makePublishRequest(fresh);
+  await assert.rejects(far.vr.verifyPlayerResultResponse({ body: publishResponse(far.request, { height: 3000 }).toBuffer(), requestHex: far.built.requestHex, requestIdHex: PUBLISH_ID_HEX, playerId: PLAYER, keyId: KEY_ID, recordJson: RECORD_JSON }), /CHAIN_UNAVAILABLE|expired|not yet available/);
+  // opgeslagen verzoek voor een ander record
+  await assert.rejects(run(publishResponse(request).toBuffer(), { recordJson: '{"ander":1}' }), /differs from the record/);
+  // envelop-handtekening afgekeurd door de SDK
+  const bad = await makePublishRequest(signingClient({ verifyResponse: false }));
+  await assert.rejects(bad.vr.verifyPlayerResultResponse({ body: publishResponse(bad.request).toBuffer(), requestHex: bad.built.requestHex, requestIdHex: PUBLISH_ID_HEX, playerId: PLAYER, keyId: KEY_ID, recordJson: RECORD_JSON }), /Invalid wallet response signature/);
+  // afgekapt
+  const bytes = publishResponse(request).toBuffer();
+  await assert.rejects(run(bytes.subarray(0, bytes.length - 3)), (e) => e.code === 'INVALID_SIGNATURE');
+});
+
+test('walletCompatibleIdentity rekent zoals Verus Mobile (mainnet-root als standaard)', () => {
+  // Live gezien op 9 nov: getidentitycontent geeft deze namen terug.
+  assert.equal(walletCompatibleIdentity({ identityId: 'i46DSxQV6VwA6xZYvcVrAdENrZCVi3Gc8g', contentFqn: 'mrrager.VRSCTEST@' }), true);
+  assert.equal(walletCompatibleIdentity({ identityId: 'iQZGcAzSXaeciUhoh3ZbkmcgJHmdy3seBK', contentFqn: 'testerrr.Verus Arcade@' }), false);
+  assert.equal(walletCompatibleIdentity({ identityId: 'iQZGcAzSXaeciUhoh3ZbkmcgJHmdy3seBK', contentFqn: 'testerrr.Verus Arcade.VRSCTEST@' }), true);
+  assert.equal(walletCompatibleIdentity({ identityId: ARCADE, contentFqn: '' }), false);
 });

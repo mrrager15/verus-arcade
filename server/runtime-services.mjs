@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 import { AttemptSignatureService } from './attempt-signature-service.mjs';
 import { DailyService } from './daily-service.mjs';
+import { PlayerPublicationService } from './player-publication-service.mjs';
 import { migrate } from './db/migrate.mjs';
 import { ArcadeRepository } from './db/repository.mjs';
 import { createVerusRequestsFromEnv } from './verus/requests.mjs';
@@ -13,7 +14,7 @@ import { createVerusRequestsFromEnv } from './verus/requests.mjs';
  * service-identiteit niet geconfigureerd is: de app draait dan zonder
  * handtekeningverzoeken, precies zoals v1.
  */
-export function createAttemptSignatureService({ repository, runtime, env = process.env }) {
+function walletRequestOptions({ repository, runtime, env }) {
   if (!env.ARCADE_SERVICE_ID || !env.ARCADE_SERVICE_WIF) return null;
   const confText = env.VERUS_RPC_URL ? undefined : fs.readFileSync(runtime.confPath, 'utf8');
   const verusRequests = createVerusRequestsFromEnv({ env, confText });
@@ -25,9 +26,18 @@ export function createAttemptSignatureService({ repository, runtime, env = proce
   if (!Number.isSafeInteger(ttlBlocks) || ttlBlocks < 1 || ttlBlocks > 10_000) {
     throw new Error('REQUEST_TTL_BLOCKS must be an integer between 1 and 10000');
   }
-  return new AttemptSignatureService({
-    repository, verusRequests, origin: runtime.origin, responseMode, ttlBlocks,
-  });
+  return { repository, verusRequests, origin: runtime.origin, responseMode, ttlBlocks };
+}
+
+export function createAttemptSignatureService({ repository, runtime, env = process.env }) {
+  const options = walletRequestOptions({ repository, runtime, env });
+  return options ? new AttemptSignatureService(options) : null;
+}
+
+/** Fase 2: zelfde schakelaars als fase 1; één gedeelde VerusRequests-instantie is niet nodig. */
+export function createPlayerPublicationService({ repository, runtime, env = process.env }) {
+  const options = walletRequestOptions({ repository, runtime, env });
+  return options ? new PlayerPublicationService(options) : null;
 }
 
 export function createRuntimeServices({
@@ -44,11 +54,15 @@ export function createRuntimeServices({
   const attemptSignatureService = runtime
     ? createAttemptSignatureService({ repository, runtime, env })
     : null;
+  const playerPublicationService = runtime
+    ? createPlayerPublicationService({ repository, runtime, env })
+    : null;
   return {
     database,
     repository,
     dailyService: new DailyService({ repository }),
     attemptSignatureService,
+    playerPublicationService,
     close() {
       database.close();
     },

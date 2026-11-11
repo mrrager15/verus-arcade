@@ -119,6 +119,25 @@ export function encodeMmrHashes(leaves) {
 }
 
 /**
+ * Bouwt een `mmrdescriptor` in exact de vorm die `signdata` met `createmmr`
+ * teruggeeft (sha256 voor bladeren en knopen), uit gezouten waarden.
+ * @param {Array<{ data: Uint8Array, salt: Uint8Array }>} entries
+ * @param {(bytes: Uint8Array) => Uint8Array} sha256
+ */
+export function buildSaltedMmrDescriptor(entries, sha256) {
+  const leaves = entries.map(({ data, salt }) => saltedLeafHash(data, salt, sha256));
+  const root = mmrRoot(leaves, (left, right) => sha256(concat(left, right)));
+  return {
+    version: 1,
+    objecthashtype: HASH_SHA256,
+    mmrhashtype: HASH_SHA256,
+    mmrroot: { version: 1, flags: 0, objectdata: bytesToHex(root) },
+    mmrhashes: { version: 1, flags: 0, objectdata: encodeMmrHashes(leaves) },
+    datadescriptors: entries.map(({ data, salt }) => ({ version: 1, flags: FLAG_HAS_SALT, objectdata: bytesToHex(data), salt: bytesToHex(salt) })),
+  };
+}
+
+/**
  * Controleert een (gedeeltelijk) openbaar gemaakte `mmrdescriptor` zoals
  * `signdata` hem geeft, met alleen de te tonen `datadescriptors` erin:
  *   - sha256 voor bladeren en knopen (de enige vorm die we aanvaarden);

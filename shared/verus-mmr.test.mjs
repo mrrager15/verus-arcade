@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 
 import {
-  bytesToHex, decodeMmrHashes, encodeMmrHashes, hexToBytes, mmrRoot, saltedLeafHash, verifyMmrDisclosure,
+  buildSaltedMmrDescriptor, bytesToHex, decodeMmrHashes, encodeMmrHashes, hexToBytes, mmrRoot, saltedLeafHash, verifyMmrDisclosure,
 } from './verus-mmr.mjs';
 
 const require = createRequire(import.meta.url);
@@ -81,4 +81,9 @@ test('verus-mmr: handtekening van Arcade@ op de wortel verifieert offline (SDK, 
   };
   assert.deepEqual(verify(fixture.signaturedata), [true]);
   assert.deepEqual(verify({ ...fixture.signaturedata, signaturehash: '00' + fixture.signaturedata.signaturehash.slice(2) }), [false]);
+});
+
+test('verus-mmr: buildSaltedMmrDescriptor geeft exact de descriptor van de daemon', () => {
+  const entries = fixture.request.mmrdata.map((item, i) => ({ data: new TextEncoder().encode(item.message), salt: hexToBytes(fixture.request.mmrsalt[i]) }));
+  assert.deepEqual(buildSaltedMmrDescriptor(entries, sha256), fixture.mmrdescriptor);
 });

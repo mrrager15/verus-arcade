@@ -401,6 +401,27 @@ export class VerusRequests {
     return { height, historical: state.historical, state };
   }
 
+  /**
+   * Fase 2b: tekent de wortel van een attestatie-MMR met de service-identiteit
+   * (Arcade@), in dezelfde vorm als `signdata` met `createmmr`: VerusID-
+   * handtekening versie 2, sha256, over de wortel zoals in `mmrroot`. Geen
+   * transactie, geen daemon-sleutel nodig. Controleert de eigen handtekening.
+   * @param {string} rootHex
+   * @returns {Promise<{ signaturedata: object, signatureheight: number }>}
+   */
+  async signMmrRoot(rootHex) {
+    check(typeof rootHex === 'string' && /^[0-9a-f]{64}$/.test(rootHex), 'Invalid MMR root.');
+    const { height, historical } = await this.serviceState();
+    const signaturedata = {
+      version: 1, systemid: TESTNET_SYSTEM_ID, hashtype: 5, signaturehash: rootHex,
+      identityid: this.serviceId, signaturetype: 1,
+    };
+    const digest = P.SignatureData.fromJson({ ...signaturedata, signature: '' }).getIdentityHash({ version: 2, hash_type: 5, height });
+    const signature = await this.client.signHash(this.serviceId, digest, this.serviceWif, historical, height, TESTNET_SYSTEM_ID);
+    check(await this.client.verifyHash(this.serviceId, signature, digest, historical, TESTNET_SYSTEM_ID), 'The service key cannot sign for the service identity.');
+    return { signaturedata: { ...signaturedata, signature }, signatureheight: height };
+  }
+
   /** Blocktijd van een hoogte; nodig om GenericRequest/Response te verifiëren. */
   async blockTime(height) {
     const block = await this.chain(() => this.client.interface.getBlock(String(height)));

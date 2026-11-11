@@ -108,18 +108,27 @@ export function createDailyRouter({
     });
   }
 
-  router.get('/games/word-grid/rounds/current', (_request, response) => {
-    const round = dailyService.getCurrentRound();
-    response.status(round ? 200 : 404).json(
-      round
-        ? { round }
-        : {
-            error: {
-              code: 'ROUND_NOT_FOUND',
-              message: 'No current Word Grid round is scheduled',
+  // Fase 8: de games die het platform kent, en de huidige Daily per game (publiek).
+  router.get('/games', (_request, response) => {
+    response.json({ games: dailyService.listGames() });
+  });
+
+  router.get('/games/:gameId/rounds/current', (request, response, next) => {
+    try {
+      const round = dailyService.getCurrentRound({ gameId: request.params.gameId });
+      response.status(round ? 200 : 404).json(
+        round
+          ? { round }
+          : {
+              error: {
+                code: 'ROUND_NOT_FOUND',
+                message: 'No current round is scheduled for this game',
+              },
             },
-          },
-    );
+      );
+    } catch (error) {
+      next(error);
+    }
   });
 
   router.get('/rounds/:roundId/leaderboard', (request, response, next) => {

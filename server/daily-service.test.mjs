@@ -431,3 +431,20 @@ test('fase 8: Number Target speelt via dezelfde service en geeft resultaatschema
   assert.equal(board.entries[0].status, 'solved');
   database.close();
 });
+
+test('fase 8: games-lijst en huidige ronde per game, met openbare puzzel', () => {
+  const { database, repository, service } = setup({ now: 2_000 });
+  assert.deepEqual(service.listGames().map((g) => g.slug), ['number-target', 'word-grid']);
+  assert.equal(service.listGames().find((g) => g.slug === 'number-target').maxActions, 5);
+  assert.equal(service.getCurrentRound({ gameId: 'number-target' }), null);
+  createNumberTargetRound(repository);
+  const round = service.getCurrentRound({ gameId: 'number-target' });
+  assert.equal(round.roundId, 'number-target:1.0.0:2026-11-13');
+  assert.deepEqual(round.puzzle, { numbers: [100, 25, 3, 7, 7, 1], target: 728 });
+  assert.ok(!('solution' in round.puzzle), 'de voorbeeldoplossing blijft geheim tot na afloop');
+  assert.throws(() => service.getCurrentRound({ gameId: 'chess' }), (error) => error.code === 'GAME_NOT_FOUND' && error.httpStatus === 404);
+  createRound(repository);
+  repository.openRound({ id: 'round-record-1', commitmentTxid: 'a'.repeat(64) });
+  assert.deepEqual(service.getCurrentRound().puzzle, {}, 'Word Grid toont niets van de puzzel');
+  database.close();
+});

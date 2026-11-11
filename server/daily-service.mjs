@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { WORD_GRID_GAME_ID, WORD_GRID_VERSION } from './games/word-grid/engine.mjs';
-import { gameRules } from '../shared/games/index.mjs';
+import { gameRules, registeredGames } from '../shared/games/index.mjs';
 import { storedActionValue, usesGenericRecords } from './attempt-actions.mjs';
 import { definitionPuzzle } from './round-proof.mjs';
 import { RepositoryConflictError } from './db/repository.mjs';
@@ -70,15 +70,50 @@ export class DailyService {
     this.createId = createId;
   }
 
-  getCurrentRound() {
+  /** De games die dit platform kent (gamecontract), met wat de app nodig heeft. */
+  listGames() {
+    const latest = new Map();
+    for (const { slug, version, rules } of registeredGames()) latest.set(slug, { slug, version, rules });
+    return [...latest.values()].map(({ slug, version, rules }) => ({
+      slug,
+      version,
+      name: rules.meta.name,
+      maxActions: rules.meta.maxActions,
+      inputHint: rules.meta.inputHint,
+    }));
+  }
+
+  /**
+   * De huidige Daily van een game (standaard Word Grid). Een open ronde krijgt
+   * ook het openbare deel van de puzzel mee (Number Target: getallen en doel).
+   * Gooit GAME_NOT_FOUND voor een onbekende game.
+   */
+  getCurrentRound({ gameId = WORD_GRID_GAME_ID, gameVersion } = {}) {
+    const game = this.listGames().find((g) => g.slug === gameId);
+    if (!game || (gameVersion && gameVersion !== game.version)) {
+      throw new DailyServiceError('GAME_NOT_FOUND', `Unknown game ${gameId}`, 404);
+    }
     const now = this.clock();
     const round = this.repository.getCurrentRound({
       chainId: 'vrsctest',
-      gameId: WORD_GRID_GAME_ID,
-      gameVersion: WORD_GRID_VERSION,
+      gameId,
+      gameVersion: game.version,
       now,
     });
-    return round ? publicRound(round, now) : null;
+    if (!round) return null;
+    const view = publicRound(round, now);
+    if (view.availability === 'open') view.puzzle = this.#publicPuzzle(round);
+    return view;
+  }
+
+  #publicPuzzle(round) {
+    const definition = this.repository.getRoundPrivateDefinition(round.id);
+    if (!usesGenericRecords(definition)) return {};
+    try {
+      return gameRules(round.game_id, round.game_version).publicPuzzle(definitionPuzzle(definition));
+    } catch {
+      return null;
+    }
   }
 
   reserveAttempt({ principal, roundId }) {

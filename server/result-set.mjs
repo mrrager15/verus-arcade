@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 import { canonicalJson } from './canonical-json.mjs';
+import { gameRules } from '../shared/games/index.mjs';
 
 export const RESULT_ALGORITHM = 'arcade-merkle-sha256-jcs-v1';
 
@@ -52,8 +53,39 @@ function validatePlayerSignature(value) {
   );
 }
 
+// Schema 3 (fase 8): voor elke game. `actions` met canonieke zetten van de game,
+// `score` met `actionsUsed`; verder gelijk aan schema 2 (met playerSignature).
+const V3_KEYS = ['schemaVersion', 'roundId', 'chainId', 'gameId', 'gameVersion', 'playerIAddress', 'status', 'actions', 'score', 'playerSignature'];
+
+function validateRecordV3(record) {
+  const fail = (why) => { throw new Error(`Result record does not match schema version 3: ${why}`); };
+  if (Object.keys(record).length !== V3_KEYS.length || V3_KEYS.some((key) => !(key in record))) fail('keys');
+  if (
+    !record.roundId || !record.chainId || !record.gameId || !record.gameVersion || !record.playerIAddress ||
+    [record.chainId, record.playerIAddress].some((value) => typeof value !== 'string' || value.includes('\0')) ||
+    !String(record.roundId).startsWith(`${record.gameId}:${record.gameVersion}:`)
+  ) fail('round or player');
+  let rules;
+  try { rules = gameRules(record.gameId, record.gameVersion); } catch (error) { fail(error.message); }
+  if (!['solved', 'unsolved', 'abandoned'].includes(record.status)) fail('status');
+  if (!Array.isArray(record.actions) || record.actions.length > rules.meta.maxActions) fail('actions');
+  record.actions.forEach((action, index) => {
+    if (!action || typeof action !== 'object' || Object.keys(action).length !== 2 || action.sequence !== index + 1 || typeof action.value !== 'string') fail(`action ${index + 1}`);
+    let canonical;
+    try { canonical = rules.normalizeAction(action.value); } catch { fail(`action ${index + 1} is not valid for ${record.gameId}`); }
+    if (canonical !== action.value) fail(`action ${index + 1} is not canonical`);
+  });
+  if (
+    !record.score || Object.keys(record.score).length !== 2 ||
+    typeof record.score.solved !== 'boolean' || record.score.actionsUsed !== record.actions.length ||
+    record.score.solved !== (record.status === 'solved')
+  ) fail('score');
+  if (!validatePlayerSignature(record.playerSignature)) fail('playerSignature');
+}
+
 function validateRecord(record) {
   const version = record?.schemaVersion;
+  if (version === 3) return validateRecordV3(record);
   if (version !== 1 && version !== 2) {
     throw new Error('Result record does not match schema version 1 or 2');
   }

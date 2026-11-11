@@ -18,8 +18,8 @@ test('actionsSha256 is deterministisch en negeert extra velden en volgorde van k
 
 test('actionsSha256 weigert ongeldige of ongesorteerde gokken', () => {
   assert.throws(() => actionsSha256('x'), /array/);
-  assert.throws(() => actionsSha256([{ sequence: 0, word: 'A' }]), /invalid guess/);
-  assert.throws(() => actionsSha256([{ sequence: 1, word: '' }]), /invalid guess/);
+  assert.throws(() => actionsSha256([{ sequence: 0, word: 'A' }]), /invalid action/);
+  assert.throws(() => actionsSha256([{ sequence: 1, word: '' }]), /invalid action/);
   assert.throws(() => actionsSha256([{ sequence: 2, word: 'A' }, { sequence: 1, word: 'B' }]), /strictly increasing/);
   assert.throws(() => actionsSha256([{ sequence: 1, word: 'A' }, { sequence: 1, word: 'B' }]), /strictly increasing/);
 });

@@ -228,9 +228,9 @@ export class PlayerPublicationService {
     if (!proof) {
       throw new DailyServiceError('RESULT_COMPLETENESS_FAILURE', 'Final result set does not contain this attempt', 503);
     }
-    // Resultaatschema 2 (sinds fase 1) → compact v2-record (past in een Mobile-deeplink, ook
-    // bij grote rondes); oudere schema-1-rondes houden het volledige v1-record.
-    const record = proof.record.schemaVersion === 2
+    // Resultaatschema 2 (sinds fase 1) → compact v2-record, schema 3 (fase 8) → compact v3 (past
+    // in een Mobile-deeplink, ook bij grote rondes); oudere schema-1-rondes houden het volledige v1-record.
+    const record = proof.record.schemaVersion >= 2
       ? buildCompactPlayerResultRecord({ round, proof })
       : buildPlayerResultRecord({ round, proof, resultRootTxid: resultSet.resultsTxid });
     return {

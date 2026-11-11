@@ -82,7 +82,7 @@ test('schema 2 records require a null or well-formed playerSignature; schema 1 f
   assert.throws(() => buildResultSet([{ schemaVersion: 2, ...base, playerSignature: { height: 1500, signature: Buffer.alloc(72).toString('base64') } }]), /schema version 2/);
   assert.throws(() => buildResultSet([{ schemaVersion: 2, ...base, playerSignature: { height: 1500, signature: sig, extra: 1 } }]), /schema version 2/);
   assert.throws(() => buildResultSet([{ schemaVersion: 1, ...base, playerSignature: null }]), /schema version 1/);
-  assert.throws(() => buildResultSet([{ schemaVersion: 3, ...base }]), /schema version 1 or 2/);
+  assert.throws(() => buildResultSet([{ schemaVersion: 3, ...base }]), /schema version 3/);
   // de handtekening maakt deel uit van de leaf: zelfde record, andere handtekening, andere root
   const a = buildResultSet([{ schemaVersion: 2, ...base, playerSignature: { height: 1500, signature: sig } }]);
   const b = buildResultSet([{ schemaVersion: 2, ...base, playerSignature: null }]);

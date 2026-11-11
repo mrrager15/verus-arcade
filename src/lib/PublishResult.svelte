@@ -140,8 +140,9 @@
 			<p class="explain">
 				Your result for round <code>{publication.record.round}</code> is stored in your identity under the
 				Arcade key, in transaction <code>{publication.publishedTxid}</code> (block
-				<strong>{publication.publishedHeight}</strong>). It carries the Merkle proof against result root
-				<code>{publication.record.resultRoot}</code>, so anyone can verify it without this server.
+				<strong>{publication.publishedHeight}</strong>). It carries the Merkle proof against the round's result
+				root{#if publication.record.resultRoot}&nbsp;<code>{publication.record.resultRoot}</code>{/if}, so anyone can verify it
+				without this server.
 			</p>
 		{:else if publication?.status === 'receipt'}
 			<p class="explain">

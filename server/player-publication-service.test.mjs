@@ -11,7 +11,7 @@ import { ArcadeRepository } from './db/repository.mjs';
 import { PlayerPublicationService } from './player-publication-service.mjs';
 import { createRoundAttestations } from './attestation-service.mjs';
 import { canonicalJson } from './canonical-json.mjs';
-import { validatePlayerResultRecord } from './verus/player-result.mjs';
+import { parsePlayerResultRecord } from './verus/player-result.mjs';
 import { P } from './verus/requests.mjs';
 import { GENERIC_RESPONSE_QUERY_KEY, VerusRequestError } from './verus/requests.mjs';
 
@@ -114,11 +114,13 @@ test('createPublishRequest bouwt record, key en alleen-content request voor de s
   finalizeAndConfirm(ctx.repository);
   const first = await ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId });
   const pub = first.publication;
-  assert.doesNotThrow(() => validatePlayerResultRecord(pub.record));
-  assert.equal(pub.record.player, PLAYER);
+  // Resultaatschema 2 → compact v2-record; de speler en de wortel worden afgeleid.
+  assert.equal(pub.record.version, 2);
   assert.equal(pub.record.round, ROUND_ID);
-  assert.equal(pub.record.resultRootTxid, RESULTS_TXID);
-  assert.equal(pub.record.guesses, 2);
+  assert.equal(pub.record.guesses, 'slate,crane');
+  const parsed = parsePlayerResultRecord(JSON.stringify(pub.record), { player: PLAYER });
+  assert.deepEqual([parsed.player, parsed.guesses, parsed.status], [PLAYER, 2, 'solved']);
+  assert.equal(parsed.resultRoot, ctx.repository.getRoundResultSet('round-1').rootSha256);
   assert.equal(pub.contentKeyName, `Arcade.VRSCTEST.::arcade.player.result.${ROUND_ID}`);
   assert.match(pub.contentKey, /^i[1-9A-HJ-NP-Za-km-z]{20,40}$/);
   assert.equal(pub.walletUri, `verus://x/${'1'.padStart(40, '0')}`);

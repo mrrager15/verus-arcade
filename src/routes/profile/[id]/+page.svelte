@@ -15,7 +15,8 @@
 		status: 'solved' | 'unsolved' | 'abandoned';
 		guesses: number;
 		resultRoot: string;
-		resultRootTxid: string;
+		resultRootTxid: string | null;
+		rootChecked?: boolean;
 		contentKey: string;
 		recordSha256: string;
 		txid: string | null;
@@ -84,8 +85,8 @@
 							{result.game} {result.gameVersion} · {result.guesses} {result.guesses === 1 ? 'guess' : 'guesses'}
 						</p>
 						<dl>
-							<dt>Result root</dt><dd><code>{result.resultRoot}</code></dd>
-							<dt>Root published in</dt><dd><code>{result.resultRootTxid}</code></dd>
+							<dt>Result root</dt><dd><code>{result.resultRoot}</code>{#if result.rootChecked} ✓ matches the root Arcade@ published{/if}</dd>
+							{#if result.resultRootTxid}<dt>Root published in</dt><dd><code>{result.resultRootTxid}</code></dd>{/if}
 							<dt>Stored in identity</dt>
 							<dd>{#if result.txid}<code>{result.txid}</code> (block {result.height}){:else}transaction not found in history{/if}</dd>
 							<dt>Record sha256</dt><dd><code>{result.recordSha256}</code></dd>

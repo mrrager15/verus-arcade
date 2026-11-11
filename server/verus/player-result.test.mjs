@@ -6,7 +6,9 @@ import { canonicalJson } from '../canonical-json.mjs';
 import { RESULT_ALGORITHM, buildResultSet, createInclusionProof } from '../result-set.mjs';
 import {
   PLAYER_RESULT_MAX_BYTES,
+  buildCompactPlayerResultRecord,
   buildPlayerResultRecord,
+  expandCompactPlayerResult,
   parsePlayerResultRecord,
   playerResultContentKey,
   playerResultKeyName,
@@ -112,4 +114,74 @@ test('record groter dan 2048 bytes wordt geweigerd', () => {
   const record = buildPlayerResultRecord({ round: ROUND, proof, resultRootTxid: TXID });
   assert.throws(() => serializePlayerResultRecord(record), /RECORD_TOO_LARGE|limit/);
   assert.throws(() => parsePlayerResultRecord(canonicalJson(record)), /size limit/);
+});
+
+/** Gemeten op 11 nov 2026 (echte verzoeken: 1004 bytes → 1897 tekens, 480 → 1210): ±581 + 4/3 per byte. */
+const estimateDeeplink = (bytes) => 581 + Math.ceil((bytes * 4) / 3);
+const MOBILE_MAX = 2045;
+
+function bigProof(players, words = ['slate', 'crane', 'brick', 'flame', 'spray', 'adieu']) {
+  const records = [resultRecord(PLAYER, words)];
+  for (let i = 1; i < players; i += 1) records.push(resultRecord(`i${String(i).padStart(6, '0')}${'B'.repeat(27)}`, ['crane']));
+  const set = buildResultSet(records);
+  return createInclusionProof(set, set.entries.findIndex((e) => e.record.playerIAddress === PLAYER));
+}
+
+test('v2 compact: bouwen, uitpakken en lezen geeft hetzelfde als v1', () => {
+  const proof = proofFor(5);
+  const compact = buildCompactPlayerResultRecord({ round: ROUND, proof });
+  assert.deepEqual(Object.keys(compact).sort(), ['count', 'guesses', 'index', 'proof', 'round', 'schema', 'sig', 'sigHeight', 'status', 'version']);
+  assert.equal(compact.guesses, 'crane,plane');
+  const expanded = expandCompactPlayerResult(compact, { player: PLAYER });
+  assert.equal(canonicalJson(expanded.record), canonicalJson(proof.record));
+  assert.equal(expanded.resultRoot, proof.rootSha256);
+  const serialized = serializePlayerResultRecord(compact, { player: PLAYER });
+  const parsed = parsePlayerResultRecord(serialized.json, { player: PLAYER });
+  const v1 = buildPlayerResultRecord({ round: ROUND, proof, resultRootTxid: TXID });
+  for (const key of ['round', 'chain', 'game', 'gameVersion', 'player', 'status', 'guesses', 'resultRoot']) assert.equal(parsed[key], v1[key], key);
+  assert.equal(parsed.version, 2);
+  assert.equal(parsed.resultRootTxid, null);
+  // v1 blijft gewoon leesbaar
+  assert.deepEqual(parsePlayerResultRecord(serializePlayerResultRecord(v1).json), v1);
+});
+
+test('v2 compact: zonder handtekening, en wat geweigerd wordt', () => {
+  const unsigned = { ...resultRecord(PLAYER, ['crane']), playerSignature: null };
+  const set = buildResultSet([unsigned, resultRecord(ARCADE, ['crane'])]);
+  const proof = createInclusionProof(set, set.entries.findIndex((e) => e.record.playerIAddress === PLAYER));
+  const compact = buildCompactPlayerResultRecord({ round: ROUND, proof });
+  assert.equal(compact.sig, null);
+  assert.equal('sigHeight' in compact, false);
+  assert.equal(expandCompactPlayerResult(compact, { player: PLAYER }).resultRoot, proof.rootSha256);
+
+  const good = buildCompactPlayerResultRecord({ round: ROUND, proof: proofFor(5) });
+  assert.throws(() => parsePlayerResultRecord(JSON.stringify(good)), /needs the identity/);
+  for (const [name, broken] of Object.entries({
+    'extra veld': { ...good, extra: 1 },
+    'sigHeight zonder sig': { ...good, sig: null },
+    'ongeldige gok': { ...good, guesses: 'crane,PLANE' },
+    'te veel gokken': { ...good, guesses: 'aaaaa,bbbbb,ccccc,ddddd,eeeee,fffff,ggggg' },
+    'kapotte base64': { ...good, proof: good.proof.slice(1) },
+    'index buiten bereik': { ...good, index: 99 },
+    'verkeerde versie': { ...good, version: 3 },
+  })) {
+    assert.throws(() => expandCompactPlayerResult(broken, { player: PLAYER }), name);
+  }
+  // een andere gok of andere speler geeft een andere wortel: past niet meer bij de gepubliceerde result-root
+  assert.notEqual(expandCompactPlayerResult({ ...good, guesses: 'crane,crane' }, { player: PLAYER }).resultRoot, proofFor(5).rootSha256);
+  assert.notEqual(expandCompactPlayerResult(good, { player: ARCADE }).resultRoot, proofFor(5).rootSha256);
+  assert.throws(() => buildCompactPlayerResultRecord({ round: ROUND, proof: { ...proofFor(2), rootSha256: 'ff'.repeat(32) } }), /does not verify/);
+});
+
+test('v2 compact past in een Verus Mobile-deeplink tot 20.000 spelers; v1 al niet meer bij 3', () => {
+  const sizes = {};
+  for (const players of [1, 2, 3, 1000, 20_000]) {
+    const proof = bigProof(players);
+    const v2 = serializePlayerResultRecord(buildCompactPlayerResultRecord({ round: ROUND, proof }), { player: PLAYER }).bytes;
+    const v1 = Buffer.byteLength(canonicalJson(buildPlayerResultRecord({ round: ROUND, proof, resultRootTxid: TXID })));
+    sizes[players] = { v1, v2, deeplinkV1: estimateDeeplink(v1), deeplinkV2: estimateDeeplink(v2) };
+    assert.ok(estimateDeeplink(v2) <= MOBILE_MAX, `v2 bij ${players} spelers: ${v2} bytes → ±${estimateDeeplink(v2)} tekens`);
+  }
+  assert.ok(sizes[3].deeplinkV1 > MOBILE_MAX, `v1 bij 3 spelers zou ${sizes[3].deeplinkV1} tekens zijn`);
+  console.log('# deeplink-schatting (bytes → tekens):', JSON.stringify(sizes));
 });

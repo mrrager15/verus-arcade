@@ -4,7 +4,10 @@
  * We lezen de volledige contentmultimap van de spelersidentiteit en houden
  * alleen waarden over die (a) een geldig `arcade-player-result`-record zijn,
  * (b) onder precies de key staan die bij hun ronde hoort in de namespace van
- * Arcade@, en (c) voor deze speler zijn. Zo kan niemand een record van iemand
+ * Arcade@, en (c) voor deze speler zijn, en (d) als de officiële result-root van
+ * de ronde bekend is (`resolveRoot`), precies op die wortel uitkomen. (d) is nodig
+ * voor compacte v2-records: die nemen de speler over van de identiteit waarin ze
+ * staan, dus een gekopieerd record geeft een andere wortel. Zo kan niemand een record van iemand
  * anders of onder een vreemde key als het zijne tonen. De database komt er
  * niet aan te pas: dit is wat elke onafhankelijke verifier ook kan doen.
  */
@@ -19,7 +22,7 @@ const sha256hex = (buffer) => createHash('sha256').update(buffer).digest('hex');
  * @param {{ playerId: string, content: object, history: object[]|null, serviceId: string, serviceFqn: string }} input
  * @returns {{ playerId: string, results: object[], ignored: number }}
  */
-export async function collectPlayerResults({ playerId, content, history, serviceId, serviceFqn, decrypt = null }) {
+export async function collectPlayerResults({ playerId, content, history, serviceId, serviceFqn, decrypt = null, resolveRoot = null }) {
   const cmm = content?.identity?.contentmultimap ?? {};
   const results = [];
   const seenValues = new Set();
@@ -34,10 +37,17 @@ export async function collectPlayerResults({ playerId, content, history, service
       const resolved = await resolveContentValue(value, { txid: appeared?.txid ?? null, decrypt });
       if (!resolved) { ignored += 1; continue; }
       let record;
-      try { record = parsePlayerResultRecord(resolved.bytes); } catch { ignored += 1; continue; }
+      // v2-records dragen de speler niet mee: het is de identiteit waarin ze staan.
+      try { record = parsePlayerResultRecord(resolved.bytes, { player: playerId }); } catch { ignored += 1; continue; }
       let expectedKey;
       try { expectedKey = playerResultContentKey({ roundId: record.round, serviceId, serviceFqn }).keyId; } catch { ignored += 1; continue; }
       if (expectedKey !== keyId || record.player !== playerId) { ignored += 1; continue; }
+      let rootChecked = false;
+      if (resolveRoot) {
+        const official = await resolveRoot(record.round);
+        if (official && official !== record.resultRoot) { ignored += 1; continue; }
+        rootChecked = Boolean(official);
+      }
       results.push({
         round: record.round,
         game: record.game,
@@ -46,6 +56,7 @@ export async function collectPlayerResults({ playerId, content, history, service
         guesses: record.guesses,
         resultRoot: record.resultRoot,
         resultRootTxid: record.resultRootTxid,
+        rootChecked,
         contentKey: keyId,
         recordSha256: sha256hex(resolved.bytes),
         storage: resolved.kind,

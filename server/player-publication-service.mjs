@@ -26,6 +26,7 @@ import { DailyServiceError } from './daily-service.mjs';
 import { RepositoryConflictError } from './db/repository.mjs';
 import {
   PlayerResultError,
+  buildCompactPlayerResultRecord,
   buildPlayerResultRecord,
   playerResultContentKey,
   serializePlayerResultRecord,
@@ -205,9 +206,13 @@ export class PlayerPublicationService {
     if (!proof) {
       throw new DailyServiceError('RESULT_COMPLETENESS_FAILURE', 'Final result set does not contain this attempt', 503);
     }
-    const record = buildPlayerResultRecord({ round, proof, resultRootTxid: resultSet.resultsTxid });
+    // Resultaatschema 2 (sinds fase 1) → compact v2-record (past in een Mobile-deeplink, ook
+    // bij grote rondes); oudere schema-1-rondes houden het volledige v1-record.
+    const record = proof.record.schemaVersion === 2
+      ? buildCompactPlayerResultRecord({ round, proof })
+      : buildPlayerResultRecord({ round, proof, resultRootTxid: resultSet.resultsTxid });
     return {
-      serialized: serializePlayerResultRecord(record),
+      serialized: serializePlayerResultRecord(record, { player: attempt.player_i_address }),
       key: playerResultContentKey({ roundId: round.round_id, serviceId, serviceFqn }),
     };
   }
@@ -319,7 +324,14 @@ export class PlayerPublicationService {
       try { rawId(playerId); } catch { throw new DailyServiceError('INVALID_IDENTITY', 'Player identity must be an i-address', 400); }
       const { serviceId, serviceFqn } = await this.#service();
       const { tip, content, history } = await this.verus.readIdentityContent({ identityId: playerId });
-      const collected = await collectPlayerResults({ playerId, content, history, serviceId, serviceFqn, decrypt: this.#decrypt });
+      // Officiële result-root van de ronde (bevestigd op de chain door de operator), om
+      // gekopieerde of vervalste records uit te sluiten. In fase 4 leest de verifier die van de chain.
+      const resolveRoot = (roundId) => {
+        const round = this.repository.getRound(roundId);
+        const set = round ? this.repository.getRoundResultSet(round.id) : null;
+        return set?.resultsTxid ? set.rootSha256 : null;
+      };
+      const collected = await collectPlayerResults({ playerId, content, history, serviceId, serviceFqn, decrypt: this.#decrypt, resolveRoot });
       return {
         playerId,
         name: content?.fullyqualifiedname ?? content?.identity?.name ?? null,

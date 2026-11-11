@@ -168,7 +168,12 @@ export function createInclusionProof(resultSet, leafIndex) {
   };
 }
 
-export function verifyInclusionProof(proof) {
+/**
+ * Wortel die uit een inclusiebewijs volgt (hex), of null als het bewijs niet
+ * klopt in vorm, record of posities. Gebruikt door verifyInclusionProof en door
+ * het compacte spelersrecord (v2), dat de wortel niet meedraagt.
+ */
+export function inclusionRoot(proof) {
   try {
     let expectedSiblingCount = 0;
     for (let width = proof?.leafCount; Number.isSafeInteger(width) && width > 1;) {
@@ -183,10 +188,9 @@ export function verifyInclusionProof(proof) {
       proof.leafIndex < 0 ||
       proof.leafIndex >= proof.leafCount ||
       !Array.isArray(proof.siblings) ||
-      proof.siblings.length !== expectedSiblingCount ||
-      !/^[0-9a-f]{64}$/.test(proof.rootSha256)
+      proof.siblings.length !== expectedSiblingCount
     ) {
-      return false;
+      return null;
     }
     validateRecord(proof.record);
     let current = leafHash(canonicalJson(proof.record));
@@ -196,10 +200,10 @@ export function verifyInclusionProof(proof) {
         !['left', 'right'].includes(sibling?.position) ||
         !/^[0-9a-f]{64}$/.test(sibling?.sha256)
       ) {
-        return false;
+        return null;
       }
       const expectedPosition = index % 2 === 1 ? 'left' : 'right';
-      if (sibling.position !== expectedPosition) return false;
+      if (sibling.position !== expectedPosition) return null;
       const siblingHash = Buffer.from(sibling.sha256, 'hex');
       current =
         sibling.position === 'left'
@@ -207,8 +211,14 @@ export function verifyInclusionProof(proof) {
           : nodeHash(current, siblingHash);
       index = Math.floor(index / 2);
     }
-    return current.toString('hex') === proof.rootSha256;
+    return current.toString('hex');
   } catch {
-    return false;
+    return null;
   }
+}
+
+export function verifyInclusionProof(proof) {
+  if (!/^[0-9a-f]{64}$/.test(proof?.rootSha256 ?? '')) return false;
+  const root = inclusionRoot(proof);
+  return root !== null && root === proof.rootSha256;
 }

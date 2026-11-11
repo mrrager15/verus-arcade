@@ -19,6 +19,7 @@ const app = makeArcadeApp({
   attemptSignatureService: services.attemptSignatureService,
   playerPublicationService: services.playerPublicationService,
   attestationService: services.attestationService,
+  gameManifestService: services.gameManifestService,
 });
 console.log(
   services.attemptSignatureService

@@ -16,6 +16,7 @@ export function createDailyRouter({
   resolveSession,
   attemptSignatureService = null,
   playerPublicationService = null,
+  gameManifestService = null,
   attestationService = null,
   walletReturnPath = '/',
 }) {
@@ -65,6 +66,11 @@ export function createDailyRouter({
       response.set('Referrer-Policy', 'no-referrer');
       response.redirect(303, `${walletReturnPath}${walletReturnPath.includes('?') ? '&' : '?'}${destination.toString()}`);
     });
+  }
+
+  // Fase 8: de ontwikkelaar tekent het manifest van zijn game met Verus Mobile.
+  if (gameManifestService) {
+    mountWalletCallbacks({ path: 'manifest-jobs', service: gameManifestService, kind: 'sign', statusOf: (r) => r.status });
   }
 
   if (attemptSignatureService) {

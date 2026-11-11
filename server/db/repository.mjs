@@ -1169,6 +1169,48 @@ export class ArcadeRepository {
       .map(mapPlayerPublication);
   }
 
+  // ---- Fase 8: game-manifesten ----------------------------------------------
+
+  /** Nieuw of vervangen tekenverzoek voor het manifest van een game-versie (nooit over een getekend manifest). */
+  saveGameManifestRequest({ slug, gameVersion, developer, manifest, message, requestIdHex = null, requestHex = null, walletUri = null, expiresHeight = null, now }) {
+    return inImmediateTransaction(this.database, () => {
+      const existing = this.getGameManifest(slug, gameVersion);
+      if (existing?.status === 'signed') {
+        throw new RepositoryConflictError('GAME_MANIFEST_SIGNED', 'This game version already has a signed manifest');
+      }
+      this.database.prepare(`
+        INSERT INTO game_manifests (slug, game_version, developer, status, manifest_json, message, request_id_hex, request_hex, wallet_uri, expires_height, signed_json, created_at_ms, updated_at_ms)
+        VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+        ON CONFLICT (slug, game_version) DO UPDATE SET
+          developer = excluded.developer, status = 'pending', manifest_json = excluded.manifest_json, message = excluded.message,
+          request_id_hex = excluded.request_id_hex, request_hex = excluded.request_hex, wallet_uri = excluded.wallet_uri,
+          expires_height = excluded.expires_height, signed_json = NULL, updated_at_ms = excluded.updated_at_ms
+      `).run(slug, gameVersion, developer, JSON.stringify(manifest), message, requestIdHex, requestHex, walletUri, expiresHeight, now, now);
+      return this.getGameManifest(slug, gameVersion);
+    });
+  }
+
+  markGameManifestSigned({ slug, gameVersion, signed, now }) {
+    this.database.prepare(`
+      UPDATE game_manifests SET status = 'signed', signed_json = ?, updated_at_ms = ? WHERE slug = ? AND game_version = ?
+    `).run(JSON.stringify(signed), now, slug, gameVersion);
+    return this.getGameManifest(slug, gameVersion);
+  }
+
+  getGameManifest(slug, gameVersion) {
+    const row = this.database.prepare('SELECT * FROM game_manifests WHERE slug = ? AND game_version = ?').get(slug, gameVersion);
+    return row ? mapGameManifest(row) : null;
+  }
+
+  getGameManifestByRequest(requestIdHex) {
+    const row = this.database.prepare('SELECT * FROM game_manifests WHERE request_id_hex = ?').get(requestIdHex);
+    return row ? mapGameManifest(row) : null;
+  }
+
+  listGameManifests() {
+    return this.database.prepare('SELECT * FROM game_manifests ORDER BY slug, game_version').all().map(mapGameManifest);
+  }
+
   // ---- Fase 2b: attestaties ------------------------------------------------
 
   getAttestation({ playerIAddress, roundRecordId }) {
@@ -1307,3 +1349,20 @@ function mapAttemptSignature(row) {
   };
 }
 
+function mapGameManifest(row) {
+  return {
+    slug: row.slug,
+    gameVersion: row.game_version,
+    developer: row.developer,
+    status: row.status,
+    manifest: JSON.parse(row.manifest_json),
+    message: row.message,
+    requestIdHex: row.request_id_hex ?? null,
+    requestHex: row.request_hex ?? null,
+    walletUri: row.wallet_uri ?? null,
+    expiresHeight: row.expires_height === null ? null : Number(row.expires_height),
+    signed: row.signed_json ? JSON.parse(row.signed_json) : null,
+    createdAt: Number(row.created_at_ms),
+    updatedAt: Number(row.updated_at_ms),
+  };
+}

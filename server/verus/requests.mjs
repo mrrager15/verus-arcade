@@ -458,6 +458,29 @@ export class VerusRequests {
     return { valid: true, identityId: sd.identityid, signatureHeight: height };
   }
 
+  /**
+   * Fase 8: zoals verifyMmrRootSignature, maar voor elke handtekening over een
+   * hash in `signdata`-vorm, ook die uit Verus Mobile: de versie van de
+   * handtekening komt uit de handtekening zelf (getSignatureInfo).
+   * @returns {Promise<{ valid: true, identityId: string, signatureHeight: number }>}
+   */
+  async verifyHashSignature({ signaturedata, signatureheight }) {
+    const sd = signaturedata ?? {};
+    check(/^[0-9a-f]{64}$/.test(sd.signaturehash ?? '') && Number(sd.hashtype) === 5 && Number(sd.signaturetype) === 1, 'Unsupported signature.');
+    if (sd.systemid !== TESTNET_SYSTEM_ID) throw new VerusRequestError('UNSUPPORTED_NETWORK', 'Only VRSCTEST signatures are supported.');
+    try { rawId(sd.identityid); } catch { check(false, 'Invalid signer.'); }
+    const signature = String(sd.signature ?? '');
+    const bytes = Buffer.from(signature, 'base64');
+    const height = nativeHeight(bytes);
+    check(height === Number(signatureheight), 'Signature height mismatch.');
+    const state = await this.loadIdentity({ identityId: sd.identityid, signingHeight: height });
+    check(!state.revokedAtSigning, 'The signing identity was revoked at signing height.');
+    const info = await this.client.getSignatureInfo(sd.identityid, bytes.toString('base64'), TESTNET_SYSTEM_ID);
+    const digest = P.SignatureData.fromJson({ ...sd, signature: '' }).getIdentityHash({ version: info.version, hash_type: info.hashtype, height });
+    check(await this.client.verifyHash(sd.identityid, bytes.toString('base64'), digest, state.historical, TESTNET_SYSTEM_ID), 'Invalid signature.');
+    return { valid: true, identityId: sd.identityid, signatureHeight: height };
+  }
+
   /** Blocktijd van een hoogte; nodig om GenericRequest/Response te verifiëren. */
   async blockTime(height) {
     const block = await this.chain(() => this.client.interface.getBlock(String(height)));

@@ -6,6 +6,7 @@ import { AttemptSignatureService } from './attempt-signature-service.mjs';
 import { DailyService } from './daily-service.mjs';
 import { PlayerPublicationService } from './player-publication-service.mjs';
 import { AttestationService } from './attestation-service.mjs';
+import { GameManifestService } from './game-manifest-service.mjs';
 import { migrate } from './db/migrate.mjs';
 import { ArcadeRepository } from './db/repository.mjs';
 import { createVerusRequestsFromEnv } from './verus/requests.mjs';
@@ -62,6 +63,9 @@ export function createRuntimeServices({
   const attestationService = playerPublicationService
     ? new AttestationService({ repository, verusRequests: playerPublicationService.verus })
     : null;
+  // Fase 8: manifesten van games (zelfde wallet-laag).
+  const manifestOptions = runtime ? walletRequestOptions({ repository, runtime, env }) : null;
+  const gameManifestService = manifestOptions ? new GameManifestService(manifestOptions) : null;
   return {
     database,
     repository,
@@ -69,6 +73,7 @@ export function createRuntimeServices({
     attemptSignatureService,
     playerPublicationService,
     attestationService,
+    gameManifestService,
     close() {
       database.close();
     },

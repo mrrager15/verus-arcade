@@ -296,6 +296,11 @@ the ACK, runs the cycle with `--max-wait 900`, and runs it once more on exit
 code 3. A daily trigger at 01:10 local time with a one-hour repetition for three
 hours covers both winter time (close at 01:00) and summer time (close at 02:00).
 
+## 8. Game manifests (phase 8)
+
+See [`SDK.md`](./SDK.md#4-the-manifest). Publishing a manifest is one identity update on the
+operator ID; never run it while the nightly cycle is busy (the cycle holds `server/data/daily-cycle.lock`).
+
 ## Recovery
 
 - Preparation is journaled and can be inspected before submission.

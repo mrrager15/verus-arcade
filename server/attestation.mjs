@@ -17,7 +17,9 @@
  */
 import crypto from 'node:crypto';
 
-import { buildSaltedMmrDescriptor, verifyMmrDisclosure } from '../shared/verus-mmr.mjs';
+import {
+  buildSaltedMmrDescriptor, bytesToHex, decodeMmrHashes, encodeMmrHashes, HASH_SHA256, mmrRoot, verifyMmrDisclosure,
+} from '../shared/verus-mmr.mjs';
 
 export const ATTESTATION_SCHEMA = 'arcade-attestation';
 export const ATTESTATION_VERSION = 1;
@@ -170,4 +172,54 @@ export function readAttestationDisclosure(descriptor) {
   for (const key of ['streak', 'rounds', 'solved']) if (key in fields && !/^(0|[1-9]\d*)$/.test(fields[key])) fail(`Invalid ${key}`);
   if ('prev' in fields && fields.prev !== NO_PREVIOUS && !HEX32.test(fields.prev)) fail('Invalid prev');
   return { root: checked.root, fields };
+}
+
+/**
+ * Compacte publieke vorm voor de ID van de speler (Verus Mobile aanvaardt
+ * deeplinks tot 2045 tekens). Alleen wat niet af te leiden is: ronde, de zes
+ * gezouten blad-hashes, de handtekening en de tekenhoogte. Afleidbaar en dus
+ * weggelaten: de wortel (uit de bladeren), de ondertekenaar (de eigenaar van
+ * de namespace, Arcade@), het netwerk (VRSCTEST) en de vaste hashtypes.
+ */
+export function compactSealedRecord({ roundId, descriptor, signaturedata, signatureHeight }) {
+  parseDailyRoundId(roundId);
+  const sd = signaturedata ?? {};
+  if (Number(sd.version) !== 1 || Number(sd.hashtype) !== HASH_SHA256 || Number(sd.signaturetype) !== 1 || sd.signaturehash !== descriptor.mmrroot.objectdata) {
+    fail('Unexpected signature shape');
+  }
+  const leaves = decodeMmrHashes(descriptor.mmrhashes.objectdata);
+  if (leaves.length !== ATTESTATION_FIELDS.length) fail('Not an Arcade attestation (field count)');
+  if (!Number.isSafeInteger(signatureHeight) || signatureHeight < 1) fail('Invalid signature height');
+  return {
+    schema: ATTESTATION_SCHEMA,
+    version: ATTESTATION_VERSION,
+    round: roundId,
+    leaves: Buffer.concat(leaves).toString('base64'),
+    signature: sd.signature,
+    height: signatureHeight,
+  };
+}
+
+/**
+ * Omgekeerde: bouwt uit het compacte record de verzegelde `mmrdescriptor` en de
+ * `signaturedata` zoals `signdata` ze geeft, klaar voor `verifysignature` of de SDK.
+ * @param {{ serviceId: string, systemId: string }} context ondertekenaar en netwerk
+ */
+export function expandSealedRecord(record, { serviceId, systemId }) {
+  if (record?.schema !== ATTESTATION_SCHEMA || record.version !== ATTESTATION_VERSION) fail('Not an Arcade attestation record');
+  parseDailyRoundId(record.round);
+  if (typeof record.leaves !== 'string' || typeof record.signature !== 'string' || !Number.isSafeInteger(record.height)) fail('Incomplete attestation record');
+  const raw = Buffer.from(record.leaves, 'base64');
+  if (raw.toString('base64') !== record.leaves || raw.length !== ATTESTATION_FIELDS.length * 32) fail('Invalid leaves');
+  const leaves = Array.from({ length: ATTESTATION_FIELDS.length }, (_, i) => new Uint8Array(raw.subarray(i * 32, (i + 1) * 32)));
+  const root = bytesToHex(mmrRoot(leaves, (l, r) => sha256(Buffer.concat([l, r]))));
+  return {
+    mmrdescriptor: {
+      version: 1, objecthashtype: HASH_SHA256, mmrhashtype: HASH_SHA256,
+      mmrroot: { version: 1, flags: 0, objectdata: root },
+      mmrhashes: { version: 1, flags: 0, objectdata: encodeMmrHashes(leaves) },
+    },
+    signaturedata: { version: 1, systemid: systemId, hashtype: HASH_SHA256, signaturehash: root, identityid: serviceId, signaturetype: 1, signature: record.signature },
+    signatureheight: record.height,
+  };
 }

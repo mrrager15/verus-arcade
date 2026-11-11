@@ -11,7 +11,7 @@
  * hetzelfde spel. Attestaties moeten daarom in rondevolgorde gemaakt worden;
  * een overgeslagen eerdere ronde geeft ATTESTATION_GAP.
  */
-import { ATTESTATION_VERSION, buildAttestation, computeDailyStats } from './attestation.mjs';
+import { ATTESTATION_VERSION, buildAttestation, compactSealedRecord, computeDailyStats } from './attestation.mjs';
 
 export class AttestationServiceError extends Error {
   constructor(code, message) {
@@ -85,18 +85,8 @@ export async function createRoundAttestations({ repository, signer, roundRecordI
   return { round: round.id, created, skipped };
 }
 
-/** Wat in de ID van de speler mag (publiek): geen waarden, geen zouten. */
+/** Wat in de ID van de speler mag (publiek, compact): geen waarden, geen zouten. */
 export function sealedAttestationRecord(attestation, round) {
   if (round?.id !== attestation.roundRecordId) throw new AttestationServiceError('ROUND_MISMATCH', 'Attestation belongs to another round');
-  const { datadescriptors: _private, ...sealed } = attestation.descriptor;
-  return {
-    schema: 'arcade-attestation',
-    version: attestation.schemaVersion,
-    player: attestation.playerIAddress,
-    round: round.round_id,
-    chain: attestation.chainId,
-    mmr: sealed,
-    signature: attestation.signaturedata,
-    signatureHeight: attestation.signatureHeight,
-  };
+  return compactSealedRecord({ roundId: round.round_id, descriptor: attestation.descriptor, signaturedata: attestation.signaturedata, signatureHeight: attestation.signatureHeight });
 }

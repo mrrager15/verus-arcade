@@ -30,6 +30,20 @@ export const GENERIC_RESPONSE_QUERY_KEY = P.GENERIC_RESPONSE_DEEPLINK_VDXF_KEY.v
 const ID_ADDRESS_VERSION = 102; // i-adres
 const R_ADDRESS_VERSION = 60; // R-adres (primair adres)
 const MAX_CALLBACK_BYTES = 65_536;
+/**
+ * Verus Mobile weigert langere deeplinks: `urlstring.length >= MAX_DEEPLINK_STRING_LENGTH`
+ * met MAX_DEEPLINK_STRING_LENGTH = 2046 (src/utils/constants/deeplink.js, master 25515ff,
+ * okt 2026) → "Deeplink URL max length exceeded." Live gezien op 11 nov met 2137 tekens.
+ */
+export const MOBILE_MAX_DEEPLINK_LENGTH = 2045;
+
+/** Weigert een verzoek dat Verus Mobile niet zou inlezen. */
+function walletUriWithinLimit(uri) {
+  if (uri.length > MOBILE_MAX_DEEPLINK_LENGTH) {
+    throw new VerusRequestError('WALLET_REQUEST_TOO_LARGE', `The wallet request is ${uri.length} characters; Verus Mobile accepts at most ${MOBILE_MAX_DEEPLINK_LENGTH}.`);
+  }
+  return uri;
+}
 
 /** @typedef {'INVALID_SIGNATURE'|'SIGNER_MISMATCH'|'UNSUPPORTED_NETWORK'|'CHAIN_UNAVAILABLE'|'SERVICE_UNAVAILABLE'} VerusRequestErrorCode */
 
@@ -481,7 +495,7 @@ export class VerusRequests {
     return {
       requestHex: signed.toBuffer().toString('hex'),
       requestHashHex: signed.getRawDataSha256().toString('hex'),
-      walletUri: signed.toWalletDeeplinkUri(),
+      walletUri: walletUriWithinLimit(signed.toWalletDeeplinkUri()),
       height,
     };
   }
@@ -554,7 +568,7 @@ export class VerusRequests {
     return {
       requestHex,
       requestHashHex: signed.getRawDataSha256().toString('hex'),
-      walletUri: signed.toWalletDeeplinkUri(),
+      walletUri: walletUriWithinLimit(signed.toWalletDeeplinkUri()),
       height,
       expiryHeight,
     };

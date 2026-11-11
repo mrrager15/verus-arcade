@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { discloseAttestation, readAttestationDisclosure } from './attestation.mjs';
+import { discloseAttestation, expandSealedRecord, readAttestationDisclosure } from './attestation.mjs';
 import { createRoundAttestations, sealedAttestationRecord } from './attestation-service.mjs';
 import { DailyService } from './daily-service.mjs';
 import { migrate } from './db/migrate.mjs';
@@ -105,12 +105,24 @@ test('attestaties: keten over rondes, gemiste ronde breekt de streak, volgorde v
   const stored = repository.getAttestation({ playerIAddress: A, roundRecordId: 'round-1' });
   const shown = readAttestationDisclosure(discloseAttestation(stored, ['streak', 'prev']));
   assert.deepEqual(shown.fields, { player: A, round: roundId(1), streak: '2', prev: r0.root });
-  // verzegeld: geen waarden of zouten, wel speler, ronde en handtekening
+  // verzegeld en compact: geen waarden of zouten; uitgepakt = wortel en handtekening van de attestatie
   const sealed = sealedAttestationRecord(stored, repository.getRound('round-1'));
+  assert.deepEqual(Object.keys(sealed), ['schema', 'version', 'round', 'leaves', 'signature', 'height']);
   assert.equal(sealed.round, roundId(1));
-  assert.equal(sealed.mmr.mmrroot.objectdata, stored.root);
-  assert.doesNotMatch(JSON.stringify(sealed), /"salt"|datadescriptors/);
-  assert.ok(Buffer.byteLength(JSON.stringify(sealed)) < 2048);
+  assert.doesNotMatch(JSON.stringify(sealed), /salt|streak/);
+  assert.ok(Buffer.byteLength(JSON.stringify(sealed)) < 600);
+  const expanded = expandSealedRecord(sealed, { serviceId: SERVICE, systemId: 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq' });
+  assert.equal(expanded.mmrdescriptor.mmrroot.objectdata, stored.root);
+  assert.deepEqual(expanded.mmrdescriptor.mmrhashes, stored.descriptor.mmrhashes);
+  assert.deepEqual(expanded.signaturedata, stored.signaturedata);
+  assert.equal(expanded.signatureheight, stored.signatureHeight);
+  // openbaarmaking = uitgepakte publieke vorm + de getoonde velden uit de privé-descriptor
+  const fromChain = { ...expanded.mmrdescriptor, datadescriptors: discloseAttestation(stored, ['streak']).datadescriptors };
+  assert.deepEqual(readAttestationDisclosure(fromChain).fields, { player: A, round: roundId(1), streak: '2' });
+  // knoeien met de bladeren breekt de wortel
+  const tampered = { ...sealed, leaves: Buffer.from(Buffer.from(sealed.leaves, 'base64').map((b, i) => (i === 70 ? b ^ 1 : b))).toString('base64') };
+  assert.notEqual(expandSealedRecord(tampered, { serviceId: SERVICE, systemId: 'x' }).mmrdescriptor.mmrroot.objectdata, stored.root);
+  assert.throws(() => expandSealedRecord({ ...sealed, leaves: sealed.leaves.slice(4) }, { serviceId: SERVICE, systemId: 'x' }), /Invalid leaves/);
   database.close();
 });
 

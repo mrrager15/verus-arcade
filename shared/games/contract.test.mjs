@@ -116,3 +116,9 @@ for (const { slug, version, rules } of registeredGames()) {
     }
   });
 }
+
+test('elke geregistreerde game heeft een puzzelgenerator op de server', async () => {
+  const { gameGenerator, dailyGames } = await import('../../server/games/generators.mjs');
+  for (const { slug, version } of registeredGames()) assert.equal(typeof gameGenerator(slug, version).createPuzzle, 'function');
+  assert.deepEqual(dailyGames().map((g) => g.gameId), registeredGames().map((g) => g.slug).filter((s, i, a) => a.indexOf(s) === i).sort());
+});

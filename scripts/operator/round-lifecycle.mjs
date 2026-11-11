@@ -5,7 +5,7 @@
  *   node scripts/operator/round-lifecycle.mjs inspect <ronde-id>
  *
  *   Nieuwe ronde (ronde-rotatie), drie gescheiden stappen:
- *   node scripts/operator/round-lifecycle.mjs round-create [--date JJJJ-MM-DD] [--opens-at ISO] [--closes-at ISO]
+ *   node scripts/operator/round-lifecycle.mjs round-create [--game <slug>] [--date JJJJ-MM-DD] [--opens-at ISO] [--closes-at ISO]
  *   node scripts/operator/round-lifecycle.mjs round-submit <ronde-id>
  *   node scripts/operator/round-lifecycle.mjs round-open   <ronde-id>
  *
@@ -26,10 +26,12 @@
  */
 import {
   createDailyHiddenDefinition,
+  dailyRoundRecordId,
   dailyRoundSchedule,
   parseRoundCreateOptions,
   testRoundSchedule,
 } from '../../server/daily-round-schedule.mjs';
+import { DEFAULT_GAME } from '../../server/games/generators.mjs';
 import { applyTestRoundEnvironment, assertRoundMatchesMode, REAL_OPERATOR } from '../../server/test-rounds.mjs';
 import { ResultCoordinator } from '../../server/result-coordinator.mjs';
 import { RevealCoordinator } from '../../server/reveal-coordinator.mjs';
@@ -72,7 +74,7 @@ function usage() {
   return [
     'Gebruik:',
     '  node scripts/operator/round-lifecycle.mjs list',
-    '  node scripts/operator/round-lifecycle.mjs round-create [--date JJJJ-MM-DD] [--opens-at ISO] [--closes-at ISO]',
+    '  node scripts/operator/round-lifecycle.mjs round-create [--game <slug>] [--date JJJJ-MM-DD] [--opens-at ISO] [--closes-at ISO]',
     '  ARCADE_TEST_ROUNDS=1 node scripts/operator/round-lifecycle.mjs round-create --test-minutes <3-180>',
     `  node scripts/operator/round-lifecycle.mjs ${supported.filter((a) => !withoutRoundId.includes(a)).join('|')} <ronde-id>`,
   ].join('\n');
@@ -140,13 +142,16 @@ try {
     if (('testMinutes' in options) !== mode.testMode) {
       throw new Error(mode.testMode ? 'Met ARCADE_TEST_ROUNDS=1 alleen round-create --test-minutes <n>' : '--test-minutes vereist ARCADE_TEST_ROUNDS=1');
     }
-    const schedule = mode.testMode ? testRoundSchedule({ minutes: options.testMinutes }) : dailyRoundSchedule(options);
+    const game = options.game ?? DEFAULT_GAME;
+    const schedule = mode.testMode
+      ? testRoundSchedule({ minutes: options.testMinutes, game })
+      : dailyRoundSchedule({ date: options.date, opensAt: options.opensAt, closesAt: options.closesAt });
     const coordinator = new RoundCoordinator({
       repository,
       gateway,
       commitmentVdxfKey: COMMITMENT_VDXF_KEY,
     });
-    const recordId = schedule.recordId ?? `word-grid:1.0.0:${schedule.date}`;
+    const recordId = schedule.recordId ?? dailyRoundRecordId(schedule.date, game);
     const existing = repository.getRound(recordId);
     let outcome;
     if (existing) {
@@ -166,7 +171,7 @@ try {
             : 'Ronde bestond al; niets veranderd. Ga verder met round-submit of round-open.',
       };
     } else {
-      const hiddenDefinition = createDailyHiddenDefinition({ schedule });
+      const hiddenDefinition = createDailyHiddenDefinition({ schedule: { ...schedule, recordId }, game });
       const prepared = await coordinator.prepare({ hiddenDefinition });
       outcome = { created: true, commitment: prepared.commitment };
     }

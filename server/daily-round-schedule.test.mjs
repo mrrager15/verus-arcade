@@ -97,3 +97,31 @@ test('CLI-opties: bekend, met waarde, niet dubbel', () => {
   assert.throws(() => parseRoundCreateOptions(['--date', '--closes-at', 'x']), /vereist een waarde/);
   assert.throws(() => parseRoundCreateOptions(['--date', 'a', '--date', 'b']), /dubbel/);
 });
+
+test('fase 8: definitie schema 2 voor Number Target, met --game', async () => {
+  const { parseGameOption } = await import('./games/generators.mjs');
+  const game = parseGameOption('number-target');
+  assert.deepEqual(game, { gameId: 'number-target', gameVersion: '1.0.0' });
+  assert.deepEqual(parseRoundCreateOptions(['--game', 'number-target@1.0.0', '--date', '2026-11-13']), { game, date: '2026-11-13' });
+  assert.throws(() => parseRoundCreateOptions(['--game', 'chess']), /Onbekende game/);
+  const schedule = dailyRoundSchedule({ now: NOW });
+  const definition = createDailyHiddenDefinition({ schedule, game });
+  assert.equal(definition.schemaVersion, 2);
+  assert.equal(definition.roundId, 'number-target:1.0.0:2026-11-08');
+  assert.deepEqual(Object.keys(definition.puzzle).sort(), ['numbers', 'solution', 'target']);
+  assert.doesNotThrow(() => validateHiddenDefinition(definition));
+  const { definitionPuzzle } = await import('./round-proof.mjs');
+  assert.deepEqual(definitionPuzzle(definition), definition.puzzle);
+  // Word Grid: voorlopig nog schema 1; schema 2 kan wel expliciet.
+  const legacy = createDailyHiddenDefinition({ schedule });
+  assert.equal(legacy.schemaVersion, 1);
+  assert.deepEqual(definitionPuzzle(legacy), { answer: legacy.answer });
+  const v2 = createDailyHiddenDefinition({ schedule, schemaVersion: 2 });
+  assert.deepEqual(Object.keys(v2.puzzle), ['answer']);
+  assert.doesNotThrow(() => validateHiddenDefinition(v2));
+  assert.throws(() => createDailyHiddenDefinition({ schedule, game, schemaVersion: 1 }), /alleen voor Word Grid/);
+  // Een kapotte puzzel of een ronde-ID van een andere game wordt geweigerd.
+  assert.throws(() => validateHiddenDefinition({ ...definition, puzzle: { ...definition.puzzle, target: 5 } }), /invalid puzzle/);
+  assert.throws(() => validateHiddenDefinition({ ...definition, roundId: 'word-grid:1.0.0:2026-11-08' }), /schema version 2/);
+  assert.throws(() => validateHiddenDefinition({ ...definition, gameId: 'chess', roundId: 'chess:1.0.0:2026-11-08' }), /not registered/);
+});

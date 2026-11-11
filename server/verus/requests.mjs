@@ -436,6 +436,28 @@ export class VerusRequests {
     return { signaturedata: { ...signaturedata, signature }, signatureheight: height };
   }
 
+  /**
+   * Fase 2b: controleert een handtekening over een MMR-wortel (zoals `signdata`
+   * of `signMmrRoot` ze geeft) tegen de sleutels van de ondertekenaar op
+   * tekenhoogte, via de SDK. De hoogte in de handtekening moet gelijk zijn aan
+   * `signatureheight`, en de ondertekenaar mag toen niet ingetrokken zijn.
+   * @returns {Promise<{ valid: true, identityId: string, signatureHeight: number }>}
+   */
+  async verifyMmrRootSignature({ signaturedata, signatureheight }) {
+    const sd = signaturedata ?? {};
+    check(/^[0-9a-f]{64}$/.test(sd.signaturehash ?? '') && Number(sd.hashtype) === 5 && Number(sd.signaturetype) === 1, 'Unsupported MMR signature.');
+    if (sd.systemid !== TESTNET_SYSTEM_ID) throw new VerusRequestError('UNSUPPORTED_NETWORK', 'Only VRSCTEST signatures are supported.');
+    try { rawId(sd.identityid); } catch { check(false, 'Invalid signer.'); }
+    const bytes = Buffer.from(String(sd.signature ?? ''), 'base64');
+    const height = nativeHeight(bytes);
+    check(height === Number(signatureheight), 'Signature height mismatch.');
+    const state = await this.loadIdentity({ identityId: sd.identityid, signingHeight: height });
+    check(!state.revokedAtSigning, 'The signing identity was revoked at signing height.');
+    const digest = P.SignatureData.fromJson({ ...sd, signature: '' }).getIdentityHash({ version: 2, hash_type: 5, height });
+    check(await this.client.verifyHash(sd.identityid, bytes.toString('base64'), digest, state.historical, TESTNET_SYSTEM_ID), 'Invalid signature.');
+    return { valid: true, identityId: sd.identityid, signatureHeight: height };
+  }
+
   /** Blocktijd van een hoogte; nodig om GenericRequest/Response te verifiëren. */
   async blockTime(height) {
     const block = await this.chain(() => this.client.interface.getBlock(String(height)));

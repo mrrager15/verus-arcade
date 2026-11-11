@@ -11,7 +11,17 @@
  * hetzelfde spel. Attestaties moeten daarom in rondevolgorde gemaakt worden;
  * een overgeslagen eerdere ronde geeft ATTESTATION_GAP.
  */
-import { ATTESTATION_VERSION, buildAttestation, compactSealedRecord, computeDailyStats } from './attestation.mjs';
+import crypto from 'node:crypto';
+
+import {
+  ATTESTATION_FIELDS, ATTESTATION_VERSION, AttestationError, buildAttestation, buildDisclosurePayload, compactSealedRecord,
+  computeDailyStats, decodeDisclosureLink, encodeDisclosureLink, readDisclosurePayload,
+} from './attestation.mjs';
+import { canonicalJson } from './canonical-json.mjs';
+import { DailyServiceError } from './daily-service.mjs';
+import { attestationKeyName, serviceContentKey } from './verus/player-result.mjs';
+import { locatePublishedRecord } from './verus/player-result-reader.mjs';
+import { TESTNET_SYSTEM_ID } from './verus/requests.mjs';
 
 export class AttestationServiceError extends Error {
   constructor(code, message) {
@@ -89,4 +99,98 @@ export async function createRoundAttestations({ repository, signer, roundRecordI
 export function sealedAttestationRecord(attestation, round) {
   if (round?.id !== attestation.roundRecordId) throw new AttestationServiceError('ROUND_MISMATCH', 'Attestation belongs to another round');
   return compactSealedRecord({ roundId: round.round_id, descriptor: attestation.descriptor, signaturedata: attestation.signaturedata, signatureHeight: attestation.signatureHeight });
+}
+
+const WORD_GRID = { chainId: 'vrsctest', gameId: 'word-grid', gameVersion: '1.0.0' };
+
+/**
+ * Fase 2b voor de webapp: eigen attestaties tonen, een deellink maken met
+ * alleen de gekozen velden, en een deellink controleren (publiek).
+ */
+export class AttestationService {
+  constructor({ repository, verusRequests }) {
+    this.repository = repository;
+    this.verus = verusRequests;
+  }
+
+  #own(principal) {
+    if (!principal?.iAddress) throw new DailyServiceError('NOT_AUTHENTICATED', 'Authentication required', 401);
+    return principal.iAddress;
+  }
+
+  /** Eigen attestaties, nieuwste eerst. Geen waarden van anderen, geen zouten. */
+  listOwn({ principal }) {
+    const player = this.#own(principal);
+    return {
+      fields: ATTESTATION_FIELDS,
+      attestations: this.repository.listPlayerAttestations({ ...WORD_GRID, playerIAddress: player }).reverse().map((a) => ({
+        roundRecordId: a.roundRecordId,
+        round: this.repository.getRound(a.roundRecordId)?.round_id ?? a.roundRecordId,
+        streak: a.streak, rounds: a.rounds, solved: a.solved,
+        root: a.root, prevRoot: a.prevRoot, signatureHeight: a.signatureHeight,
+      })),
+    };
+  }
+
+  /** Deellink voor één eigen attestatie met alleen `fields` (+ player en round). */
+  disclosure({ principal, roundRecordId, fields }) {
+    const player = this.#own(principal);
+    const attestation = this.repository.getAttestation({ playerIAddress: player, roundRecordId });
+    if (!attestation) throw new DailyServiceError('ATTESTATION_NOT_FOUND', 'No attestation for this round', 404);
+    const round = this.repository.getRound(roundRecordId);
+    try {
+      const record = sealedAttestationRecord(attestation, round);
+      const payload = buildDisclosurePayload({ record, descriptor: attestation.descriptor, fields });
+      return { round: round.round_id, fields: payload.fields.map(([name]) => name), link: encodeDisclosureLink(payload) };
+    } catch (error) {
+      if (error instanceof AttestationError) throw new DailyServiceError('INVALID_DISCLOSURE', error.message, 400);
+      throw error;
+    }
+  }
+
+  /**
+   * Controleert een deellink (publiek, zonder sessie):
+   *  1. vorm, velden en wortel (zonder chain);
+   *  2. handtekening van Arcade@ op de wortel, met de sleutels op tekenhoogte;
+   *  3. staat precies dit verzegelde record in de ID van de speler? (informatief)
+   */
+  async verify({ link }) {
+    let read;
+    try {
+      read = readDisclosurePayload(decodeDisclosureLink(link), { serviceId: this.verus.serviceId, systemId: TESTNET_SYSTEM_ID });
+    } catch (error) {
+      if (error instanceof AttestationError) throw new DailyServiceError('INVALID_DISCLOSURE', error.message, 400);
+      throw error;
+    }
+    const { player, round, ...shown } = read.fields;
+    let signature;
+    try {
+      signature = { ok: true, ...(await this.verus.verifyMmrRootSignature({ signaturedata: read.signaturedata, signatureheight: read.signatureheight })) };
+    } catch (error) {
+      signature = { ok: false, error: error.code ?? 'INVALID_SIGNATURE', message: error.message };
+    }
+    let inPlayerIdentity;
+    try {
+      const { state } = await this.verus.serviceState();
+      const { keyId } = serviceContentKey({ name: attestationKeyName(round), serviceId: this.verus.serviceId, serviceFqn: state.current?.fullyqualifiedname });
+      const { content, history } = await this.verus.readIdentityContent({ identityId: player, keyId });
+      const recordSha256 = crypto.createHash('sha256').update(canonicalJson(read.record), 'utf8').digest('hex');
+      const decrypt = (descriptor, txid) => this.verus.decryptDataDescriptor({ descriptor, txid }).catch(() => null);
+      const located = await locatePublishedRecord({ content, history, keyId, recordSha256, decrypt });
+      inPlayerIdentity = { checked: true, found: located.found, txid: located.txid ?? null, height: located.height ?? null };
+    } catch (error) {
+      inPlayerIdentity = { checked: false, error: error.code ?? error.name };
+    }
+    return {
+      valid: signature.ok,
+      player,
+      round,
+      fields: shown,
+      root: read.root,
+      signer: read.signaturedata.identityid,
+      signatureHeight: read.signatureheight,
+      signature,
+      inPlayerIdentity,
+    };
+  }
 }

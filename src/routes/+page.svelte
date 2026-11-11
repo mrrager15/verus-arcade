@@ -203,6 +203,7 @@
 				</div>
 				<button class="login" onclick={() => (activeMode = 'daily')}>Open Daily Seed</button>
 				<a class="text-button" href={`/profile/${encodeURIComponent(user.iAddress)}`}>My on-chain profile</a>
+				<a class="text-button" href="/attestations">My attestations</a>
 				<button class="text-button" onclick={logout}>Log out</button>
 			{:else}
 				<p class="error">{error}</p>

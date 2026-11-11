@@ -16,6 +16,7 @@ export function createDailyRouter({
   resolveSession,
   attemptSignatureService = null,
   playerPublicationService = null,
+  attestationService = null,
   walletReturnPath = '/',
 }) {
   const router = express.Router();
@@ -89,6 +90,18 @@ export function createDailyRouter({
       try {
         response.set('Cache-Control', 'public, max-age=30');
         response.json(await playerPublicationService.profile({ playerId: request.params.iAddress }));
+      } catch (error) {
+        next(error);
+      }
+    });
+  }
+
+  if (attestationService) {
+    // Fase 2b, publiek: een deellink controleren (de link zit in de body, niet in de URL-log).
+    router.post('/attestations/verify', async (request, response, next) => {
+      try {
+        response.set('Cache-Control', 'no-store');
+        response.json(await attestationService.verify({ link: request.body?.link }));
       } catch (error) {
         next(error);
       }
@@ -241,6 +254,28 @@ export function createDailyRouter({
             attemptId: request.params.attemptId,
           }),
         );
+      } catch (error) {
+        next(error);
+      }
+    });
+  }
+
+  if (attestationService) {
+    // Fase 2b: eigen attestaties en deellinks (alleen de speler zelf).
+    router.get('/attestations', (request, response, next) => {
+      try {
+        response.set('Cache-Control', 'no-store');
+        response.json(attestationService.listOwn({ principal: request.principal }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    router.get('/attestations/:roundId/disclosure', (request, response, next) => {
+      try {
+        const fields = String(request.query.fields ?? '').split(',').filter(Boolean);
+        response.set('Cache-Control', 'no-store');
+        response.json(attestationService.disclosure({ principal: request.principal, roundRecordId: request.params.roundId, fields }));
       } catch (error) {
         next(error);
       }

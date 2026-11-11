@@ -16,6 +16,7 @@ const app = makeArcadeApp({
   dailyService: services.dailyService,
   attemptSignatureService: services.attemptSignatureService,
   playerPublicationService: services.playerPublicationService,
+  attestationService: services.attestationService,
 });
 console.log(
   services.attemptSignatureService

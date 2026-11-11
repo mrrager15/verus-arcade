@@ -224,3 +224,65 @@ export function expandSealedRecord(record, { serviceId, systemId }) {
     signatureheight: record.height,
   };
 }
+
+// ---- Deellink (selective disclosure voor een derde) --------------------------
+
+export const DISCLOSURE_VERSION = 1;
+const MAX_LINK_LENGTH = 3000;
+
+function fieldValue(datadescriptor, name) {
+  const text = Buffer.from(datadescriptor.objectdata, 'hex').toString('utf8');
+  if (!text.startsWith(`${name}:`)) fail('Stored field out of order');
+  return text.slice(name.length + 1);
+}
+
+/**
+ * Inhoud van een deellink: het compacte verzegelde record (zoals in de ID van
+ * de speler) en alleen de gekozen velden als [naam, waarde, zout (base64)].
+ * `player` en `round` gaan altijd mee.
+ */
+export function buildDisclosurePayload({ record, descriptor, fields }) {
+  const wanted = new Set([...ALWAYS_DISCLOSED, ...fields]);
+  for (const name of wanted) if (!ATTESTATION_FIELDS.includes(name)) fail(`Unknown field: ${name}`);
+  return {
+    v: DISCLOSURE_VERSION,
+    record,
+    fields: ATTESTATION_FIELDS.flatMap((name, i) => (wanted.has(name)
+      ? [[name, fieldValue(descriptor.datadescriptors[i], name), Buffer.from(descriptor.datadescriptors[i].salt, 'hex').toString('base64')]]
+      : [])),
+  };
+}
+
+export function encodeDisclosureLink(payload) {
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+}
+
+export function decodeDisclosureLink(text) {
+  if (typeof text !== 'string' || text.length === 0 || text.length > MAX_LINK_LENGTH || !/^[A-Za-z0-9_-]+$/.test(text)) fail('Invalid disclosure link');
+  try {
+    return JSON.parse(Buffer.from(text, 'base64url').toString('utf8'));
+  } catch {
+    return fail('Invalid disclosure link');
+  }
+}
+
+/**
+ * Leest een deellink-inhoud en controleert alles wat zonder chain kan: vorm,
+ * velden op hun plaats, zouten, en dat de wortel uit de bladeren volgt.
+ * De handtekening en de aanwezigheid in de ID van de speler controleert de
+ * aanroeper (daarvoor is de chain nodig).
+ */
+export function readDisclosurePayload(payload, { serviceId, systemId }) {
+  if (payload?.v !== DISCLOSURE_VERSION || !Array.isArray(payload.fields) || payload.fields.length > ATTESTATION_FIELDS.length) fail('Unsupported disclosure');
+  const expanded = expandSealedRecord(payload.record, { serviceId, systemId });
+  const datadescriptors = payload.fields.map((entry) => {
+    if (!Array.isArray(entry) || entry.length !== 3 || entry.some((x) => typeof x !== 'string')) fail('Invalid disclosed field');
+    const [name, value, saltBase64] = entry;
+    const salt = Buffer.from(saltBase64, 'base64');
+    if (salt.length !== 32 || salt.toString('base64') !== saltBase64) fail('Invalid salt');
+    return { version: 1, flags: 2, objectdata: Buffer.from(`${name}:${value}`, 'utf8').toString('hex'), salt: salt.toString('hex') };
+  });
+  const { root, fields } = readAttestationDisclosure({ ...expanded.mmrdescriptor, datadescriptors });
+  if (fields.round !== payload.record.round) fail('Round does not match the sealed record');
+  return { root, fields, record: payload.record, signaturedata: expanded.signaturedata, signatureheight: expanded.signatureheight };
+}

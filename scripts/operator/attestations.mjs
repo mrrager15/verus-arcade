@@ -12,6 +12,8 @@
  *                                           in de ID van de speler te zetten (ACK CREATE_VRSCTEST_ATTESTATION_PUBLISH)
  *   publish-accept <callback-url>         → wallet-antwoord verwerken (ACK ACCEPT_VRSCTEST_ATTESTATION_PUBLISH)
  *   publish-check                         → op de chain nakijken (alleen lezen)
+ *   share <ronde> <speler> <veld,...>     → deellink (zoals de webapp hem maakt) voor /verify/attestation#<link>
+ *   verify <link>                         → deellink controleren zoals de verificatiepagina (alleen lezen)
  *
  * Toestand van de publicatie in server/data/attestation-publish.json (git negeert server/data).
  * Laadt `.env` zelf (service-ID en WIF blijven in dit proces). Alleen VRSCTEST.
@@ -25,7 +27,7 @@ try { if (fs.existsSync('.env')) process.loadEnvFile('.env'); } catch { /* omgev
 (await import('../../server/test-rounds.mjs')).applyTestRoundEnvironment();
 const { loadConfig } = await import('../../server/config.mjs');
 const { createRuntimeServices } = await import('../../server/runtime-services.mjs');
-const { createRoundAttestations, sealedAttestationRecord } = await import('../../server/attestation-service.mjs');
+const { AttestationService, createRoundAttestations, sealedAttestationRecord } = await import('../../server/attestation-service.mjs');
 const { discloseAttestation, readAttestationDisclosure } = await import('../../server/attestation.mjs');
 const { attestationKeyName, serviceContentKey } = await import('../../server/verus/player-result.mjs');
 const { locatePublishedRecord } = await import('../../server/verus/player-result-reader.mjs');
@@ -43,7 +45,7 @@ const acks = {
   'publish-create': 'CREATE_VRSCTEST_ATTESTATION_PUBLISH',
   'publish-accept': 'ACCEPT_VRSCTEST_ATTESTATION_PUBLISH',
 };
-const arity = { list: 1, create: 1, disclose: 3, 'publish-create': 2, 'publish-accept': 1, 'publish-check': 0 };
+const arity = { list: 1, create: 1, disclose: 3, 'publish-create': 2, 'publish-accept': 1, 'publish-check': 0, share: 3, verify: 1 };
 if (!(action in arity) || rest.length !== arity[action]) throw new Error(usage);
 if (!Number.isSafeInteger(ttlBlocks) || ttlBlocks < 1 || ttlBlocks > 10_000) throw new Error('--ttl-blocks moet tussen 1 en 10000 liggen');
 if (acks[action] && process.env.VERUS_OPERATOR_ACK !== acks[action]) throw new Error(`Zet VERUS_OPERATOR_ACK=${acks[action]} voor ${action}`);
@@ -76,6 +78,11 @@ try {
     if (!attestation) throw new Error('Geen attestatie voor deze speler en ronde');
     const mmrdescriptor = discloseAttestation(attestation, fields.split(',').filter(Boolean));
     output = { operation: 'attestations-disclose', check: readAttestationDisclosure(mmrdescriptor).fields, disclosure: { mmrdescriptor, signaturedata: attestation.signaturedata, signatureheight: attestation.signatureHeight } };
+  } else if (action === 'share' || action === 'verify') {
+    const service = new AttestationService({ repository, verusRequests: needVerus() });
+    output = action === 'share'
+      ? { operation: 'attestations-share', ...service.disclosure({ principal: { iAddress: rest[1] }, roundRecordId: roundOf(rest[0]).id, fields: rest[2].split(',').filter(Boolean) }) }
+      : { operation: 'attestations-verify', ...(await service.verify({ link: rest[0] })) };
   } else if (action === 'publish-create') {
     const v = needVerus();
     const [roundId, playerId] = rest;

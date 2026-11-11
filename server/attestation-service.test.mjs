@@ -3,7 +3,9 @@ import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
 import { discloseAttestation, expandSealedRecord, readAttestationDisclosure } from './attestation.mjs';
-import { createRoundAttestations, sealedAttestationRecord } from './attestation-service.mjs';
+import { AttestationService, createRoundAttestations, sealedAttestationRecord } from './attestation-service.mjs';
+import { canonicalJson } from './canonical-json.mjs';
+import { P } from './verus/requests.mjs';
 import { DailyService } from './daily-service.mjs';
 import { migrate } from './db/migrate.mjs';
 import { ArcadeRepository } from './db/repository.mjs';
@@ -132,5 +134,71 @@ test('attestaties: een handtekening over iets anders wordt geweigerd en niets op
   const bad = { serviceId: SERVICE, async signMmrRoot() { return { signaturedata: { signaturehash: 'f'.repeat(64), identityid: SERVICE }, signatureheight: 1 }; } };
   await assert.rejects(createRoundAttestations({ repository, signer: bad, roundRecordId: 'round-0', now: T0 + DAY }), (e) => e.code === 'SIGNATURE_MISMATCH');
   assert.deepEqual(repository.listRoundAttestations('round-0'), []);
+  database.close();
+});
+
+function chainValueFor(json) {
+  const descriptor = new P.DataDescriptor({ version: new P.BigNumber(1), flags: new P.BigNumber(0), objectdata: Buffer.from(json, 'utf8') });
+  return new P.VdxfUniValue({ values: [{ [P.DataDescriptorKey.vdxfid]: descriptor }] }).toBuffer().toString('hex');
+}
+
+async function attestedSetup() {
+  const ctx = setup();
+  round(ctx.repository, 0); play(ctx.repository, 0, A); close(ctx.repository, 0);
+  await createRoundAttestations({ repository: ctx.repository, signer: ctx.signer, roundRecordId: 'round-0', now: T0 + DAY });
+  const chain = { values: [], signatureOk: true };
+  const verus = {
+    serviceId: SERVICE,
+    async verifyMmrRootSignature({ signaturedata, signatureheight }) {
+      if (!chain.signatureOk) throw Object.assign(new Error('Invalid signature.'), { code: 'INVALID_SIGNATURE' });
+      return { valid: true, identityId: signaturedata.identityid, signatureHeight: signatureheight };
+    },
+    async serviceState() { return { state: { current: { fullyqualifiedname: 'Arcade.VRSCTEST@' } } }; },
+    async readIdentityContent({ identityId, keyId }) {
+      chain.lastKey = keyId;
+      return { content: { identity: { identityaddress: identityId, contentmultimap: chain.values.length ? { [keyId]: chain.values } : {} } }, history: [] };
+    },
+    async decryptDataDescriptor() { return null; },
+  };
+  const service = new AttestationService({ repository: ctx.repository, verusRequests: verus });
+  return { ...ctx, chain, service };
+}
+
+test('attestaties in de app: eigen lijst, deellink met gekozen velden, controle', async () => {
+  const { service, chain, repository, database } = await attestedSetup();
+  const me = { chain: 'vrsctest', iAddress: A };
+  const list = service.listOwn({ principal: me });
+  assert.deepEqual(list.attestations.map((a) => [a.round, a.streak]), [[roundId(0), 1]]);
+  assert.throws(() => service.listOwn({ principal: null }), (e) => e.code === 'NOT_AUTHENTICATED');
+  assert.throws(() => service.disclosure({ principal: { chain: 'vrsctest', iAddress: B }, roundRecordId: 'round-0', fields: ['streak'] }), (e) => e.code === 'ATTESTATION_NOT_FOUND');
+  assert.throws(() => service.disclosure({ principal: me, roundRecordId: 'round-0', fields: ['rating'] }), (e) => e.code === 'INVALID_DISCLOSURE');
+
+  const { link, fields } = service.disclosure({ principal: me, roundRecordId: 'round-0', fields: ['streak'] });
+  assert.deepEqual(fields, ['player', 'round', 'streak']);
+  assert.ok(link.length < 1500, `link ${link.length}`);
+  const notOnChain = await service.verify({ link });
+  assert.equal(notOnChain.valid, true);
+  assert.deepEqual([notOnChain.player, notOnChain.round, notOnChain.fields], [A, roundId(0), { streak: '1' }]);
+  assert.equal(notOnChain.inPlayerIdentity.found, false);
+
+  // zodra precies dit verzegelde record in de ID van de speler staat
+  const record = sealedAttestationRecord(repository.getAttestation({ playerIAddress: A, roundRecordId: 'round-0' }), repository.getRound('round-0'));
+  chain.values = [chainValueFor(canonicalJson(record))];
+  assert.equal((await service.verify({ link })).inPlayerIdentity.found, true);
+
+  // foute handtekening → ongeldig, maar de rest wordt nog getoond
+  chain.signatureOk = false;
+  const bad = await service.verify({ link });
+  assert.deepEqual([bad.valid, bad.signature.error], [false, 'INVALID_SIGNATURE']);
+  chain.signatureOk = true;
+
+  // geknoeide links
+  const payload = JSON.parse(Buffer.from(link, 'base64url').toString());
+  const relink = (p) => Buffer.from(JSON.stringify(p)).toString('base64url');
+  const higher = structuredClone(payload); higher.fields[2][1] = '100';
+  const otherRound = structuredClone(payload); otherRound.record.round = roundId(1);
+  for (const broken of [relink(higher), relink(otherRound), 'not base64!', link.slice(0, -10), '']) {
+    await assert.rejects(service.verify({ link: broken }), (e) => e.code === 'INVALID_DISCLOSURE', broken.slice(0, 20));
+  }
   database.close();
 });

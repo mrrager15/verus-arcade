@@ -150,6 +150,20 @@ export class PlayerPublicationService {
     return { name: identity.name, parent: identity.parent };
   }
 
+  /**
+   * Staat er nog een onbevestigde update van deze identiteit uit (andere publicatie met
+   * status 'receipt')? Leest die eerst zelf terug als dat mag (hooguit om de 15 s).
+   * Een tweede update vóór bevestiging spendeert dezelfde identiteitsoutput en faalt.
+   */
+  async #previousUpdatePending(playerId, exceptRequestId = null) {
+    for (const other of this.repository.listUnconfirmedPlayerPublications(playerId)) {
+      if (other.requestIdHex === exceptRequestId) continue;
+      if (other.lastCheckedAtMs === null || this.clock() - other.lastCheckedAtMs >= RECHECK_MS) await this.#reconcileOne(other);
+      if (this.repository.getPlayerPublication(other.attemptId, other.kind)?.status === 'receipt') return true;
+    }
+    return false;
+  }
+
   /** Maakt een publicatieverzoek, of geeft het bestaande terug (idempotent). */
   async createPublishRequest({ principal, attemptId, kind = 'result' }) {
     try {
@@ -166,9 +180,17 @@ export class PlayerPublicationService {
         return { created: false, publication: publicPublication(existing) };
       }
       if (existing?.status === 'pending' && tip <= existing.expiresHeight) {
-        return { created: false, publication: publicPublication(existing, { tip }) };
+        const waitForPrevious = await this.#previousUpdatePending(attempt.player_i_address, existing.requestIdHex);
+        return { created: false, publication: { ...publicPublication(existing, { tip }), waitForPrevious } };
       }
       if (existing?.status === 'pending') this.repository.markPlayerPublicationExpired(attempt.id, kind);
+      if (await this.#previousUpdatePending(attempt.player_i_address)) {
+        throw new DailyServiceError(
+          'PREVIOUS_UPDATE_UNCONFIRMED',
+          'Your previous identity update is not confirmed yet. Wait about a minute, then try again.',
+          409,
+        );
+      }
 
       const { serialized, key } = kind === 'attestation'
         ? this.#attestationRecord({ attempt, round, serviceId, serviceFqn })
@@ -247,7 +269,13 @@ export class PlayerPublicationService {
       } else if (existing.status === 'receipt' && (existing.lastCheckedAtMs === null || this.clock() - existing.lastCheckedAtMs >= RECHECK_MS)) {
         await this.#reconcileOne(existing);
       }
-      return { publication: publicPublication(this.repository.getPlayerPublication(attempt.id, kind), { tip }) };
+      const current = this.repository.getPlayerPublication(attempt.id, kind);
+      const view = publicPublication(current, { tip });
+      // Wacht deze QR nog op bevestiging van een andere update van dezelfde ID? Dan zegt de UI dat.
+      if (view.status === 'pending' && view.walletUri) {
+        view.waitForPrevious = await this.#previousUpdatePending(attempt.player_i_address, current.requestIdHex);
+      }
+      return { publication: view };
     } catch (error) {
       throw this.#translate(error);
     }

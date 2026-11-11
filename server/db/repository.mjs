@@ -1109,6 +1109,22 @@ export class ArcadeRepository {
       .run(now, attemptId, checkKind(kind));
   }
 
+  /**
+   * Publicaties van één speler (alle soorten en pogingen) waarvan de wallet een txid gaf
+   * die nog niet bevestigd is. Zolang er één is, faalt een volgende update van dezelfde
+   * identiteit met "bad-txns-inputs-spent" (live gezien op 11 nov).
+   */
+  listUnconfirmedPlayerPublications(playerIAddress) {
+    return this.database
+      .prepare(`
+        SELECT p.* FROM player_publications p
+        JOIN attempts a ON a.id = p.attempt_id
+        WHERE a.player_i_address = ? AND p.status = 'receipt'
+      `)
+      .all(playerIAddress)
+      .map(mapPlayerPublication);
+  }
+
   /** Publicaties die op bevestiging wachten, oudste controle eerst (voor de reconcile-taak). */
   listPlayerPublicationsAwaitingConfirmation({ limit = 50 } = {}) {
     return this.database

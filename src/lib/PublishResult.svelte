@@ -36,6 +36,7 @@
 		receiptTxid: string | null;
 		publishedTxid: string | null;
 		publishedHeight: number | null;
+		waitForPrevious?: boolean;
 	};
 
 	const headers = () => ({ authorization: `Bearer ${token}` });
@@ -81,7 +82,9 @@
 			const response = await fetch(endpoint, { method: 'POST', headers: headers() });
 			const body = await response.json();
 			if (!response.ok) {
-				if (body.error?.code === 'ATTESTATION_NOT_FOUND') {
+				if (body.error?.code === 'PREVIOUS_UPDATE_UNCONFIRMED') {
+					notAvailable = 'Your previous update of this identity is not confirmed yet. Wait about a minute and try again.';
+				} else if (body.error?.code === 'ATTESTATION_NOT_FOUND') {
 					notAvailable = 'Arcade@ has not attested this round yet. That happens shortly after the round closes.';
 				} else if (body.error?.code === 'RESULT_ROOT_UNPUBLISHED') {
 					notAvailable = 'The operator has not published this round’s result root on chain yet. Come back after the round is finalized.';
@@ -155,6 +158,12 @@
 				record under the Arcade key; nothing else in your identity changes. Your wallet pays the small
 				update fee (free test coins on VRSCTEST).
 			</p>
+			{#if publication.waitForPrevious}
+				<p class="wait">
+					Wait a moment before scanning: your previous update of this identity is not confirmed yet. Scanning now
+					makes the chain reject this one ("inputs spent"). This message disappears once it is confirmed.
+				</p>
+			{/if}
 			<p class="signer">
 				In Verus Mobile, choose <strong>{playerName}</strong> as the identity to update.
 			</p>
@@ -207,6 +216,7 @@
 	.button, button { display: inline-block; padding: 0.6rem 1rem; border-radius: 0.6rem; border: 0; background: #193d26; color: white; font-weight: 700; text-decoration: none; text-align: center; cursor: pointer; }
 	button:disabled { opacity: 0.55; cursor: default; }
 	.hint { margin: 0; font-size: 0.75rem; color: #5c6d61; }
+	.wait { margin: 0; padding: 0.5rem 0.7rem; border-radius: 0.5rem; background: #fde8e4; border: 1px solid #e3a99c; font-size: 0.8rem; line-height: 1.4; }
 	.signer { margin: 0; padding: 0.5rem 0.7rem; border-radius: 0.5rem; background: #fff6d6; border: 1px solid #e6d58a; font-size: 0.8rem; line-height: 1.4; }
 	.error { margin: 0; color: #8b2b2b; font-size: 0.8rem; }
 	details { font-size: 0.75rem; }

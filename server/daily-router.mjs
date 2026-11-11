@@ -239,6 +239,7 @@ export function createDailyRouter({
         const result = await playerPublicationService.createPublishRequest({
           principal: request.principal,
           attemptId: request.params.attemptId,
+          kind: String(request.query.kind ?? 'result'),
         });
         response.status(result.created ? 201 : 200).json(result);
       } catch (error) {
@@ -252,6 +253,7 @@ export function createDailyRouter({
           await playerPublicationService.getPublishRequest({
             principal: request.principal,
             attemptId: request.params.attemptId,
+            kind: String(request.query.kind ?? 'result'),
           }),
         );
       } catch (error) {

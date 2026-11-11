@@ -125,6 +125,9 @@ export class AttestationService {
       fields: ATTESTATION_FIELDS,
       attestations: this.repository.listPlayerAttestations({ ...WORD_GRID, playerIAddress: player }).reverse().map((a) => ({
         roundRecordId: a.roundRecordId,
+        attemptId: a.attemptId,
+        // Staat de verzegelde attestatie al in de ID van de speler? (fase 2b, kind 'attestation')
+        publication: this.repository.getPlayerPublication(a.attemptId, 'attestation')?.status ?? null,
         round: this.repository.getRound(a.roundRecordId)?.round_id ?? a.roundRecordId,
         streak: a.streak, rounds: a.rounds, solved: a.solved,
         root: a.root, prevRoot: a.prevRoot, signatureHeight: a.signatureHeight,

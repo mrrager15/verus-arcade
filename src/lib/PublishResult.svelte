@@ -5,11 +5,23 @@
 	 * Verschijnt pas als de result-root van de ronde bevestigd is (anders geeft de
 	 * server RESULT_ROOT_UNPUBLISHED). Toont QR/deeplink, pollt de status:
 	 * pending → receipt (wallet gaf een txid) → published (teruggelezen van de chain).
+	 *
+	 * Fase 2b: met `kind="attestation"` dezelfde flow voor de verzegelde attestatie
+	 * van Arcade@ (zonder waarden of zouten; jij kiest later wat je toont).
 	 */
 	import { onMount } from 'svelte';
 	import QRCode from 'qrcode';
 
-	let { token, attemptId, playerName }: { token: string; attemptId: string; playerName: string } = $props();
+	let {
+		token,
+		attemptId,
+		playerName,
+		kind = 'result'
+	}: { token: string; attemptId: string; playerName: string; kind?: 'result' | 'attestation' } = $props();
+	const attestation = $derived(kind === 'attestation');
+	const endpoint = $derived(
+		`/api/v1/attempts/${encodeURIComponent(attemptId)}/publish-request${kind === 'attestation' ? '?kind=attestation' : ''}`
+	);
 
 	type Publication = {
 		attemptId: string;
@@ -18,7 +30,7 @@
 		contentKey: string;
 		contentKeyName: string;
 		recordSha256: string;
-		record: { round: string; status: string; guesses: number; resultRoot: string; resultRootTxid: string };
+		record: { round: string; status?: string; guesses?: number; resultRoot?: string; resultRootTxid?: string };
 		walletUri: string | null;
 		expiresHeight: number;
 		receiptTxid: string | null;
@@ -37,7 +49,7 @@
 	let timer: ReturnType<typeof setInterval> | null = null;
 
 	async function fetchStatus() {
-		const response = await fetch(`/api/v1/attempts/${encodeURIComponent(attemptId)}/publish-request`, { headers: headers() });
+		const response = await fetch(endpoint, { headers: headers() });
 		if (response.status === 404) {
 			unavailable = true;
 			return;
@@ -66,10 +78,12 @@
 		error = '';
 		notAvailable = '';
 		try {
-			const response = await fetch(`/api/v1/attempts/${encodeURIComponent(attemptId)}/publish-request`, { method: 'POST', headers: headers() });
+			const response = await fetch(endpoint, { method: 'POST', headers: headers() });
 			const body = await response.json();
 			if (!response.ok) {
-				if (body.error?.code === 'RESULT_ROOT_UNPUBLISHED') {
+				if (body.error?.code === 'ATTESTATION_NOT_FOUND') {
+					notAvailable = 'Arcade@ has not attested this round yet. That happens shortly after the round closes.';
+				} else if (body.error?.code === 'RESULT_ROOT_UNPUBLISHED') {
 					notAvailable = 'The operator has not published this round’s result root on chain yet. Come back after the round is finalized.';
 				} else {
 					error = body.error?.message ?? `Request failed (${response.status})`;
@@ -109,13 +123,20 @@
 {#if !unavailable}
 	<section class="publish">
 		<header>
-			<p class="eyebrow">Own your result</p>
+			<p class="eyebrow">{attestation ? 'Own your attestation' : 'Own your result'}</p>
 			<h3>
-				{#if publication?.status === 'published'}Stored in your VerusID{:else}Put this result in your VerusID{/if}
+				{#if publication?.status === 'published'}Stored in your VerusID{:else}Put this {attestation ? 'attestation' : 'result'} in your VerusID{/if}
 			</h3>
 		</header>
 
-		{#if publication?.status === 'published'}
+		{#if publication?.status === 'published' && attestation}
+			<p class="explain">
+				The sealed attestation for round <code>{publication.record.round}</code> is stored in your identity, in
+				transaction <code>{publication.publishedTxid}</code> (block <strong>{publication.publishedHeight}</strong>). It
+				holds no values: only salted hashes and Arcade@'s signature. Share links can now also be checked against
+				your own identity.
+			</p>
+		{:else if publication?.status === 'published'}
 			<p class="explain">
 				Your result for round <code>{publication.record.round}</code> is stored in your identity under the
 				Arcade key, in transaction <code>{publication.publishedTxid}</code> (block
@@ -150,8 +171,13 @@
 			</div>
 		{:else}
 			<p class="explain">
-				Once the operator has published this round’s result root, you can store your result and its
-				Merkle proof in your own VerusID. It travels with your identity to any app that reads it.
+				{#if attestation}
+					Store Arcade@'s signed attestation in your own VerusID. Only the sealed form goes on chain (salted hashes
+					and the signature), so nobody can read your stats from it; you still decide what to share.
+				{:else}
+					Once the operator has published this round’s result root, you can store your result and its
+					Merkle proof in your own VerusID. It travels with your identity to any app that reads it.
+				{/if}
 			</p>
 			{#if publication?.status === 'expired'}<p class="hint">The previous request expired. Create a new one.</p>{/if}
 			{#if publication?.status === 'mismatch'}

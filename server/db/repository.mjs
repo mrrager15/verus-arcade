@@ -37,6 +37,12 @@ const JOURNAL_TRANSITIONS = Object.freeze({
   failed: new Set(),
 });
 
+const PUBLICATION_KINDS = new Set(['result', 'attestation']);
+function checkKind(kind) {
+  if (!PUBLICATION_KINDS.has(kind)) throw new Error(`Unknown publication kind: ${kind}`);
+  return kind;
+}
+
 export class ArcadeRepository {
   constructor(database) {
     this.database = database;
@@ -988,10 +994,10 @@ export class ArcadeRepository {
 
   // ── Fase 2: publicaties in het ID van de speler ───────────────────────────
 
-  getPlayerPublication(attemptId) {
+  getPlayerPublication(attemptId, kind = 'result') {
     const row = this.database
-      .prepare('SELECT * FROM player_publications WHERE attempt_id = ?')
-      .get(attemptId);
+      .prepare('SELECT * FROM player_publications WHERE attempt_id = ? AND kind = ?')
+      .get(attemptId, checkKind(kind));
     return row ? mapPlayerPublication(row) : null;
   }
 
@@ -1008,11 +1014,12 @@ export class ArcadeRepository {
    * publicatie blijft staan: nooit stilzwijgend overschrijven.
    */
   createPlayerPublication({
-    attemptId, contentKey, contentKeyFqn, recordJson, recordSha256, requestIdHex, requestHex,
+    attemptId, kind = 'result', contentKey, contentKeyFqn, recordJson, recordSha256, requestIdHex, requestHex,
     walletUri, responseMode, createdHeight, expiresHeight, now,
   }) {
+    checkKind(kind);
     return inImmediateTransaction(this.database, () => {
-      const existing = this.getPlayerPublication(attemptId);
+      const existing = this.getPlayerPublication(attemptId, kind);
       if (existing && !['expired', 'mismatch'].includes(existing.status)) {
         throw new RepositoryConflictError(
           'PLAYER_PUBLICATION_EXISTS',
@@ -1020,37 +1027,37 @@ export class ArcadeRepository {
         );
       }
       if (existing) {
-        this.database.prepare('DELETE FROM player_publications WHERE attempt_id = ?').run(attemptId);
+        this.database.prepare('DELETE FROM player_publications WHERE attempt_id = ? AND kind = ?').run(attemptId, kind);
       }
       this.database
         .prepare(`
           INSERT INTO player_publications (
-            attempt_id, content_key, content_key_fqn, record_json, record_sha256, request_id_hex,
+            attempt_id, kind, content_key, content_key_fqn, record_json, record_sha256, request_id_hex,
             request_hex, wallet_uri, response_mode, status, created_height, expires_height, created_at_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
         `)
         .run(
-          attemptId, contentKey, contentKeyFqn, recordJson, recordSha256, requestIdHex,
+          attemptId, kind, contentKey, contentKeyFqn, recordJson, recordSha256, requestIdHex,
           requestHex, walletUri, responseMode, createdHeight, expiresHeight, now,
         );
-      return this.getPlayerPublication(attemptId);
+      return this.getPlayerPublication(attemptId, kind);
     });
   }
 
-  markPlayerPublicationExpired(attemptId) {
+  markPlayerPublicationExpired(attemptId, kind = 'result') {
     this.database
-      .prepare("UPDATE player_publications SET status = 'expired' WHERE attempt_id = ? AND status = 'pending'")
-      .run(attemptId);
-    return this.getPlayerPublication(attemptId);
+      .prepare("UPDATE player_publications SET status = 'expired' WHERE attempt_id = ? AND kind = ? AND status = 'pending'")
+      .run(attemptId, checkKind(kind));
+    return this.getPlayerPublication(attemptId, kind);
   }
 
   /** Ontvangstbewijs: de wallet meldt een txid. Nog geen bevestiging. Idempotent voor dezelfde txid. */
-  markPlayerPublicationReceipt({ attemptId, receiptTxid, now }) {
+  markPlayerPublicationReceipt({ attemptId, kind = 'result', receiptTxid, now }) {
     if (!/^[0-9a-f]{64}$/.test(receiptTxid)) {
       throw new Error('Receipt transaction ID must be 64 lowercase hex characters');
     }
     return inImmediateTransaction(this.database, () => {
-      const existing = this.getPlayerPublication(attemptId);
+      const existing = this.getPlayerPublication(attemptId, kind);
       if (!existing) throw new RepositoryConflictError('PLAYER_PUBLICATION_MISSING', 'No publication request for attempt');
       if (existing.status !== 'pending') {
         if (existing.receiptTxid === receiptTxid) return { created: false, publication: existing };
@@ -1063,15 +1070,15 @@ export class ArcadeRepository {
         .prepare(`
           UPDATE player_publications
           SET status = 'receipt', receipt_txid = ?, receipt_at_ms = ?
-          WHERE attempt_id = ?
+          WHERE attempt_id = ? AND kind = ?
         `)
-        .run(receiptTxid, now, attemptId);
-      return { created: true, publication: this.getPlayerPublication(attemptId) };
+        .run(receiptTxid, now, attemptId, kind);
+      return { created: true, publication: this.getPlayerPublication(attemptId, kind) };
     });
   }
 
   /** Bevestiging na teruglezen van de chain: het record staat er en de hash klopt. */
-  markPlayerPublicationPublished({ attemptId, publishedTxid, publishedHeight, now }) {
+  markPlayerPublicationPublished({ attemptId, kind = 'result', publishedTxid, publishedHeight, now }) {
     if (!/^[0-9a-f]{64}$/.test(publishedTxid) || !Number.isSafeInteger(publishedHeight) || publishedHeight < 1) {
       throw new Error('Published transaction ID and height are required');
     }
@@ -1079,27 +1086,27 @@ export class ArcadeRepository {
       .prepare(`
         UPDATE player_publications
         SET status = 'published', published_txid = ?, published_height = ?, published_at_ms = ?, last_checked_at_ms = ?
-        WHERE attempt_id = ? AND status = 'receipt'
+        WHERE attempt_id = ? AND kind = ? AND status = 'receipt'
       `)
-      .run(publishedTxid, publishedHeight, now, now, attemptId);
+      .run(publishedTxid, publishedHeight, now, now, attemptId, checkKind(kind));
     if (updated.changes !== 1) {
       throw new RepositoryConflictError('PLAYER_PUBLICATION_CONFLICT', 'Publication is missing or not awaiting confirmation');
     }
-    return this.getPlayerPublication(attemptId);
+    return this.getPlayerPublication(attemptId, kind);
   }
 
   /** Het record op de chain wijkt af van wat wij gaven: nooit 'published'. */
-  markPlayerPublicationMismatch({ attemptId, now }) {
+  markPlayerPublicationMismatch({ attemptId, kind = 'result', now }) {
     this.database
-      .prepare("UPDATE player_publications SET status = 'mismatch', last_checked_at_ms = ? WHERE attempt_id = ? AND status = 'receipt'")
-      .run(now, attemptId);
-    return this.getPlayerPublication(attemptId);
+      .prepare("UPDATE player_publications SET status = 'mismatch', last_checked_at_ms = ? WHERE attempt_id = ? AND kind = ? AND status = 'receipt'")
+      .run(now, attemptId, checkKind(kind));
+    return this.getPlayerPublication(attemptId, kind);
   }
 
-  touchPlayerPublicationChecked({ attemptId, now }) {
+  touchPlayerPublicationChecked({ attemptId, kind = 'result', now }) {
     this.database
-      .prepare('UPDATE player_publications SET last_checked_at_ms = ? WHERE attempt_id = ?')
-      .run(now, attemptId);
+      .prepare('UPDATE player_publications SET last_checked_at_ms = ? WHERE attempt_id = ? AND kind = ?')
+      .run(now, attemptId, checkKind(kind));
   }
 
   /** Publicaties die op bevestiging wachten, oudste controle eerst (voor de reconcile-taak). */
@@ -1211,6 +1218,7 @@ function mapAttestation(row) {
 function mapPlayerPublication(row) {
   return {
     attemptId: row.attempt_id,
+    kind: row.kind ?? 'result',
     contentKey: row.content_key,
     contentKeyFqn: row.content_key_fqn,
     recordJson: row.record_json,

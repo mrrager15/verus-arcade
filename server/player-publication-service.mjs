@@ -12,6 +12,12 @@
  *   5. Server verifieert en bewaart de txid als ONTVANGSTBEWIJS (status 'receipt').
  *   6. De reconcile-taak leest de chain terug; pas bij gelijke hash: 'published'.
  *
+ * Fase 2b: dezelfde flow voor de verzegelde attestatie (`kind: 'attestation'`):
+ * ander record (compact, zonder waarden en zouten) onder een andere key
+ * (`arcade.player.attestation.<ronde>`); hooguit één van elke soort per poging.
+ * Wachten op bevestiging leest de chain zelf terug (hooguit om de 15 s), zodat de
+ * speler niet op de operator-reconcile hoeft te wachten.
+ *
  * Geen HTTP hier; de router vertaalt. Fouten zijn DailyServiceError.
  */
 import crypto from 'node:crypto';
@@ -26,15 +32,27 @@ import {
 } from './verus/player-result.mjs';
 import { collectPlayerResults } from './verus/player-profile.mjs';
 import { locatePublishedRecord } from './verus/player-result-reader.mjs';
+import { sealedAttestationRecord } from './attestation-service.mjs';
+import { AttestationError } from './attestation.mjs';
+import { canonicalJson } from './canonical-json.mjs';
+import { attestationKeyName, serviceContentKey } from './verus/player-result.mjs';
 import { rawId } from './verus/requests.mjs';
 import { VerusRequestError, walletCompatibleIdentity } from './verus/requests.mjs';
 
 const REQUEST_ID_HEX = /^[0-9a-f]{40}$/;
+const KINDS = ['result', 'attestation'];
+const RECHECK_MS = 15_000;
+
+function checkKind(kind) {
+  if (!KINDS.includes(kind)) throw new DailyServiceError('INVALID_PUBLICATION_KIND', 'kind must be result or attestation', 400);
+  return kind;
+}
 
 export function publicPublication(publication, { tip } = {}) {
   const expired = publication.status === 'pending' && Number.isSafeInteger(tip) && tip > publication.expiresHeight;
   return {
     attemptId: publication.attemptId,
+    kind: publication.kind ?? 'result',
     requestId: publication.requestIdHex,
     status: expired ? 'expired' : publication.status,
     contentKey: publication.contentKey,
@@ -106,6 +124,7 @@ export class PlayerPublicationService {
       return new DailyServiceError(error.code, error.message, unavailable ? 503 : 422);
     }
     if (error instanceof PlayerResultError) return new DailyServiceError(error.code, error.message, 409);
+    if (error instanceof AttestationError) return new DailyServiceError(error.code, error.message, 409);
     if (error instanceof RepositoryConflictError) return new DailyServiceError(error.code, error.message, 409);
     return error;
   }
@@ -131,15 +150,16 @@ export class PlayerPublicationService {
   }
 
   /** Maakt een publicatieverzoek, of geeft het bestaande terug (idempotent). */
-  async createPublishRequest({ principal, attemptId }) {
+  async createPublishRequest({ principal, attemptId, kind = 'result' }) {
     try {
+      checkKind(kind);
       const attempt = this.#ownedCompletedAttempt(principal, attemptId);
       const round = this.repository.getRoundForAttempt(attempt);
       const resultSet = round ? this.repository.getRoundResultSet(round.id) : null;
       if (!resultSet?.resultsTxid) {
         throw new DailyServiceError('RESULT_ROOT_UNPUBLISHED', 'The result root of this round is not confirmed on chain yet', 409);
       }
-      const existing = this.repository.getPlayerPublication(attempt.id);
+      const existing = this.repository.getPlayerPublication(attempt.id, kind);
       const { tip, serviceId, serviceFqn } = await this.#service();
       if (existing && ['published', 'receipt'].includes(existing.status)) {
         return { created: false, publication: publicPublication(existing) };
@@ -147,15 +167,11 @@ export class PlayerPublicationService {
       if (existing?.status === 'pending' && tip <= existing.expiresHeight) {
         return { created: false, publication: publicPublication(existing, { tip }) };
       }
-      if (existing?.status === 'pending') this.repository.markPlayerPublicationExpired(attempt.id);
+      if (existing?.status === 'pending') this.repository.markPlayerPublicationExpired(attempt.id, kind);
 
-      const proof = this.repository.getResultProof({ roundRecordId: round.id, playerIAddress: attempt.player_i_address });
-      if (!proof) {
-        throw new DailyServiceError('RESULT_COMPLETENESS_FAILURE', 'Final result set does not contain this attempt', 503);
-      }
-      const record = buildPlayerResultRecord({ round, proof, resultRootTxid: resultSet.resultsTxid });
-      const serialized = serializePlayerResultRecord(record);
-      const key = playerResultContentKey({ roundId: round.round_id, serviceId, serviceFqn });
+      const { serialized, key } = kind === 'attestation'
+        ? this.#attestationRecord({ attempt, round, serviceId, serviceFqn })
+        : this.#resultRecord({ attempt, round, resultSet, serviceId, serviceFqn });
       const player = await this.#playerIdentity(attempt.player_i_address, tip);
       // Vooraf de bekende Mobile-beperking herkennen in plaats van een QR te geven die faalt.
       const contentFqn = await this.verus.identityContentName({ identityId: attempt.player_i_address, keyId: key.keyId });
@@ -174,7 +190,7 @@ export class PlayerPublicationService {
         callbackUrl: this.callbackUrl(requestIdHex), requestIdHex, responseMode: this.responseMode, ttlBlocks: this.ttlBlocks,
       });
       const publication = this.repository.createPlayerPublication({
-        attemptId: attempt.id, contentKey: key.keyId, contentKeyFqn: key.fqn, recordJson: serialized.json, recordSha256: serialized.sha256,
+        attemptId: attempt.id, kind, contentKey: key.keyId, contentKeyFqn: key.fqn, recordJson: serialized.json, recordSha256: serialized.sha256,
         requestIdHex, requestHex: built.requestHex, walletUri: built.walletUri, responseMode: this.responseMode,
         createdHeight: built.height, expiresHeight: built.expiryHeight, now: this.clock(),
       });
@@ -184,18 +200,49 @@ export class PlayerPublicationService {
     }
   }
 
-  /** Status voor de eigenaar (polling). */
-  async getPublishRequest({ principal, attemptId }) {
+  #resultRecord({ attempt, round, resultSet, serviceId, serviceFqn }) {
+    const proof = this.repository.getResultProof({ roundRecordId: round.id, playerIAddress: attempt.player_i_address });
+    if (!proof) {
+      throw new DailyServiceError('RESULT_COMPLETENESS_FAILURE', 'Final result set does not contain this attempt', 503);
+    }
+    const record = buildPlayerResultRecord({ round, proof, resultRootTxid: resultSet.resultsTxid });
+    return {
+      serialized: serializePlayerResultRecord(record),
+      key: playerResultContentKey({ roundId: round.round_id, serviceId, serviceFqn }),
+    };
+  }
+
+  /** Fase 2b: de verzegelde attestatie van deze poging (compact, zonder waarden en zouten). */
+  #attestationRecord({ attempt, round, serviceId, serviceFqn }) {
+    const attestation = this.repository.getAttestation({ playerIAddress: attempt.player_i_address, roundRecordId: round.id });
+    if (!attestation || attestation.attemptId !== attempt.id) {
+      throw new DailyServiceError('ATTESTATION_NOT_FOUND', 'Arcade@ has not attested this attempt yet (after the round closes)', 409);
+    }
+    const json = canonicalJson(sealedAttestationRecord(attestation, round));
+    return {
+      serialized: { json, sha256: crypto.createHash('sha256').update(json, 'utf8').digest('hex') },
+      key: serviceContentKey({ name: attestationKeyName(round.round_id), serviceId, serviceFqn }),
+    };
+  }
+
+  /**
+   * Status voor de eigenaar (polling). Wacht de publicatie op bevestiging, dan
+   * leest dit zelf de chain terug (hooguit om de 15 s per publicatie).
+   */
+  async getPublishRequest({ principal, attemptId, kind = 'result' }) {
     try {
+      checkKind(kind);
       const attempt = this.#ownedCompletedAttempt(principal, attemptId);
-      const existing = this.repository.getPlayerPublication(attempt.id);
+      const existing = this.repository.getPlayerPublication(attempt.id, kind);
       if (!existing) return { publication: null };
       let tip;
       if (existing.status === 'pending') {
         tip = await this.verus.tip();
-        if (tip > existing.expiresHeight) this.repository.markPlayerPublicationExpired(attempt.id);
+        if (tip > existing.expiresHeight) this.repository.markPlayerPublicationExpired(attempt.id, kind);
+      } else if (existing.status === 'receipt' && (existing.lastCheckedAtMs === null || this.clock() - existing.lastCheckedAtMs >= RECHECK_MS)) {
+        await this.#reconcileOne(existing);
       }
-      return { publication: publicPublication(this.repository.getPlayerPublication(attempt.id), { tip }) };
+      return { publication: publicPublication(this.repository.getPlayerPublication(attempt.id, kind), { tip }) };
     } catch (error) {
       throw this.#translate(error);
     }
@@ -211,7 +258,16 @@ export class PlayerPublicationService {
   async reconcile({ limit = 50 } = {}) {
     const results = [];
     for (const publication of this.repository.listPlayerPublicationsAwaitingConfirmation({ limit })) {
-      const summary = { attemptId: publication.attemptId, requestId: publication.requestIdHex, before: publication.status };
+      results.push(await this.#reconcileOne(publication));
+    }
+    return results;
+  }
+
+  /** Eén publicatie met ontvangstbewijs teruglezen (zie reconcile). Gooit niet; fouten staan in het resultaat. */
+  async #reconcileOne(publication) {
+    const kind = publication.kind ?? 'result';
+    const summary = { attemptId: publication.attemptId, kind, requestId: publication.requestIdHex, before: publication.status };
+    {
       try {
         const attempt = this.repository.getAttemptById(publication.attemptId);
         if (!attempt) throw new DailyServiceError('ATTEMPT_NOT_FOUND', 'Attempt does not exist', 404);
@@ -230,7 +286,7 @@ export class PlayerPublicationService {
         if (located.found) {
           const receipt = located.txid ? null : await this.verus.transactionStatus(publication.receiptTxid);
           const stored = this.repository.markPlayerPublicationPublished({
-            attemptId: publication.attemptId,
+            attemptId: publication.attemptId, kind,
             publishedTxid: located.txid ?? publication.receiptTxid,
             publishedHeight: located.height ?? receipt?.height ?? tip,
             now: this.clock(),
@@ -239,10 +295,10 @@ export class PlayerPublicationService {
         } else {
           const receipt = await this.verus.transactionStatus(publication.receiptTxid);
           if (receipt && receipt.confirmations >= 1) {
-            const stored = this.repository.markPlayerPublicationMismatch({ attemptId: publication.attemptId, now: this.clock() });
+            const stored = this.repository.markPlayerPublicationMismatch({ attemptId: publication.attemptId, kind, now: this.clock() });
             Object.assign(summary, { after: stored.status, receiptConfirmations: receipt.confirmations });
           } else {
-            this.repository.touchPlayerPublicationChecked({ attemptId: publication.attemptId, now: this.clock() });
+            this.repository.touchPlayerPublicationChecked({ attemptId: publication.attemptId, kind, now: this.clock() });
             Object.assign(summary, { after: 'receipt', receiptConfirmations: receipt?.confirmations ?? 0 });
           }
         }
@@ -250,9 +306,8 @@ export class PlayerPublicationService {
         const translated = this.#translate(error);
         Object.assign(summary, { after: publication.status, error: translated.code ?? 'INTERNAL_ERROR' });
       }
-      results.push(summary);
     }
-    return results;
+    return summary;
   }
 
   /**
@@ -306,7 +361,7 @@ export class PlayerPublicationService {
         playerId: attempt.player_i_address, keyId: publication.contentKey, recordJson: publication.recordJson,
       });
       const stored = this.repository.markPlayerPublicationReceipt({
-        attemptId: publication.attemptId, receiptTxid: verified.txid, now: this.clock(),
+        attemptId: publication.attemptId, kind: publication.kind ?? 'result', receiptTxid: verified.txid, now: this.clock(),
       });
       return { accepted: true, replayed: !stored.created, publication: publicPublication(stored.publication) };
     } catch (error) {

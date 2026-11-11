@@ -29,12 +29,12 @@ try {
   const service = services.playerPublicationService;
   if (!service) throw new Error('Publicaties staan uit: ARCADE_SERVICE_ID en ARCADE_SERVICE_WIF ontbreken in .env');
   const awaiting = services.repository.listPlayerPublicationsAwaitingConfirmation({ limit: 200 });
-  const all = services.database.prepare('SELECT attempt_id, status, content_key, receipt_txid, published_txid, published_height, expires_height FROM player_publications ORDER BY created_at_ms DESC LIMIT 100').all();
+  const all = services.database.prepare('SELECT attempt_id, kind, status, content_key, receipt_txid, published_txid, published_height, expires_height FROM player_publications ORDER BY created_at_ms DESC LIMIT 100').all();
   const output = {
     operation: listOnly ? 'publications-list' : 'publications-reconcile',
     databasePath: services.database.location?.() ?? null,
     publications: all.map((row) => ({
-      attemptId: row.attempt_id, status: row.status, contentKey: row.content_key,
+      attemptId: row.attempt_id, kind: row.kind, status: row.status, contentKey: row.content_key,
       receiptTxid: row.receipt_txid, publishedTxid: row.published_txid, publishedHeight: row.published_height, expiresHeight: row.expires_height,
     })),
     awaitingConfirmation: awaiting.length,

@@ -10,7 +10,7 @@ test('runtime services migrate storage and expose the Daily service', () => {
       services.database
         .prepare('SELECT MAX(version) version FROM schema_migrations')
         .get().version,
-      8,
+      9,
     );
     assert.equal(services.dailyService.getCurrentRound(), null);
   } finally {

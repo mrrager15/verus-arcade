@@ -11,7 +11,7 @@ import { ArcadeRepository } from './db/repository.mjs';
 import { PlayerPublicationService } from './player-publication-service.mjs';
 import { createRoundAttestations } from './attestation-service.mjs';
 import { canonicalJson } from './canonical-json.mjs';
-import { validatePlayerResultRecord } from './verus/player-result.mjs';
+import { parsePlayerResultRecord } from './verus/player-result.mjs';
 import { P } from './verus/requests.mjs';
 import { GENERIC_RESPONSE_QUERY_KEY, VerusRequestError } from './verus/requests.mjs';
 
@@ -114,11 +114,13 @@ test('createPublishRequest bouwt record, key en alleen-content request voor de s
   finalizeAndConfirm(ctx.repository);
   const first = await ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId });
   const pub = first.publication;
-  assert.doesNotThrow(() => validatePlayerResultRecord(pub.record));
-  assert.equal(pub.record.player, PLAYER);
+  // Resultaatschema 2 → compact v2-record; de speler en de wortel worden afgeleid.
+  assert.equal(pub.record.version, 2);
   assert.equal(pub.record.round, ROUND_ID);
-  assert.equal(pub.record.resultRootTxid, RESULTS_TXID);
-  assert.equal(pub.record.guesses, 2);
+  assert.equal(pub.record.guesses, 'slate,crane');
+  const parsed = parsePlayerResultRecord(JSON.stringify(pub.record), { player: PLAYER });
+  assert.deepEqual([parsed.player, parsed.guesses, parsed.status], [PLAYER, 2, 'solved']);
+  assert.equal(parsed.resultRoot, ctx.repository.getRoundResultSet('round-1').rootSha256);
   assert.equal(pub.contentKeyName, `Arcade.VRSCTEST.::arcade.player.result.${ROUND_ID}`);
   assert.match(pub.contentKey, /^i[1-9A-HJ-NP-Za-km-z]{20,40}$/);
   assert.equal(pub.walletUri, `verus://x/${'1'.padStart(40, '0')}`);
@@ -365,13 +367,13 @@ test('fase 2b: verzegelde attestatie publiceren naast het resultaat; wachten lee
   assert.deepEqual([accepted.publication.kind, accepted.publication.status], ['attestation', 'receipt']);
   assert.equal((await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId })).publication.status, 'pending');
 
-  // wachten: de eerste poll leest de chain, een tweede binnen 15 s niet
+  // wachten: de vorige opvraging (resultaat, met waitForPrevious) las de chain al; binnen 15 s niet opnieuw
   let reads = 0;
   const read = ctx.verus.readIdentityContent.bind(ctx.verus);
   ctx.verus.readIdentityContent = (input) => { reads += 1; return read(input); };
   assert.equal((await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'attestation' })).publication.status, 'receipt');
   assert.equal((await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'attestation' })).publication.status, 'receipt');
-  assert.equal(reads, 1);
+  assert.equal(reads, 0);
 
   // record verschijnt op de chain → na 15 s leest de poll het terug: published
   ctx.verus.state.chainValues = (keyId) => (keyId === att.publication.contentKey ? [chainValueFor(canonicalJson(att.publication.record))] : []);
@@ -379,7 +381,74 @@ test('fase 2b: verzegelde attestatie publiceren naast het resultaat; wachten lee
   ctx.time.now = 25_000;
   const done = await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'attestation' });
   assert.deepEqual([done.publication.status, done.publication.publishedHeight], ['published', 1001]);
-  assert.equal(reads, 2);
+  assert.equal(reads, 1);
   assert.equal((await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId })).publication.status, 'pending');
+  ctx.database.close();
+});
+
+test('tweede update van dezelfde ID: wacht tot de vorige bevestigd is (anders "inputs-spent")', async () => {
+  const ctx = setup();
+  const attemptId = completeAttempt(ctx.daily);
+  ctx.repository.createAttemptSignature({
+    attemptId, requestIdHex: '8'.repeat(40), requestHex: 'aa', requestHashHex: 'bb'.repeat(32), message: 'm',
+    walletUri: 'verus://x', responseMode: 'redirect', createdHeight: 1, expiresHeight: 61, now: 4_000,
+  });
+  ctx.repository.markAttemptSignatureSigned({ attemptId, signerIAddress: PLAYER, signingHeight: 2, nativeSignature: Buffer.alloc(73, 9).toString('base64'), now: 4_500 });
+  finalizeAndConfirm(ctx.repository);
+  const signer = {
+    serviceId: ARCADE,
+    async signMmrRoot(root) {
+      return { signaturedata: { version: 1, systemid: 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq', hashtype: 5, signaturehash: root, identityid: ARCADE, signaturetype: 1, signature: 'sig' }, signatureheight: 999 };
+    },
+  };
+  await createRoundAttestations({ repository: ctx.repository, signer, roundRecordId: 'round-1', now: 20_000 });
+
+  // 1. Resultaat aangevraagd en goedgekeurd: ontvangstbewijs, nog niet bevestigd.
+  const result = await ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId });
+  await ctx.service.acceptResponse({ requestIdHex: result.publication.requestId, body: Buffer.from('wallet') });
+  // 2. Een nieuw verzoek voor de attestatie wordt geweigerd zolang dat zo is.
+  await assert.rejects(
+    ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'attestation' }),
+    (e) => e.code === 'PREVIOUS_UPDATE_UNCONFIRMED' && e.httpStatus === 409,
+  );
+  // 3. Het resultaat verschijnt op de chain; na 15 s leest de volgende aanvraag het terug en mag het wel.
+  const resultRecord = (await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId })).publication.record;
+  ctx.verus.state.chainValues = (keyId) => (keyId === result.publication.contentKey ? [chainValueFor(canonicalJson(resultRecord))] : []);
+  ctx.verus.state.receiptStatus = { confirmations: 1, height: 1001 };
+  ctx.time.now = 30_000;
+  const att = await ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'attestation' });
+  assert.equal(att.created, true);
+  assert.equal((await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId })).publication.status, 'published');
+  // 4. Een bestaand verzoek dat op een onbevestigde update wacht, krijgt waitForPrevious.
+  await ctx.service.acceptResponse({ requestIdHex: att.publication.requestId, body: Buffer.from('wallet') });
+  ctx.repository.markPlayerPublicationExpired(attemptId, 'result'); // geen effect: resultaat is published
+  ctx.database.close();
+});
+
+test('waitForPrevious: de QR van een tweede verzoek waarschuwt zolang de eerste update onbevestigd is', async () => {
+  const ctx = setup();
+  const attemptId = completeAttempt(ctx.daily);
+  ctx.repository.createAttemptSignature({
+    attemptId, requestIdHex: '7'.repeat(40), requestHex: 'aa', requestHashHex: 'bb'.repeat(32), message: 'm',
+    walletUri: 'verus://x', responseMode: 'redirect', createdHeight: 1, expiresHeight: 61, now: 4_000,
+  });
+  ctx.repository.markAttemptSignatureSigned({ attemptId, signerIAddress: PLAYER, signingHeight: 2, nativeSignature: Buffer.alloc(73, 9).toString('base64'), now: 4_500 });
+  finalizeAndConfirm(ctx.repository);
+  await createRoundAttestations({
+    repository: ctx.repository, roundRecordId: 'round-1', now: 20_000,
+    signer: { serviceId: ARCADE, async signMmrRoot(root) { return { signaturedata: { version: 1, systemid: 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq', hashtype: 5, signaturehash: root, identityid: ARCADE, signaturetype: 1, signature: 'sig' }, signatureheight: 999 }; } },
+  });
+  // Beide verzoeken vooraf aangemaakt (zoals Simon op 11 nov), dan het eerste goedgekeurd.
+  const result = await ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId });
+  await ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'attestation' });
+  await ctx.service.acceptResponse({ requestIdHex: result.publication.requestId, body: Buffer.from('wallet') });
+  const waiting = await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'attestation' });
+  assert.deepEqual([waiting.publication.status, waiting.publication.waitForPrevious], ['pending', true]);
+  const resultRecord = (await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId })).publication.record;
+  ctx.verus.state.chainValues = (keyId) => (keyId === result.publication.contentKey ? [chainValueFor(canonicalJson(resultRecord))] : []);
+  ctx.verus.state.receiptStatus = { confirmations: 1, height: 1001 };
+  ctx.time.now = 30_000;
+  const ready = await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'attestation' });
+  assert.deepEqual([ready.publication.status, ready.publication.waitForPrevious], ['pending', false]);
   ctx.database.close();
 });

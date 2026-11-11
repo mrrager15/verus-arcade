@@ -18,6 +18,7 @@ import { loadConfig } from './config.mjs';
 import { canonicalLoginPrincipal } from './login-principal.mjs';
 import { createSessionToken } from './session-store.mjs';
 import { createLoginReturnHandler, walletReturnPage } from './wallet-return.mjs';
+import { createLoginBinding } from './login-binding.mjs';
 
 const runtime = loadConfig();
 const confOverrides = { [runtime.network]: runtime.confPath };
@@ -52,6 +53,9 @@ export function makeArcadeApp({ dailyService = null, attemptSignatureService = n
     LOGIN_RETURN_PATH,
     createLoginReturnHandler({ walletReturnPath: WALLET_RETURN_PATH, debug: runtime.debug }),
   );
+
+  // A3: de sessie gaat alleen naar de browser die de login startte (geheim naast de challenge).
+  app.use('/verus', createLoginBinding().router);
 
   app.use(
     '/verus',

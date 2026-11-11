@@ -2,10 +2,11 @@
 /**
  * Diagnose: roept URL's aan vanaf de pc zelf (zoals de gsm of de browser dat doet)
  * en toont status, duur en redirect. Leest niets geheims; volgt geen redirects.
- *   node scripts/agent/http-check.mjs <url> [<url> ...]
+ *   node scripts/agent/http-check.mjs [--full] <url> [<url> ...]   (--full: hele inhoud i.p.v. 160 tekens)
  * Elke aanvraag heeft een time-out van 20 s.
  */
-const urls = process.argv.slice(2);
+const full = process.argv.includes('--full');
+const urls = process.argv.slice(2).filter((a) => a !== '--full');
 if (urls.length === 0) throw new Error('Gebruik: node scripts/agent/http-check.mjs <url> [...]');
 for (const url of urls) {
   const started = Date.now();
@@ -19,7 +20,7 @@ for (const url of urls) {
       location: response.headers.get('location'),
       contentType: response.headers.get('content-type'),
       bytes: text.length,
-      snippet: text.replace(/\s+/g, ' ').slice(0, 160),
+      snippet: full ? text : text.replace(/\s+/g, ' ').slice(0, 160),
     }));
   } catch (error) {
     console.log(JSON.stringify({ url: url.slice(0, 120), error: error.name, message: error.message, ms: Date.now() - started }));

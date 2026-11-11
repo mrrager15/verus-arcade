@@ -6,6 +6,7 @@
 	 */
 	import { onMount } from 'svelte';
 	import PublishResult from '$lib/PublishResult.svelte';
+	import { copyText } from '$lib/browser-safe';
 
 	const TOKEN_KEY = 'arcade-session-token';
 	const SHAREABLE = ['streak', 'rounds', 'solved', 'prev'] as const;
@@ -14,6 +15,7 @@
 		roundRecordId: string;
 		attemptId: string;
 		publication: 'pending' | 'receipt' | 'published' | 'expired' | 'mismatch' | null;
+		resultPublication: 'pending' | 'receipt' | 'published' | 'expired' | 'mismatch' | null;
 		round: string;
 		streak: number;
 		rounds: number;
@@ -81,12 +83,7 @@
 	}
 
 	async function copy(id: string) {
-		try {
-			await navigator.clipboard.writeText(links[id]);
-			copied = id;
-		} catch {
-			copied = '';
-		}
+		copied = (await copyText(links[id])) ? id : '';
 	}
 </script>
 
@@ -119,7 +116,8 @@
 					</div>
 					<p class="meta">
 						{a.rounds} signed {a.rounds === 1 ? 'round' : 'rounds'} · {a.solved} solved · signed at block {a.signatureHeight}
-						{#if a.publication === 'published'} · <strong>in your VerusID</strong>{/if}
+						{#if a.resultPublication === 'published'} · <strong>result in your VerusID</strong>{/if}
+						{#if a.publication === 'published'} · <strong>attestation in your VerusID</strong>{/if}
 					</p>
 					<fieldset>
 						<legend>Share</legend>
@@ -135,10 +133,16 @@
 						{/each}
 					</fieldset>
 					<button class="share" onclick={() => share(a)}>Create share link</button>
+					<!-- Na het sluiten van de ronde: resultaat (fase 2) en attestatie (fase 2b) in je eigen VerusID. -->
+					{#if token && (publishing[`${a.roundRecordId}:result`] || (a.resultPublication !== null && a.resultPublication !== 'expired'))}
+						<PublishResult {token} attemptId={a.attemptId} {playerName} kind="result" />
+					{:else}
+						<button class="secondary" onclick={() => (publishing[`${a.roundRecordId}:result`] = true)}>Put my result in my VerusID…</button>
+					{/if}
 					{#if token && (publishing[a.roundRecordId] || (a.publication !== null && a.publication !== 'expired'))}
 						<PublishResult {token} attemptId={a.attemptId} {playerName} kind="attestation" />
 					{:else}
-						<button class="secondary" onclick={() => (publishing[a.roundRecordId] = true)}>Put in my VerusID…</button>
+						<button class="secondary" onclick={() => (publishing[a.roundRecordId] = true)}>Put this attestation in my VerusID…</button>
 					{/if}
 					{#if links[a.roundRecordId]}
 						<div class="link">

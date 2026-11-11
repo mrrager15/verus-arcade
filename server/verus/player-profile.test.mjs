@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { buildResultSet, createInclusionProof } from '../result-set.mjs';
 import { collectPlayerResults } from './player-profile.mjs';
-import { buildPlayerResultRecord, playerResultContentKey, serializePlayerResultRecord } from './player-result.mjs';
+import { buildCompactPlayerResultRecord, buildPlayerResultRecord, playerResultContentKey, serializePlayerResultRecord } from './player-result.mjs';
 import { P } from './requests.mjs';
 
 const ARCADE = 'i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp';
@@ -77,4 +77,27 @@ test('profiel leest ook de versleutelde verwijzing die Verus Mobile schrijft', a
   assert.equal(profile.results[0].storage, 'encrypted-ref');
   assert.equal(profile.results[0].guesses, 3);
   assert.equal(profile.results[0].txid, '33'.repeat(32));
+});
+
+test('profiel met compacte v2-records: alleen als de wortel op de officiële result-root uitkomt', async () => {
+  const round = roundFor('2026-11-12');
+  const set = buildResultSet([recordFor(PLAYER, round, ['crane', 'plane']), recordFor(OTHER, round, ['slate'])]);
+  const compactFor = (player) => {
+    const proof = createInclusionProof(set, set.entries.findIndex((e) => e.record.playerIAddress === player));
+    return serializePlayerResultRecord(buildCompactPlayerResultRecord({ round, proof }), { player }).json;
+  };
+  const mine = chainValue(compactFor(PLAYER));
+  const copied = chainValue(compactFor(OTHER)); // record van OTHER, gekopieerd naar de ID van PLAYER
+  const content = { identity: { identityaddress: PLAYER, contentmultimap: { [keyFor('2026-11-12')]: [mine, copied] } } };
+  const official = (roundId) => (roundId === round.round_id ? set.rootSha256 : null);
+
+  const checked = await collectPlayerResults({ playerId: PLAYER, content, history: [], serviceId: ARCADE, serviceFqn: FQN, resolveRoot: official });
+  assert.deepEqual(checked.results.map((r) => [r.round, r.guesses, r.resultRoot, r.resultRootTxid, r.rootChecked]), [[round.round_id, 2, set.rootSha256, null, true]]);
+  assert.equal(checked.ignored, 1);
+
+  // zonder bekende wortel: beide vormen kloppen intern, maar de kopie geeft een andere wortel en is niet gecontroleerd
+  const unchecked = await collectPlayerResults({ playerId: PLAYER, content, history: [], serviceId: ARCADE, serviceFqn: FQN });
+  assert.equal(unchecked.results.length, 2);
+  assert.ok(unchecked.results.every((r) => r.rootChecked === false));
+  assert.equal(unchecked.results.filter((r) => r.resultRoot === set.rootSha256).length, 1);
 });

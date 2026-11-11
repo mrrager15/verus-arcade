@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { copyText } from './browser-safe';
 
 	let { token, friendlyName }: { token: string; friendlyName: string } = $props();
 
@@ -100,12 +101,11 @@
 	}
 
 	async function share() {
-		try {
-			await navigator.clipboard.writeText(shareText());
+		if (await copyText(shareText())) {
 			copied = true;
 			setTimeout(() => (copied = false), 2000);
-		} catch {
-			// Clipboard can be unavailable (http origin) — show the text instead
+		} else {
+			// Kopiëren lukte niet: toon de tekst.
 			alert(shareText());
 		}
 	}

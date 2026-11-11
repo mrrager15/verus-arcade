@@ -26,6 +26,7 @@ import { DailyServiceError } from './daily-service.mjs';
 import { RepositoryConflictError } from './db/repository.mjs';
 import {
   PlayerResultError,
+  buildCompactPlayerResultRecord,
   buildPlayerResultRecord,
   playerResultContentKey,
   serializePlayerResultRecord,
@@ -149,6 +150,20 @@ export class PlayerPublicationService {
     return { name: identity.name, parent: identity.parent };
   }
 
+  /**
+   * Staat er nog een onbevestigde update van deze identiteit uit (andere publicatie met
+   * status 'receipt')? Leest die eerst zelf terug als dat mag (hooguit om de 15 s).
+   * Een tweede update vóór bevestiging spendeert dezelfde identiteitsoutput en faalt.
+   */
+  async #previousUpdatePending(playerId, exceptRequestId = null) {
+    for (const other of this.repository.listUnconfirmedPlayerPublications(playerId)) {
+      if (other.requestIdHex === exceptRequestId) continue;
+      if (other.lastCheckedAtMs === null || this.clock() - other.lastCheckedAtMs >= RECHECK_MS) await this.#reconcileOne(other);
+      if (this.repository.getPlayerPublication(other.attemptId, other.kind)?.status === 'receipt') return true;
+    }
+    return false;
+  }
+
   /** Maakt een publicatieverzoek, of geeft het bestaande terug (idempotent). */
   async createPublishRequest({ principal, attemptId, kind = 'result' }) {
     try {
@@ -165,9 +180,17 @@ export class PlayerPublicationService {
         return { created: false, publication: publicPublication(existing) };
       }
       if (existing?.status === 'pending' && tip <= existing.expiresHeight) {
-        return { created: false, publication: publicPublication(existing, { tip }) };
+        const waitForPrevious = await this.#previousUpdatePending(attempt.player_i_address, existing.requestIdHex);
+        return { created: false, publication: { ...publicPublication(existing, { tip }), waitForPrevious } };
       }
       if (existing?.status === 'pending') this.repository.markPlayerPublicationExpired(attempt.id, kind);
+      if (await this.#previousUpdatePending(attempt.player_i_address)) {
+        throw new DailyServiceError(
+          'PREVIOUS_UPDATE_UNCONFIRMED',
+          'Your previous identity update is not confirmed yet. Wait about a minute, then try again.',
+          409,
+        );
+      }
 
       const { serialized, key } = kind === 'attestation'
         ? this.#attestationRecord({ attempt, round, serviceId, serviceFqn })
@@ -205,9 +228,13 @@ export class PlayerPublicationService {
     if (!proof) {
       throw new DailyServiceError('RESULT_COMPLETENESS_FAILURE', 'Final result set does not contain this attempt', 503);
     }
-    const record = buildPlayerResultRecord({ round, proof, resultRootTxid: resultSet.resultsTxid });
+    // Resultaatschema 2 (sinds fase 1) → compact v2-record (past in een Mobile-deeplink, ook
+    // bij grote rondes); oudere schema-1-rondes houden het volledige v1-record.
+    const record = proof.record.schemaVersion === 2
+      ? buildCompactPlayerResultRecord({ round, proof })
+      : buildPlayerResultRecord({ round, proof, resultRootTxid: resultSet.resultsTxid });
     return {
-      serialized: serializePlayerResultRecord(record),
+      serialized: serializePlayerResultRecord(record, { player: attempt.player_i_address }),
       key: playerResultContentKey({ roundId: round.round_id, serviceId, serviceFqn }),
     };
   }
@@ -242,7 +269,13 @@ export class PlayerPublicationService {
       } else if (existing.status === 'receipt' && (existing.lastCheckedAtMs === null || this.clock() - existing.lastCheckedAtMs >= RECHECK_MS)) {
         await this.#reconcileOne(existing);
       }
-      return { publication: publicPublication(this.repository.getPlayerPublication(attempt.id, kind), { tip }) };
+      const current = this.repository.getPlayerPublication(attempt.id, kind);
+      const view = publicPublication(current, { tip });
+      // Wacht deze QR nog op bevestiging van een andere update van dezelfde ID? Dan zegt de UI dat.
+      if (view.status === 'pending' && view.walletUri) {
+        view.waitForPrevious = await this.#previousUpdatePending(attempt.player_i_address, current.requestIdHex);
+      }
+      return { publication: view };
     } catch (error) {
       throw this.#translate(error);
     }
@@ -319,7 +352,14 @@ export class PlayerPublicationService {
       try { rawId(playerId); } catch { throw new DailyServiceError('INVALID_IDENTITY', 'Player identity must be an i-address', 400); }
       const { serviceId, serviceFqn } = await this.#service();
       const { tip, content, history } = await this.verus.readIdentityContent({ identityId: playerId });
-      const collected = await collectPlayerResults({ playerId, content, history, serviceId, serviceFqn, decrypt: this.#decrypt });
+      // Officiële result-root van de ronde (bevestigd op de chain door de operator), om
+      // gekopieerde of vervalste records uit te sluiten. In fase 4 leest de verifier die van de chain.
+      const resolveRoot = (roundId) => {
+        const round = this.repository.getRound(roundId);
+        const set = round ? this.repository.getRoundResultSet(round.id) : null;
+        return set?.resultsTxid ? set.rootSha256 : null;
+      };
+      const collected = await collectPlayerResults({ playerId, content, history, serviceId, serviceFqn, decrypt: this.#decrypt, resolveRoot });
       return {
         playerId,
         name: content?.fullyqualifiedname ?? content?.identity?.name ?? null,

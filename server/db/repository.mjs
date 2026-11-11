@@ -2,7 +2,9 @@ import crypto from 'node:crypto';
 
 import { canonicalJson } from '../canonical-json.mjs';
 import { buildResultSet, createInclusionProof } from '../result-set.mjs';
-import { hiddenDefinitionHash } from '../round-proof.mjs';
+import { definitionPuzzle, hiddenDefinitionHash } from '../round-proof.mjs';
+import { storedActionValue, usesGenericRecords } from '../attempt-actions.mjs';
+import { gameRules } from '../../shared/games/index.mjs';
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token, 'utf8').digest('hex');
@@ -597,6 +599,11 @@ export class ArcadeRepository {
       const signatures = new Map(
         this.listRoundAttemptSignatures(round).map((signature) => [signature.attemptId, signature]),
       );
+      // Fase 8: definitieschema 2 → resultaatschema 3 (elke game, score door de regels nagerekend).
+      const definition = this.getRoundPrivateDefinition(roundRecordId);
+      const generic = usesGenericRecords(definition);
+      const rules = generic ? gameRules(round.game_id, round.game_version) : null;
+      const puzzle = generic ? definitionPuzzle(definition) : null;
       const records = attempts.map((attempt) => {
         const signed = signatures.get(attempt.id);
         const actions = this.database
@@ -607,6 +614,30 @@ export class ArcadeRepository {
             ORDER BY sequence
           `)
           .all(attempt.id);
+        if (generic) {
+          const values = actions.map((action) => ({
+            sequence: Number(action.sequence),
+            value: storedActionValue(JSON.parse(action.canonical_action)),
+          }));
+          let state = rules.newState(puzzle);
+          for (const { value } of values) state = rules.applyAction(state, value).state;
+          const completed = attempt.status === 'completed';
+          const solved = completed && rules.score(state).status === 'solved';
+          return {
+            schemaVersion: 3,
+            roundId: round.round_id,
+            chainId: round.chain_id,
+            gameId: round.game_id,
+            gameVersion: round.game_version,
+            playerIAddress: attempt.player_i_address,
+            status: completed ? (solved ? 'solved' : 'unsolved') : 'abandoned',
+            actions: values,
+            score: { solved, actionsUsed: values.length },
+            playerSignature: signed
+              ? { height: signed.signingHeight, signature: signed.nativeSignature }
+              : null,
+          };
+        }
         const guesses = actions.map((action) => {
           const canonicalAction = JSON.parse(action.canonical_action);
           return {

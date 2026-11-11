@@ -356,3 +356,78 @@ test('leaderboard moves from live to finalized and chain-verified with tied rank
   assert.equal(verified.resultRoot.length, 64);
   database.close();
 });
+
+// ---- Fase 8: een tweede game via hetzelfde platform --------------------------
+
+const NT_PUZZLE = Object.freeze({ numbers: [100, 25, 3, 7, 7, 1], target: 728, solution: '(100+3)*7+7' });
+
+function createNumberTargetRound(repository) {
+  repository.createRound({
+    id: 'nt-1',
+    chainId: 'vrsctest',
+    gameId: 'number-target',
+    gameVersion: '1.0.0',
+    roundId: 'number-target:1.0.0:2026-11-13',
+    commitmentHash: 'commitment-hash',
+    privateDefinition: {
+      schemaVersion: 2,
+      roundId: 'number-target:1.0.0:2026-11-13',
+      chainId: 'vrsctest',
+      gameId: 'number-target',
+      gameVersion: '1.0.0',
+      date: '2026-11-13',
+      opensAt: new Date(1_000).toISOString(),
+      closesAt: new Date(10_000).toISOString(),
+      puzzle: NT_PUZZLE,
+      salt: 'ab'.repeat(32),
+    },
+    opensAt: 1_000,
+    closesAt: 10_000,
+    now: 500,
+  });
+  repository.openRound({ id: 'nt-1', commitmentTxid: 'b'.repeat(64) });
+}
+
+test('fase 8: Number Target speelt via dezelfde service en geeft resultaatschema 3', () => {
+  const { database, repository, service } = setup();
+  createNumberTargetRound(repository);
+  const { attempt } = service.reserveAttempt({ principal: PRINCIPAL, roundId: 'nt-1' });
+  const act = (sequence, value, id = `nt-action-${sequence}`) => service.submitAction({
+    principal: PRINCIPAL, attemptId: attempt.id,
+    action: { actionId: id, sequence, type: 'action', payload: { value }, gameVersion: '1.0.0' },
+  });
+  // Een zet die de regels weigeren, telt niet als poging.
+  assert.throws(() => act(1, '8*100', 'nt-bad-1'), (error) => error.code === 'INVALID_ACTION' && /not one of the numbers/.test(error.message));
+  assert.throws(() => act(1, '100/3', 'nt-bad-2'), (error) => error.code === 'INVALID_ACTION');
+  const miss = act(1, ' 100 × 7 ');
+  assert.deepEqual(miss.result, { feedback: { value: 700, distance: 28, solved: false, actionsUsed: 1, actionsLeft: 4 }, solved: false, actionsUsed: 1, actionsLeft: 4, terminal: false });
+  const hit = act(2, '(100+3)*7+7');
+  assert.equal(hit.result.solved, true);
+  assert.equal(hit.result.terminal, true);
+  assert.deepEqual(hit.result.reveal, { solution: '(100+3)*7+7' });
+  assert.throws(() => act(3, '100'), (error) => ['ATTEMPT_NOT_ACTIVE', 'MAX_GUESSES_EXCEEDED'].includes(error.code));
+  const resumed = service.getAttempt({ principal: PRINCIPAL, attemptId: attempt.id });
+  assert.deepEqual(resumed.actions.map((a) => a.value), ['100*7', '(100+3)*7+7']);
+  assert.equal(resumed.actions[0].feedback.value, 700);
+  assert.equal(resumed.actions[0].word, undefined);
+
+  repository.finalizeRoundResults({ roundRecordId: 'nt-1', now: 10_000 });
+  const proof = repository.getResultProof({ roundRecordId: 'nt-1', playerIAddress: PRINCIPAL.iAddress });
+  assert.ok(verifyInclusionProof(proof));
+  assert.deepEqual(proof.record, {
+    schemaVersion: 3,
+    roundId: 'number-target:1.0.0:2026-11-13',
+    chainId: 'vrsctest',
+    gameId: 'number-target',
+    gameVersion: '1.0.0',
+    playerIAddress: PRINCIPAL.iAddress,
+    status: 'solved',
+    actions: [{ sequence: 1, value: '100*7' }, { sequence: 2, value: '(100+3)*7+7' }],
+    score: { solved: true, actionsUsed: 2 },
+    playerSignature: null,
+  });
+  const board = service.getLeaderboard({ roundId: 'nt-1' });
+  assert.equal(board.entries[0].guessesUsed, 2);
+  assert.equal(board.entries[0].status, 'solved');
+  database.close();
+});

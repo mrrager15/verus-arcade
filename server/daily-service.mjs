@@ -1,11 +1,8 @@
 import crypto from 'node:crypto';
-import {
-  MAX_GUESSES,
-  WORD_GRID_GAME_ID,
-  WORD_GRID_VERSION,
-  applyGuess,
-  normalizeGuess,
-} from './games/word-grid/engine.mjs';
+import { WORD_GRID_GAME_ID, WORD_GRID_VERSION } from './games/word-grid/engine.mjs';
+import { gameRules } from '../shared/games/index.mjs';
+import { storedActionValue, usesGenericRecords } from './attempt-actions.mjs';
+import { definitionPuzzle } from './round-proof.mjs';
 import { RepositoryConflictError } from './db/repository.mjs';
 import { rankLeaderboard } from './leaderboard.mjs';
 
@@ -146,7 +143,7 @@ export class DailyService {
           playerIAddress: record.playerIAddress,
           friendlyName: presentation.get(record.playerIAddress) ?? null,
           status: record.status,
-          guessesUsed: record.score.guessesUsed,
+          guessesUsed: record.score.guessesUsed ?? record.score.actionsUsed,
         }))
       : attempts.map((attempt) => ({
           playerIAddress: attempt.player_i_address,
@@ -241,11 +238,14 @@ export class DailyService {
     const actions = this.repository.listAttemptActions(attempt.id);
     return {
       ...publicAttempt(attempt),
+      // Word Grid (schema 1) houdt `word`/`pattern`; elke game (fase 8) krijgt `value`/`feedback`.
       actions: actions.map((entry) => ({
         actionId: entry.actionId,
         sequence: entry.sequence,
-        word: entry.action.payload.word,
-        pattern: entry.response.pattern,
+        value: storedActionValue(entry.action),
+        ...(entry.action.type === 'guess'
+          ? { word: entry.action.payload.word, pattern: entry.response.pattern }
+          : { feedback: entry.response.feedback }),
       })),
       terminalResult:
         attempt.status === 'completed' && actions.length > 0
@@ -332,7 +332,7 @@ export class DailyService {
       throw new DailyServiceError('ATTEMPT_NOT_FOUND', 'Attempt does not exist', 404);
     }
     if (
-      action?.type !== 'guess' ||
+      !['guess', 'action'].includes(action?.type) ||
       typeof action.actionId !== 'string' ||
       action.actionId.length < 8 ||
       !Number.isSafeInteger(action.sequence) ||
@@ -340,10 +340,10 @@ export class DailyService {
     ) {
       throw new DailyServiceError('INVALID_ACTION', 'Action schema is invalid', 400);
     }
-    if (
-      attempt.game_id !== WORD_GRID_GAME_ID ||
-      attempt.game_version !== WORD_GRID_VERSION
-    ) {
+    let rules;
+    try {
+      rules = gameRules(attempt.game_id, attempt.game_version);
+    } catch {
       throw new DailyServiceError(
         'GAME_VERSION_UNSUPPORTED',
         'Game validator version is unavailable',
@@ -351,21 +351,25 @@ export class DailyService {
       );
     }
 
-    let word;
+    // Fase 8: rondes met definitieschema 1 (Word Grid sinds v1) bewaren zetten en
+    // antwoorden in de oude vorm; schema 2 (elke game) in de generieke vorm.
+    const round = this.repository.getRoundForAttempt(attempt);
+    const definition = round ? this.repository.getRoundPrivateDefinition(round.id) : null;
+    const generic = usesGenericRecords(definition);
+    const raw = action.type === 'guess' ? action.payload?.word : (action.payload?.value ?? action.payload?.word);
+    let value;
     try {
-      word = normalizeGuess(action.payload?.word);
+      value = rules.normalizeAction(raw);
     } catch (error) {
-      throw new DailyServiceError('INVALID_GUESS', error.message, 400);
+      throw new DailyServiceError(generic ? 'INVALID_ACTION' : 'INVALID_GUESS', error.message, 400);
     }
-    if (action.sequence > MAX_GUESSES) {
-      throw new DailyServiceError('MAX_GUESSES_EXCEEDED', 'Too many guesses', 409);
+    if (action.sequence > rules.meta.maxActions) {
+      throw new DailyServiceError('MAX_GUESSES_EXCEEDED', 'Too many actions', 409);
     }
 
-    const canonicalAction = JSON.stringify({
-      type: 'guess',
-      payload: { word },
-      gameVersion: action.gameVersion,
-    });
+    const canonicalAction = generic
+      ? JSON.stringify({ type: 'action', payload: { value }, gameVersion: action.gameVersion })
+      : JSON.stringify({ type: 'guess', payload: { word: value }, gameVersion: action.gameVersion });
     const actionHash = crypto
       .createHash('sha256')
       .update(canonicalAction)
@@ -385,7 +389,6 @@ export class DailyService {
       );
     }
 
-    const round = this.repository.getRoundForAttempt(attempt);
     const now = this.clock();
     if (
       !round ||
@@ -396,8 +399,11 @@ export class DailyService {
     ) {
       throw new DailyServiceError('ROUND_NOT_OPEN', 'Round no longer accepts actions', 409);
     }
-    const definition = this.repository.getRoundPrivateDefinition(round.id);
-    if (!definition?.answer) {
+    let puzzle;
+    try {
+      // Schema 2: volledig gecontroleerd; schema 1 (Word Grid): het antwoord volstaat.
+      puzzle = generic ? definitionPuzzle(definition) : rules.validatePuzzle({ answer: definition?.answer });
+    } catch {
       throw new DailyServiceError(
         'ROUND_DEFINITION_UNAVAILABLE',
         'Private round definition is unavailable',
@@ -405,20 +411,43 @@ export class DailyService {
       );
     }
 
-    const result = applyGuess({
-      guess: word,
-      answer: definition.answer,
-      sequence: action.sequence,
-    });
-    const response = {
-      pattern: result.pattern,
-      solved: result.solved,
-      guessesUsed: result.guessesUsed,
-      guessesLeft: result.guessesLeft,
-      terminal: result.terminal,
-      ...(result.terminal ? { answer: definition.answer } : {}),
-    };
-    const resultHash = result.terminal
+    // De toestand opbouwen door de eerdere zetten na te spelen met de regels van de game.
+    let state = rules.newState(puzzle);
+    for (const prior of this.repository.listAttemptActions(attempt.id)) {
+      state = rules.applyAction(state, storedActionValue(prior.action)).state;
+    }
+    if (rules.isTerminal(state)) {
+      throw new DailyServiceError('ATTEMPT_NOT_ACTIVE', 'This attempt is already finished', 409);
+    }
+    let applied;
+    try {
+      applied = rules.applyAction(state, value);
+    } catch (error) {
+      // Een zet die de regels weigeren (bv. een getal dat er niet is) telt niet als poging.
+      throw new DailyServiceError(generic ? 'INVALID_ACTION' : 'INVALID_GUESS', error.message, 400);
+    }
+    const terminal = rules.isTerminal(applied.state);
+    const score = rules.score(applied.state);
+    const solved = score.status === 'solved';
+    const actionsLeft = Math.max(0, rules.meta.maxActions - score.actionsUsed);
+    const response = generic
+      ? {
+          feedback: applied.feedback,
+          solved,
+          actionsUsed: score.actionsUsed,
+          actionsLeft,
+          terminal,
+          ...(terminal ? { reveal: rules.revealOnEnd(puzzle) } : {}),
+        }
+      : {
+          pattern: applied.feedback.pattern,
+          solved,
+          guessesUsed: score.actionsUsed,
+          guessesLeft: actionsLeft,
+          terminal,
+          ...(terminal ? { answer: puzzle.answer } : {}),
+        };
+    const resultHash = terminal
       ? crypto.createHash('sha256').update(JSON.stringify(response)).digest('hex')
       : null;
     try {
@@ -429,7 +458,7 @@ export class DailyService {
         canonicalAction,
         actionHash,
         response,
-        terminal: result.terminal,
+        terminal,
         resultHash,
         now,
       });

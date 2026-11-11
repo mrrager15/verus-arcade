@@ -14,6 +14,7 @@
  * zodat de bestaande foutafhandeling van de router ze oppakt.
  */
 import crypto from 'node:crypto';
+import { recordActions } from './attempt-actions.mjs';
 import { DailyServiceError } from './daily-service.mjs';
 import { RepositoryConflictError } from './db/repository.mjs';
 import { actionsSha256, buildAttemptMessage } from './verus/attempt-message.mjs';
@@ -78,11 +79,10 @@ export class AttemptSignatureService {
     return attempt;
   }
 
-  #guesses(attemptId) {
-    return this.repository.listAttemptActions(attemptId).map((entry) => ({
-      sequence: entry.sequence,
-      word: entry.action.payload?.word ?? entry.action.guess,
-    }));
+  /** De zetten zoals ze in het resultaatrecord komen (schema 2: word, schema 3: value). */
+  #guesses(attempt, round) {
+    const definition = round ? this.repository.getRoundPrivateDefinition(round.id) : null;
+    return recordActions(this.repository.listAttemptActions(attempt.id), definition);
   }
 
   #translate(error) {
@@ -111,7 +111,7 @@ export class AttemptSignatureService {
       const message = buildAttemptMessage({
         roundId: round.round_id,
         playerIAddress: attempt.player_i_address,
-        actionsSha256: actionsSha256(this.#guesses(attempt.id)),
+        actionsSha256: actionsSha256(this.#guesses(attempt, round)),
       });
       const requestIdHex = this.createRequestIdHex();
       const built = await this.verus.createSignRequest({

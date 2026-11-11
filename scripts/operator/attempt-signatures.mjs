@@ -4,14 +4,14 @@
  * Toont per poging: speler, status, ondertekenaar, hoogte. Met --with-signature ook bericht
  * en handtekening (publiek), om ze los van de server te verifiëren met `verifysignature`.
  */
-import path from 'node:path';
 
 import { createRuntimeServices } from '../../server/runtime-services.mjs';
+import { applyTestRoundEnvironment } from '../../server/test-rounds.mjs';
 
 const roundRecordId = process.argv[2];
 const withSignature = process.argv.includes('--with-signature'); // handtekening en bericht meeprinten (publieke data) voor onafhankelijke verificatie
 if (!roundRecordId) throw new Error('Gebruik: node scripts/operator/attempt-signatures.mjs <ronde-id>');
-const databasePath = process.env.ARCADE_DATABASE_PATH ?? path.resolve('server', 'data', 'arcade.sqlite');
+const { databasePath } = applyTestRoundEnvironment();
 const services = createRuntimeServices({ databasePath });
 try {
   const round = services.repository.getRound(roundRecordId);

@@ -31,7 +31,7 @@ const LOGIN_RETURN_PATH = '/verus/login-return';
 const WALLET_RETURN_PATH = '/verus/wallet-return';
 
 /** Build the Express app with /verus (auth) and /api (game) mounted. */
-export function makeArcadeApp({ dailyService = null, attemptSignatureService = null, playerPublicationService = null } = {}) {
+export function makeArcadeApp({ dailyService = null, attemptSignatureService = null, playerPublicationService = null, attestationService = null } = {}) {
   const app = express();
 
   // Landingspagina voor de browser op de telefoon na een wallet-actie
@@ -41,7 +41,8 @@ export function makeArcadeApp({ dailyService = null, attemptSignatureService = n
     const ok = request.query.signed === '1' || request.query.ok === '1';
     const error = typeof request.query.returnError === 'string' ? request.query.returnError.slice(0, 40) : null;
     response.set('Cache-Control', 'no-store');
-    response.type('html').send(walletReturnPage({ kind, ok, error }));
+    const challenge = typeof request.query.challenge === 'string' ? request.query.challenge : null;
+    response.type('html').send(walletReturnPage({ kind, ok, error, challenge }));
   });
 
   // Redirect-transport voor de login: Mobile opent deze URL met het getekende
@@ -88,6 +89,7 @@ export function makeArcadeApp({ dailyService = null, attemptSignatureService = n
         resolveSession,
         attemptSignatureService,
         playerPublicationService,
+        attestationService,
         // Na een handtekening of publicatie landt de telefoon op dezelfde landingspagina;
         // de router zet zelf `kind=sign` of `kind=publish` in de query.
         walletReturnPath: WALLET_RETURN_PATH,

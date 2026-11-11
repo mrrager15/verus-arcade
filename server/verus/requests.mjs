@@ -30,6 +30,20 @@ export const GENERIC_RESPONSE_QUERY_KEY = P.GENERIC_RESPONSE_DEEPLINK_VDXF_KEY.v
 const ID_ADDRESS_VERSION = 102; // i-adres
 const R_ADDRESS_VERSION = 60; // R-adres (primair adres)
 const MAX_CALLBACK_BYTES = 65_536;
+/**
+ * Verus Mobile weigert langere deeplinks: `urlstring.length >= MAX_DEEPLINK_STRING_LENGTH`
+ * met MAX_DEEPLINK_STRING_LENGTH = 2046 (src/utils/constants/deeplink.js, master 25515ff,
+ * okt 2026) → "Deeplink URL max length exceeded." Live gezien op 11 nov met 2137 tekens.
+ */
+export const MOBILE_MAX_DEEPLINK_LENGTH = 2045;
+
+/** Weigert een verzoek dat Verus Mobile niet zou inlezen. */
+function walletUriWithinLimit(uri) {
+  if (uri.length > MOBILE_MAX_DEEPLINK_LENGTH) {
+    throw new VerusRequestError('WALLET_REQUEST_TOO_LARGE', `The wallet request is ${uri.length} characters; Verus Mobile accepts at most ${MOBILE_MAX_DEEPLINK_LENGTH}.`);
+  }
+  return uri;
+}
 
 /** @typedef {'INVALID_SIGNATURE'|'SIGNER_MISMATCH'|'UNSUPPORTED_NETWORK'|'CHAIN_UNAVAILABLE'|'SERVICE_UNAVAILABLE'} VerusRequestErrorCode */
 
@@ -401,6 +415,49 @@ export class VerusRequests {
     return { height, historical: state.historical, state };
   }
 
+  /**
+   * Fase 2b: tekent de wortel van een attestatie-MMR met de service-identiteit
+   * (Arcade@), in dezelfde vorm als `signdata` met `createmmr`: VerusID-
+   * handtekening versie 2, sha256, over de wortel zoals in `mmrroot`. Geen
+   * transactie, geen daemon-sleutel nodig. Controleert de eigen handtekening.
+   * @param {string} rootHex
+   * @returns {Promise<{ signaturedata: object, signatureheight: number }>}
+   */
+  async signMmrRoot(rootHex) {
+    check(typeof rootHex === 'string' && /^[0-9a-f]{64}$/.test(rootHex), 'Invalid MMR root.');
+    const { height, historical } = await this.serviceState();
+    const signaturedata = {
+      version: 1, systemid: TESTNET_SYSTEM_ID, hashtype: 5, signaturehash: rootHex,
+      identityid: this.serviceId, signaturetype: 1,
+    };
+    const digest = P.SignatureData.fromJson({ ...signaturedata, signature: '' }).getIdentityHash({ version: 2, hash_type: 5, height });
+    const signature = await this.client.signHash(this.serviceId, digest, this.serviceWif, historical, height, TESTNET_SYSTEM_ID);
+    check(await this.client.verifyHash(this.serviceId, signature, digest, historical, TESTNET_SYSTEM_ID), 'The service key cannot sign for the service identity.');
+    return { signaturedata: { ...signaturedata, signature }, signatureheight: height };
+  }
+
+  /**
+   * Fase 2b: controleert een handtekening over een MMR-wortel (zoals `signdata`
+   * of `signMmrRoot` ze geeft) tegen de sleutels van de ondertekenaar op
+   * tekenhoogte, via de SDK. De hoogte in de handtekening moet gelijk zijn aan
+   * `signatureheight`, en de ondertekenaar mag toen niet ingetrokken zijn.
+   * @returns {Promise<{ valid: true, identityId: string, signatureHeight: number }>}
+   */
+  async verifyMmrRootSignature({ signaturedata, signatureheight }) {
+    const sd = signaturedata ?? {};
+    check(/^[0-9a-f]{64}$/.test(sd.signaturehash ?? '') && Number(sd.hashtype) === 5 && Number(sd.signaturetype) === 1, 'Unsupported MMR signature.');
+    if (sd.systemid !== TESTNET_SYSTEM_ID) throw new VerusRequestError('UNSUPPORTED_NETWORK', 'Only VRSCTEST signatures are supported.');
+    try { rawId(sd.identityid); } catch { check(false, 'Invalid signer.'); }
+    const bytes = Buffer.from(String(sd.signature ?? ''), 'base64');
+    const height = nativeHeight(bytes);
+    check(height === Number(signatureheight), 'Signature height mismatch.');
+    const state = await this.loadIdentity({ identityId: sd.identityid, signingHeight: height });
+    check(!state.revokedAtSigning, 'The signing identity was revoked at signing height.');
+    const digest = P.SignatureData.fromJson({ ...sd, signature: '' }).getIdentityHash({ version: 2, hash_type: 5, height });
+    check(await this.client.verifyHash(sd.identityid, bytes.toString('base64'), digest, state.historical, TESTNET_SYSTEM_ID), 'Invalid signature.');
+    return { valid: true, identityId: sd.identityid, signatureHeight: height };
+  }
+
   /** Blocktijd van een hoogte; nodig om GenericRequest/Response te verifiëren. */
   async blockTime(height) {
     const block = await this.chain(() => this.client.interface.getBlock(String(height)));
@@ -460,7 +517,7 @@ export class VerusRequests {
     return {
       requestHex: signed.toBuffer().toString('hex'),
       requestHashHex: signed.getRawDataSha256().toString('hex'),
-      walletUri: signed.toWalletDeeplinkUri(),
+      walletUri: walletUriWithinLimit(signed.toWalletDeeplinkUri()),
       height,
     };
   }
@@ -533,7 +590,7 @@ export class VerusRequests {
     return {
       requestHex,
       requestHashHex: signed.getRawDataSha256().toString('hex'),
-      walletUri: signed.toWalletDeeplinkUri(),
+      walletUri: walletUriWithinLimit(signed.toWalletDeeplinkUri()),
       height,
       expiryHeight,
     };

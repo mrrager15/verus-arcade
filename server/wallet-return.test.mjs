@@ -47,6 +47,12 @@ test('landingspagina toont uitkomst zonder details te lekken', () => {
   assert.match(bad, /Handtekening niet verwerkt/);
   assert.match(bad, /INVALID_&lt;CALLBACK&gt;/);
   assert.doesNotMatch(bad, /<CALLBACK>/);
+  // zelfde toestel: knop om de sessie in deze browser op te halen, alleen bij een geslaagde login met geldige challenge
+  const here = walletReturnPage({ kind: 'login', ok: true, challenge: 'ab'.repeat(16) });
+  assert.match(here, /href="\/\?loginChallenge=abababababababababababababababab"/);
+  assert.doesNotMatch(walletReturnPage({ kind: 'login', ok: true, challenge: '"><script>' }), /loginChallenge|<script>/);
+  assert.doesNotMatch(walletReturnPage({ kind: 'login', ok: false, challenge: 'ab'.repeat(16) }), /loginChallenge/);
+  assert.doesNotMatch(walletReturnPage({ kind: 'sign', ok: true, challenge: 'ab'.repeat(16) }), /loginChallenge/);
 });
 
 test('login-return geeft bytes door aan de POST-route en landt op de pagina', async () => {
@@ -67,7 +73,7 @@ test('login-return geeft bytes door aan de POST-route en landt op de pagina', as
   try {
     const ok = await fetch(`${base}/verus/login-return?challengeId=${CHALLENGE}&${LOGIN_RESPONSE_QUERY_KEY}=${ENCODED}`, { redirect: 'manual' });
     assert.equal(ok.status, 303);
-    assert.equal(ok.headers.get('location'), '/verus/wallet-return?kind=login&ok=1');
+    assert.equal(ok.headers.get('location'), `/verus/wallet-return?kind=login&ok=1&challenge=${CHALLENGE}`);
     assert.equal(received.length, 1);
     assert.equal(received[0].id, CHALLENGE);
     assert.deepEqual(received[0].body, BYTES);

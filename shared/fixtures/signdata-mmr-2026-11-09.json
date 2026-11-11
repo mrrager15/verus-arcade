@@ -1,0 +1,71 @@
+{
+  "_bron": "signdata met createmmr op Arcade.VRSCTEST@ via Simons VRSCTEST-daemon, 9 nov 2026 (publieke testdata, geen sleutels)",
+  "request": {
+    "address": "Arcade.VRSCTEST@",
+    "mmrdata": [
+      {
+        "message": "streak:1"
+      },
+      {
+        "message": "rating:1500"
+      },
+      {
+        "message": "rounds:1"
+      }
+    ],
+    "mmrsalt": [
+      "a07d5a59228630431a4d7bdd1fd740d60a515724067787d8ec1a174d5bd609b4",
+      "c4f09575ecdbc339ad0c8d068b40093b08a153d84e4e41d5a8ccd1d06ca4e530",
+      "766f943ecaa4cf17a27e03e6c7feb9dea144819f964bf09fc24b841d30b18abd"
+    ],
+    "mmrhashtype": "sha256",
+    "hashtype": "sha256",
+    "createmmr": true
+  },
+  "mmrdescriptor": {
+    "version": 1,
+    "objecthashtype": 5,
+    "mmrhashtype": 5,
+    "mmrroot": {
+      "version": 1,
+      "flags": 0,
+      "objectdata": "090af1a09525917a52986bef5285d168b818cca11dfd4f274b523a3d65dde0b4"
+    },
+    "mmrhashes": {
+      "version": 1,
+      "flags": 0,
+      "objectdata": "41d826d3c6cbbc3a96992670d2f604e959fd1a8c016103855ecb7096c1a3a59c968d4700ed9b76ea0cc54ed840f60b36fd80d51cd524d9687964bff7d65272e99db8a5b2919323e70d4b9999074ca1e93058632d05f8a6db060ee52b3b1b07d7dba44ab1feb538efba747c8258316a9456476e8bcceaba"
+    },
+    "datadescriptors": [
+      {
+        "version": 1,
+        "flags": 2,
+        "objectdata": "73747265616b3a31",
+        "salt": "a07d5a59228630431a4d7bdd1fd740d60a515724067787d8ec1a174d5bd609b4"
+      },
+      {
+        "version": 1,
+        "flags": 2,
+        "objectdata": "726174696e673a31353030",
+        "salt": "c4f09575ecdbc339ad0c8d068b40093b08a153d84e4e41d5a8ccd1d06ca4e530"
+      },
+      {
+        "version": 1,
+        "flags": 2,
+        "objectdata": "726f756e64733a31",
+        "salt": "766f943ecaa4cf17a27e03e6c7feb9dea144819f964bf09fc24b841d30b18abd"
+      }
+    ]
+  },
+  "signaturedata": {
+    "version": 1,
+    "systemid": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+    "hashtype": 5,
+    "signaturehash": "090af1a09525917a52986bef5285d168b818cca11dfd4f274b523a3d65dde0b4",
+    "identityid": "i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp",
+    "signaturetype": 1,
+    "signature": "AgVMAhQAAUEg++XqbfSv8zrq+wnpQXJaWG/nIEaa7OWoEPSTp6vDHNEV0os6irObukPbhVF7R22U0d21ZNzRNLrkfBnOySWK9Q=="
+  },
+  "signatureheight": 1311308,
+  "signerPrimaryAddress": "R9txC8e9jmbCdyuSAgRofxqA9nN2qnUHHp"
+}

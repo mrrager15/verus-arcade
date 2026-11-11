@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { AttemptSignatureService } from './attempt-signature-service.mjs';
 import { DailyService } from './daily-service.mjs';
 import { PlayerPublicationService } from './player-publication-service.mjs';
+import { AttestationService } from './attestation-service.mjs';
 import { migrate } from './db/migrate.mjs';
 import { ArcadeRepository } from './db/repository.mjs';
 import { createVerusRequestsFromEnv } from './verus/requests.mjs';
@@ -57,12 +58,17 @@ export function createRuntimeServices({
   const playerPublicationService = runtime
     ? createPlayerPublicationService({ repository, runtime, env })
     : null;
+  // Fase 2b: zelfde wallet-laag (service-ID) voor het controleren van attestaties.
+  const attestationService = playerPublicationService
+    ? new AttestationService({ repository, verusRequests: playerPublicationService.verus })
+    : null;
   return {
     database,
     repository,
     dailyService: new DailyService({ repository }),
     attemptSignatureService,
     playerPublicationService,
+    attestationService,
     close() {
       database.close();
     },

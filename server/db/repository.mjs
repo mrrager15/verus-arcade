@@ -37,6 +37,12 @@ const JOURNAL_TRANSITIONS = Object.freeze({
   failed: new Set(),
 });
 
+const PUBLICATION_KINDS = new Set(['result', 'attestation']);
+function checkKind(kind) {
+  if (!PUBLICATION_KINDS.has(kind)) throw new Error(`Unknown publication kind: ${kind}`);
+  return kind;
+}
+
 export class ArcadeRepository {
   constructor(database) {
     this.database = database;
@@ -988,10 +994,10 @@ export class ArcadeRepository {
 
   // ── Fase 2: publicaties in het ID van de speler ───────────────────────────
 
-  getPlayerPublication(attemptId) {
+  getPlayerPublication(attemptId, kind = 'result') {
     const row = this.database
-      .prepare('SELECT * FROM player_publications WHERE attempt_id = ?')
-      .get(attemptId);
+      .prepare('SELECT * FROM player_publications WHERE attempt_id = ? AND kind = ?')
+      .get(attemptId, checkKind(kind));
     return row ? mapPlayerPublication(row) : null;
   }
 
@@ -1008,11 +1014,12 @@ export class ArcadeRepository {
    * publicatie blijft staan: nooit stilzwijgend overschrijven.
    */
   createPlayerPublication({
-    attemptId, contentKey, contentKeyFqn, recordJson, recordSha256, requestIdHex, requestHex,
+    attemptId, kind = 'result', contentKey, contentKeyFqn, recordJson, recordSha256, requestIdHex, requestHex,
     walletUri, responseMode, createdHeight, expiresHeight, now,
   }) {
+    checkKind(kind);
     return inImmediateTransaction(this.database, () => {
-      const existing = this.getPlayerPublication(attemptId);
+      const existing = this.getPlayerPublication(attemptId, kind);
       if (existing && !['expired', 'mismatch'].includes(existing.status)) {
         throw new RepositoryConflictError(
           'PLAYER_PUBLICATION_EXISTS',
@@ -1020,37 +1027,37 @@ export class ArcadeRepository {
         );
       }
       if (existing) {
-        this.database.prepare('DELETE FROM player_publications WHERE attempt_id = ?').run(attemptId);
+        this.database.prepare('DELETE FROM player_publications WHERE attempt_id = ? AND kind = ?').run(attemptId, kind);
       }
       this.database
         .prepare(`
           INSERT INTO player_publications (
-            attempt_id, content_key, content_key_fqn, record_json, record_sha256, request_id_hex,
+            attempt_id, kind, content_key, content_key_fqn, record_json, record_sha256, request_id_hex,
             request_hex, wallet_uri, response_mode, status, created_height, expires_height, created_at_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
         `)
         .run(
-          attemptId, contentKey, contentKeyFqn, recordJson, recordSha256, requestIdHex,
+          attemptId, kind, contentKey, contentKeyFqn, recordJson, recordSha256, requestIdHex,
           requestHex, walletUri, responseMode, createdHeight, expiresHeight, now,
         );
-      return this.getPlayerPublication(attemptId);
+      return this.getPlayerPublication(attemptId, kind);
     });
   }
 
-  markPlayerPublicationExpired(attemptId) {
+  markPlayerPublicationExpired(attemptId, kind = 'result') {
     this.database
-      .prepare("UPDATE player_publications SET status = 'expired' WHERE attempt_id = ? AND status = 'pending'")
-      .run(attemptId);
-    return this.getPlayerPublication(attemptId);
+      .prepare("UPDATE player_publications SET status = 'expired' WHERE attempt_id = ? AND kind = ? AND status = 'pending'")
+      .run(attemptId, checkKind(kind));
+    return this.getPlayerPublication(attemptId, kind);
   }
 
   /** Ontvangstbewijs: de wallet meldt een txid. Nog geen bevestiging. Idempotent voor dezelfde txid. */
-  markPlayerPublicationReceipt({ attemptId, receiptTxid, now }) {
+  markPlayerPublicationReceipt({ attemptId, kind = 'result', receiptTxid, now }) {
     if (!/^[0-9a-f]{64}$/.test(receiptTxid)) {
       throw new Error('Receipt transaction ID must be 64 lowercase hex characters');
     }
     return inImmediateTransaction(this.database, () => {
-      const existing = this.getPlayerPublication(attemptId);
+      const existing = this.getPlayerPublication(attemptId, kind);
       if (!existing) throw new RepositoryConflictError('PLAYER_PUBLICATION_MISSING', 'No publication request for attempt');
       if (existing.status !== 'pending') {
         if (existing.receiptTxid === receiptTxid) return { created: false, publication: existing };
@@ -1063,15 +1070,15 @@ export class ArcadeRepository {
         .prepare(`
           UPDATE player_publications
           SET status = 'receipt', receipt_txid = ?, receipt_at_ms = ?
-          WHERE attempt_id = ?
+          WHERE attempt_id = ? AND kind = ?
         `)
-        .run(receiptTxid, now, attemptId);
-      return { created: true, publication: this.getPlayerPublication(attemptId) };
+        .run(receiptTxid, now, attemptId, kind);
+      return { created: true, publication: this.getPlayerPublication(attemptId, kind) };
     });
   }
 
   /** Bevestiging na teruglezen van de chain: het record staat er en de hash klopt. */
-  markPlayerPublicationPublished({ attemptId, publishedTxid, publishedHeight, now }) {
+  markPlayerPublicationPublished({ attemptId, kind = 'result', publishedTxid, publishedHeight, now }) {
     if (!/^[0-9a-f]{64}$/.test(publishedTxid) || !Number.isSafeInteger(publishedHeight) || publishedHeight < 1) {
       throw new Error('Published transaction ID and height are required');
     }
@@ -1079,27 +1086,27 @@ export class ArcadeRepository {
       .prepare(`
         UPDATE player_publications
         SET status = 'published', published_txid = ?, published_height = ?, published_at_ms = ?, last_checked_at_ms = ?
-        WHERE attempt_id = ? AND status = 'receipt'
+        WHERE attempt_id = ? AND kind = ? AND status = 'receipt'
       `)
-      .run(publishedTxid, publishedHeight, now, now, attemptId);
+      .run(publishedTxid, publishedHeight, now, now, attemptId, checkKind(kind));
     if (updated.changes !== 1) {
       throw new RepositoryConflictError('PLAYER_PUBLICATION_CONFLICT', 'Publication is missing or not awaiting confirmation');
     }
-    return this.getPlayerPublication(attemptId);
+    return this.getPlayerPublication(attemptId, kind);
   }
 
   /** Het record op de chain wijkt af van wat wij gaven: nooit 'published'. */
-  markPlayerPublicationMismatch({ attemptId, now }) {
+  markPlayerPublicationMismatch({ attemptId, kind = 'result', now }) {
     this.database
-      .prepare("UPDATE player_publications SET status = 'mismatch', last_checked_at_ms = ? WHERE attempt_id = ? AND status = 'receipt'")
-      .run(now, attemptId);
-    return this.getPlayerPublication(attemptId);
+      .prepare("UPDATE player_publications SET status = 'mismatch', last_checked_at_ms = ? WHERE attempt_id = ? AND kind = ? AND status = 'receipt'")
+      .run(now, attemptId, checkKind(kind));
+    return this.getPlayerPublication(attemptId, kind);
   }
 
-  touchPlayerPublicationChecked({ attemptId, now }) {
+  touchPlayerPublicationChecked({ attemptId, kind = 'result', now }) {
     this.database
-      .prepare('UPDATE player_publications SET last_checked_at_ms = ? WHERE attempt_id = ?')
-      .run(now, attemptId);
+      .prepare('UPDATE player_publications SET last_checked_at_ms = ? WHERE attempt_id = ? AND kind = ?')
+      .run(now, attemptId, checkKind(kind));
   }
 
   /** Publicaties die op bevestiging wachten, oudste controle eerst (voor de reconcile-taak). */
@@ -1113,6 +1120,63 @@ export class ArcadeRepository {
       `)
       .all(limit)
       .map(mapPlayerPublication);
+  }
+
+  // ---- Fase 2b: attestaties ------------------------------------------------
+
+  getAttestation({ playerIAddress, roundRecordId }) {
+    const row = this.database
+      .prepare('SELECT * FROM attestations WHERE player_i_address = ? AND round_record_id = ?')
+      .get(playerIAddress, roundRecordId);
+    return row ? mapAttestation(row) : null;
+  }
+
+  listRoundAttestations(roundRecordId) {
+    return this.database
+      .prepare('SELECT * FROM attestations WHERE round_record_id = ? ORDER BY player_i_address')
+      .all(roundRecordId)
+      .map(mapAttestation);
+  }
+
+  /** Alle attestaties van een speler voor één spel, oudste ronde eerst. */
+  listPlayerAttestations({ chainId, gameId, gameVersion, playerIAddress }) {
+    return this.database
+      .prepare(`
+        SELECT a.*
+        FROM attestations a
+        JOIN rounds r ON r.id = a.round_record_id
+        WHERE a.chain_id = ? AND a.game_id = ? AND a.game_version = ? AND a.player_i_address = ?
+        ORDER BY r.opens_at_ms
+      `)
+      .all(chainId, gameId, gameVersion, playerIAddress)
+      .map(mapAttestation);
+  }
+
+  /** Slaat een attestatie op. Weigert een tweede voor dezelfde speler en ronde. */
+  insertAttestation(attestation) {
+    try {
+      this.database
+        .prepare(`
+          INSERT INTO attestations (
+            player_i_address, round_record_id, attempt_id, chain_id, game_id, game_version,
+            schema_version, descriptor_json, root, prev_root, streak, rounds, solved,
+            signature_json, signature_height, created_at_ms
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          attestation.playerIAddress, attestation.roundRecordId, attestation.attemptId,
+          attestation.chainId, attestation.gameId, attestation.gameVersion,
+          attestation.schemaVersion, JSON.stringify(attestation.descriptor), attestation.root,
+          attestation.prevRoot ?? null, attestation.streak, attestation.rounds, attestation.solved,
+          JSON.stringify(attestation.signaturedata), attestation.signatureHeight, attestation.now,
+        );
+    } catch (error) {
+      if (/UNIQUE|PRIMARY KEY/.test(error.message)) {
+        throw new RepositoryConflictError('ATTESTATION_EXISTS', 'Attestation already exists for this player and round');
+      }
+      throw error;
+    }
+    return this.getAttestation(attestation);
   }
 
   /** Alle handtekeningen van een ronde, voor het resultaatrecord. */
@@ -1130,9 +1194,31 @@ export class ArcadeRepository {
   }
 }
 
+function mapAttestation(row) {
+  return {
+    playerIAddress: row.player_i_address,
+    roundRecordId: row.round_record_id,
+    attemptId: row.attempt_id,
+    chainId: row.chain_id,
+    gameId: row.game_id,
+    gameVersion: row.game_version,
+    schemaVersion: Number(row.schema_version),
+    descriptor: JSON.parse(row.descriptor_json),
+    root: row.root,
+    prevRoot: row.prev_root,
+    streak: Number(row.streak),
+    rounds: Number(row.rounds),
+    solved: Number(row.solved),
+    signaturedata: JSON.parse(row.signature_json),
+    signatureHeight: Number(row.signature_height),
+    createdAt: Number(row.created_at_ms),
+  };
+}
+
 function mapPlayerPublication(row) {
   return {
     attemptId: row.attempt_id,
+    kind: row.kind ?? 'result',
     contentKey: row.content_key,
     contentKeyFqn: row.content_key_fqn,
     recordJson: row.record_json,

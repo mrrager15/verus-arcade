@@ -9,6 +9,8 @@ import { createDailyRouter } from './daily-router.mjs';
 import { migrate } from './db/migrate.mjs';
 import { ArcadeRepository } from './db/repository.mjs';
 import { PlayerPublicationService } from './player-publication-service.mjs';
+import { createRoundAttestations } from './attestation-service.mjs';
+import { canonicalJson } from './canonical-json.mjs';
 import { validatePlayerResultRecord } from './verus/player-result.mjs';
 import { P } from './verus/requests.mjs';
 import { GENERIC_RESPONSE_QUERY_KEY, VerusRequestError } from './verus/requests.mjs';
@@ -69,12 +71,13 @@ function setup({ tip = 1000, now = 5_000 } = {}) {
   });
   repository.openRound({ id: 'round-1', commitmentTxid: 'a'.repeat(64) });
   const verus = fakeVerus({ tip });
+  const time = { now };
   let counter = 0;
   const service = new PlayerPublicationService({
     repository, verusRequests: verus, origin: 'http://127.0.0.1:8100/', responseMode: 'redirect', ttlBlocks: 60,
-    clock: () => now, createRequestIdHex: () => (++counter).toString(16).padStart(40, '0'),
+    clock: () => time.now, createRequestIdHex: () => (++counter).toString(16).padStart(40, '0'),
   });
-  return { database, repository, daily, verus, service };
+  return { database, repository, daily, verus, service, time };
 }
 
 function completeAttempt(daily, words = ['slate', 'crane']) {
@@ -326,5 +329,57 @@ test('reconcile leest de versleutelde verwijzing van Verus Mobile terug via het 
   assert.equal(r.after, 'published');
   assert.deepEqual(r.kinds, ['encrypted-ref']);
   assert.equal(r.height, 1003);
+  ctx.database.close();
+});
+
+test('fase 2b: verzegelde attestatie publiceren naast het resultaat; wachten leest zelf de chain terug', async () => {
+  const ctx = setup();
+  const attemptId = completeAttempt(ctx.daily);
+  ctx.repository.createAttemptSignature({
+    attemptId, requestIdHex: '9'.repeat(40), requestHex: 'aa', requestHashHex: 'bb'.repeat(32), message: 'm',
+    walletUri: 'verus://x', responseMode: 'redirect', createdHeight: 1, expiresHeight: 61, now: 4_000,
+  });
+  ctx.repository.markAttemptSignatureSigned({ attemptId, signerIAddress: PLAYER, signingHeight: 2, nativeSignature: Buffer.alloc(73, 7).toString('base64'), now: 4_500 });
+  finalizeAndConfirm(ctx.repository);
+  await assert.rejects(ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'attestation' }), (e) => e.code === 'ATTESTATION_NOT_FOUND' && e.httpStatus === 409);
+  const signer = {
+    serviceId: ARCADE,
+    async signMmrRoot(root) {
+      return { signaturedata: { version: 1, systemid: 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq', hashtype: 5, signaturehash: root, identityid: ARCADE, signaturetype: 1, signature: 'sig' }, signatureheight: 999 };
+    },
+  };
+  await createRoundAttestations({ repository: ctx.repository, signer, roundRecordId: 'round-1', now: 20_000 });
+
+  // beide soorten naast elkaar voor dezelfde poging, elk met een eigen key
+  const result = await ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId });
+  const att = await ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'attestation' });
+  assert.deepEqual([result.publication.kind, att.publication.kind], ['result', 'attestation']);
+  assert.equal(att.publication.contentKeyName, `Arcade.VRSCTEST.::arcade.player.attestation.${ROUND_ID}`);
+  assert.notEqual(att.publication.contentKey, result.publication.contentKey);
+  assert.deepEqual(Object.keys(att.publication.record).sort(), ['height', 'leaves', 'round', 'schema', 'signature', 'version']);
+  assert.doesNotMatch(JSON.stringify(att.publication.record), /salt|streak/);
+  await assert.rejects(ctx.service.createPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'other' }), (e) => e.code === 'INVALID_PUBLICATION_KIND');
+
+  // wallet-antwoord op het attestatie-verzoek: alleen die soort krijgt een ontvangstbewijs
+  const accepted = await ctx.service.acceptResponse({ requestIdHex: att.publication.requestId, body: Buffer.from('wallet') });
+  assert.deepEqual([accepted.publication.kind, accepted.publication.status], ['attestation', 'receipt']);
+  assert.equal((await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId })).publication.status, 'pending');
+
+  // wachten: de eerste poll leest de chain, een tweede binnen 15 s niet
+  let reads = 0;
+  const read = ctx.verus.readIdentityContent.bind(ctx.verus);
+  ctx.verus.readIdentityContent = (input) => { reads += 1; return read(input); };
+  assert.equal((await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'attestation' })).publication.status, 'receipt');
+  assert.equal((await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'attestation' })).publication.status, 'receipt');
+  assert.equal(reads, 1);
+
+  // record verschijnt op de chain → na 15 s leest de poll het terug: published
+  ctx.verus.state.chainValues = (keyId) => (keyId === att.publication.contentKey ? [chainValueFor(canonicalJson(att.publication.record))] : []);
+  ctx.verus.state.receiptStatus = { confirmations: 1, height: 1001 };
+  ctx.time.now = 25_000;
+  const done = await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'attestation' });
+  assert.deepEqual([done.publication.status, done.publication.publishedHeight], ['published', 1001]);
+  assert.equal(reads, 2);
+  assert.equal((await ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId })).publication.status, 'pending');
   ctx.database.close();
 });

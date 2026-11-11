@@ -20,7 +20,8 @@ import { canonicalJson } from '../canonical-json.mjs';
 
 export const ATTEMPT_MESSAGE_TITLE = 'Verus Arcade attempt v1';
 
-const ROUND_ID = /^[a-z0-9][a-z0-9-]{0,40}:\d+\.\d+\.\d+:\d{4}-\d{2}-\d{2}$/;
+// Daily `…:JJJJ-MM-DD`, testronde `…:JJJJ-MM-DDTUUMM` (server/test-rounds.mjs).
+const ROUND_ID = /^[a-z0-9][a-z0-9-]{0,40}:\d+\.\d+\.\d+:\d{4}-\d{2}-\d{2}(T\d{4})?$/;
 const I_ADDRESS = /^i[1-9A-HJ-NP-Za-km-z]{33}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
 const PROFILE = new RegExp(

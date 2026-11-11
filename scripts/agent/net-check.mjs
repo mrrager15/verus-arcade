@@ -49,6 +49,8 @@ console.log(JSON.stringify({
   listening,
   firewallProfiles: ps('Get-NetFirewallProfile | Select-Object Name,Enabled,DefaultInboundAction,AllowInboundRules,AllowLocalFirewallRules | ConvertTo-Json -Compress'),
   securityProducts: ps("@(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName FirewallProduct) + @(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct) | Select-Object displayName,productState | ConvertTo-Json -Compress"),
+  // ARP-tabel voor het doel: staat het MAC-adres van de gsm erin, dan zien pc en gsm elkaar op laag 2.
+  arp: pingTarget ? (() => { try { return execFileSync('arp.exe', ['-a'], { encoding: 'utf8', timeout: 10_000 }).split('\n').filter((l) => l.includes(pingTarget.split('.').slice(0, 3).join('.'))).map((l) => l.trim()).slice(0, 30); } catch (e) { return `arp mislukt: ${e.message}`; } })() : null,
   ping: pingTarget ? (() => { try { return execFileSync('ping.exe', ['-n', '2', '-w', '1500', pingTarget], { encoding: 'utf8', timeout: 10_000 }).trim().split('\n').slice(-3).join(' | '); } catch (e) { return `geen antwoord (${(e.stdout ?? e.message).toString().trim().split('\n').slice(-2).join(' | ')})`; } })() : null,
   networkProfiles: ps('Get-NetConnectionProfile | Select-Object Name,InterfaceAlias,NetworkCategory | ConvertTo-Json -Compress'),
   firewallRulesForNode: ps("Get-NetFirewallApplicationFilter | Where-Object { $_.Program -like '*node*' } | ForEach-Object { $r = $_ | Get-NetFirewallRule; [pscustomobject]@{ program=$_.Program; name=$r.DisplayName; enabled=[string]$r.Enabled; action=[string]$r.Action; direction=[string]$r.Direction; profile=[string]$r.Profile } } | ConvertTo-Json -Compress"),

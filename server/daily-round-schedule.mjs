@@ -58,6 +58,28 @@ export function dailyRoundSchedule({ date, opensAt, closesAt, now = Date.now() }
 }
 
 /**
+ * Testronde (zie server/test-rounds.mjs): opent nu (afgerond op de minuut, UTC)
+ * en sluit na `minutes` minuten. Record-ID met tijdslot: `…:JJJJ-MM-DDTUUMM`.
+ */
+export function testRoundSchedule({ minutes, now = Date.now() }) {
+  const n = Number(minutes);
+  if (!Number.isSafeInteger(n) || n < 3 || n > 180) throw new Error('--test-minutes moet tussen 3 en 180 liggen');
+  const opensAtMs = Math.floor(now / 60_000) * 60_000;
+  const closesAtMs = opensAtMs + n * 60_000;
+  const iso = new Date(opensAtMs).toISOString();
+  const date = iso.slice(0, 10);
+  const slot = `${iso.slice(11, 13)}${iso.slice(14, 16)}`;
+  return {
+    date,
+    recordId: `${dailyRoundRecordId(date)}T${slot}`,
+    opensAt: iso,
+    closesAt: new Date(closesAtMs).toISOString(),
+    opensAtMs,
+    closesAtMs,
+  };
+}
+
+/**
  * Bouwt de geheime rondedefinitie (schema 1) voor een Daily: willekeurig
  * antwoord, puzzle-seed en salt. Alleen de sha256 hiervan komt op de chain.
  * `random` is injecteerbaar voor tests.
@@ -73,7 +95,7 @@ export function createDailyHiddenDefinition({
   }
   return {
     schemaVersion: 1,
-    roundId: dailyRoundRecordId(schedule.date),
+    roundId: schedule.recordId ?? dailyRoundRecordId(schedule.date),
     chainId,
     gameId: WORD_GRID_GAME_ID,
     gameVersion: WORD_GRID_VERSION,
@@ -92,7 +114,7 @@ export function createDailyHiddenDefinition({
  */
 export function parseRoundCreateOptions(argv = []) {
   const options = {};
-  const names = { '--date': 'date', '--opens-at': 'opensAt', '--closes-at': 'closesAt' };
+  const names = { '--date': 'date', '--opens-at': 'opensAt', '--closes-at': 'closesAt', '--test-minutes': 'testMinutes' };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     const key = names[flag];
@@ -103,5 +125,6 @@ export function parseRoundCreateOptions(argv = []) {
     options[key] = value;
     index += 1;
   }
+  if ('testMinutes' in options && Object.keys(options).length > 1) throw new Error('--test-minutes gaat niet samen met --date/--opens-at/--closes-at');
   return options;
 }

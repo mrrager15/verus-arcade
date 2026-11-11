@@ -72,21 +72,30 @@ function escapeHtml(value) {
  * `kind` is 'login', 'sign' of 'publish'; `ok` zegt of de server het antwoord aanvaardde;
  * `error` is een foutcode (nooit een boodschap met details).
  */
-export function walletReturnPage({ kind, ok, error = null }) {
+export function walletReturnPage({ kind, ok, error = null, challenge = null }) {
   const what = kind === 'login' ? 'Inloggen' : kind === 'publish' ? 'Publicatie' : 'Handtekening';
   const title = ok ? (kind === 'publish' ? 'Publicatie ontvangen' : `${what} gelukt`) : `${what} niet verwerkt`;
   const hint = ok
     ? kind === 'publish'
       ? 'Je wallet heeft de transactie gemaakt. Zodra ze bevestigd is, staat je resultaat in je VerusID; het scherm waar je speelt toont dat. Je kunt dit venster sluiten.'
-      : 'Je kunt dit venster sluiten. Kijk op het scherm waar je Verus Arcade speelt.'
+      : kind === 'login'
+        ? 'Speel je op een ander scherm (bv. de pc)? Dan ben je daar nu ingelogd en kun je dit venster sluiten.'
+        : 'Je kunt dit venster sluiten. Kijk op het scherm waar je Verus Arcade speelt.'
     : `De server heeft het antwoord niet aanvaard${error ? ` (code ${escapeHtml(error)})` : ''}. Probeer het opnieuw vanaf het scherm waar je speelt.`;
   return `<!doctype html>
 <html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Verus Arcade — ${escapeHtml(title)}</title>
 <style>body{font-family:system-ui,sans-serif;margin:0;min-height:100vh;display:grid;place-items:center;background:#0f172a;color:#e2e8f0}
 main{max-width:28rem;padding:2rem;text-align:center}h1{font-size:1.5rem;margin:0 0 .75rem}p{line-height:1.5;color:#94a3b8}
-.mark{font-size:3rem;line-height:1;margin-bottom:1rem}</style></head>
-<body><main><div class="mark">${ok ? '✓' : '✕'}</div><h1>${escapeHtml(title)}</h1><p>${hint}</p></main></body></html>`;
+.mark{font-size:3rem;line-height:1;margin-bottom:1rem}
+.here{display:inline-block;margin-top:1rem;padding:.7rem 1.2rem;border-radius:999px;background:#e2e8f0;color:#0f172a;font-weight:700;text-decoration:none}</style></head>
+<body><main><div class="mark">${ok ? '✓' : '✕'}</div><h1>${escapeHtml(title)}</h1><p>${hint}</p>${
+    // Zelfde toestel: de tab die op de login wachtte, staat in de achtergrond (mobiele browsers pauzeren die).
+    // Deze knop haalt de sessie op in déze browser via de challenge (geldig 5 min, zoals het pollen).
+    ok && kind === 'login' && typeof challenge === 'string' && /^[0-9a-f]{32}$/.test(challenge)
+      ? `<a class="here" href="/?loginChallenge=${challenge}">Op dit toestel verder spelen</a>`
+      : ''
+  }</main></body></html>`;
 }
 
 /**
@@ -111,6 +120,7 @@ export function createLoginReturnHandler({ walletReturnPath, loginPostPath = '/v
         throw new WalletReturnError(upstream.status === 404 ? 'CHALLENGE_EXPIRED' : 'VERIFICATION_FAILED', 'Login response rejected');
       }
       destination.set('ok', '1');
+      destination.set('challenge', challengeId);
     } catch (error) {
       destination.set('returnError', error instanceof WalletReturnError ? error.code : 'INTERNAL_ERROR');
       if (debug) console.error('[arcade] login-return failed:', error);

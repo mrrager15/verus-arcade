@@ -1,0 +1,1139 @@
+{
+ "description": "verifyRoundReveal-vectoren (fase 4 stap 2). Uitkomsten berekend met de code van vóór de verhuizing naar shared/ (server/round-proof.mjs en src/lib/proof-verifier.ts op master 42e738b). Echte paren gelezen van Arcade@ via api.verustest.net; \"vorm\"-gevallen hebben een kloppende commitment-hash zodat alleen de vormcontrole faalt.",
+ "generatedAt": "2026-11-14T19:33:52.855Z",
+ "readAtHeight": 1318761,
+ "cases": [
+  {
+   "name": "echt: number-target:1.0.0:2026-11-11",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-12T00:00:00.000Z",
+    "date": "2026-11-11",
+    "gameId": "number-target",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "f04c464889f230c3dd0318ecce3d609f0d9df63a008d2bfb61f9fdebb9dea4c8",
+    "opensAt": "2026-11-11T00:00:00.000Z",
+    "roundId": "number-target:1.0.0:2026-11-11",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "a751fa826077ba1681dd4c25a09ef996a2ab28864f39a77f3ae02ea1e7b07eba",
+    "hiddenDefinition": {
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-12T00:00:00.000Z",
+     "date": "2026-11-11",
+     "gameId": "number-target",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-11T00:00:00.000Z",
+     "puzzle": {
+      "numbers": [
+       100,
+       75,
+       5,
+       10,
+       2,
+       5
+      ],
+      "solution": "(100-(10*5))*5",
+      "target": 250
+     },
+     "roundId": "number-target:1.0.0:2026-11-11",
+     "salt": "ccdcd82557b18970d8df830f18e3b609f1a947f79b2bba6b3f74feec85b4d0a0",
+     "schemaVersion": 2
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": true,
+   "expectedBrowser": true,
+   "recomputedSha256": "f04c464889f230c3dd0318ecce3d609f0d9df63a008d2bfb61f9fdebb9dea4c8"
+  },
+  {
+   "name": "echt: number-target:1.0.0:2026-11-12",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-13T00:00:00.000Z",
+    "date": "2026-11-12",
+    "gameId": "number-target",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "429927777c345ef75b6349165f2b60b2a993b050bc41440baa78528f72ede649",
+    "opensAt": "2026-11-12T00:00:00.000Z",
+    "roundId": "number-target:1.0.0:2026-11-12",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "0e93673118c3d3fbf55f1aefd9f010e3f966ece15a244beab91412fdf772ceb7",
+    "hiddenDefinition": {
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-13T00:00:00.000Z",
+     "date": "2026-11-12",
+     "gameId": "number-target",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-12T00:00:00.000Z",
+     "puzzle": {
+      "numbers": [
+       100,
+       25,
+       7,
+       3,
+       6,
+       7
+      ],
+      "solution": "100+7",
+      "target": 107
+     },
+     "roundId": "number-target:1.0.0:2026-11-12",
+     "salt": "5c7ba228d2e09bec7e1653a5ba586c272ae3837c6966444c4e41b72787d7dc0d",
+     "schemaVersion": 2
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": true,
+   "expectedBrowser": true,
+   "recomputedSha256": "429927777c345ef75b6349165f2b60b2a993b050bc41440baa78528f72ede649"
+  },
+  {
+   "name": "echt: number-target:1.0.0:2026-11-13",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-14T00:00:00.000Z",
+    "date": "2026-11-13",
+    "gameId": "number-target",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "74ed00b399c693c890235b0ed5f49117d1c67887614d7ce4f8c65ab59d902aff",
+    "opensAt": "2026-11-13T00:00:00.000Z",
+    "roundId": "number-target:1.0.0:2026-11-13",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "4f91cbb7bb0847eee8c34e28f6d06feb7804b12716333b375a07d51020554784",
+    "hiddenDefinition": {
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-14T00:00:00.000Z",
+     "date": "2026-11-13",
+     "gameId": "number-target",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-13T00:00:00.000Z",
+     "puzzle": {
+      "numbers": [
+       75,
+       100,
+       8,
+       2,
+       4,
+       5
+      ],
+      "solution": "2*(75+100)",
+      "target": 350
+     },
+     "roundId": "number-target:1.0.0:2026-11-13",
+     "salt": "a1e0aeda38d7280137d9b3cee05672155ea4ecc5de9c9980e849fa78a5b3a595",
+     "schemaVersion": 2
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": true,
+   "expectedBrowser": true,
+   "recomputedSha256": "74ed00b399c693c890235b0ed5f49117d1c67887614d7ce4f8c65ab59d902aff"
+  },
+  {
+   "name": "echt: word-grid:1.0.0:2026-11-08",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "8c248034dfd9ae73b52f9f98f0435f0e7431bf9e5cb793f1f4e7ccf41532cfb9",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": true,
+   "expectedBrowser": true,
+   "recomputedSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1"
+  },
+  {
+   "name": "echt: word-grid:1.0.0:2026-11-09",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-10T00:00:00.000Z",
+    "date": "2026-11-09",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "e103df7a51c38e33ab24d49cc994dee9a5f288b0dc032aea6721c27433be1dd5",
+    "opensAt": "2026-11-09T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-09",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "56df06aee9c0272c21b5851c5f99ecf967d698d732a33136618b92049167c811",
+    "hiddenDefinition": {
+     "answer": "steel",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-10T00:00:00.000Z",
+     "date": "2026-11-09",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-09T00:00:00.000Z",
+     "puzzleSeed": "d1f4bc0ee4a9f9315e60ae795dbbd715fdf8eb9fecb4d3c23158d213791c1b82",
+     "roundId": "word-grid:1.0.0:2026-11-09",
+     "salt": "06ca08b717958ba9f33519371f0dacc53adfccd32185ae4bc539f94b294a4c17",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": true,
+   "expectedBrowser": true,
+   "recomputedSha256": "e103df7a51c38e33ab24d49cc994dee9a5f288b0dc032aea6721c27433be1dd5"
+  },
+  {
+   "name": "echt: word-grid:1.0.0:2026-11-10",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-11T00:00:00.000Z",
+    "date": "2026-11-10",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "6b614fe253b0946bbca7390a07ee5f967e7313a57b709e9e5a5c68734c4e7070",
+    "opensAt": "2026-11-10T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-10",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "58caf729d9ad3c523467f6c041ac48a223f03b499203f4eb16eab9df68565001",
+    "hiddenDefinition": {
+     "answer": "spray",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-11T00:00:00.000Z",
+     "date": "2026-11-10",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-10T00:00:00.000Z",
+     "puzzleSeed": "44297f91b75318d5c5b6195b27eb54386c5b27968ec2f5a50db3af77f59acbcc",
+     "roundId": "word-grid:1.0.0:2026-11-10",
+     "salt": "069dd11ba2fd032918284f6c9accb7d6f787208eab529dbc3e89925ac97b369b",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": true,
+   "expectedBrowser": true,
+   "recomputedSha256": "6b614fe253b0946bbca7390a07ee5f967e7313a57b709e9e5a5c68734c4e7070"
+  },
+  {
+   "name": "echt: word-grid:1.0.0:2026-11-11",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-12T00:00:00.000Z",
+    "date": "2026-11-11",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "321a1d2a0afa7c62864cae5bf53589e3a159195b7d4787f206296eddeddd3398",
+    "opensAt": "2026-11-11T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-11",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "1f45c9c7c48669da52e06053256959defabb304aa78276ded515b5740dfc3e37",
+    "hiddenDefinition": {
+     "answer": "daily",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-12T00:00:00.000Z",
+     "date": "2026-11-11",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-11T00:00:00.000Z",
+     "puzzleSeed": "4df1af5b31d246717f4bd00b37ce196f9bed71440139a05fa1121329d3c9990a",
+     "roundId": "word-grid:1.0.0:2026-11-11",
+     "salt": "45b6fd3937a7aa840bf4978efd4a18033a62b22dfda7f64f01e1f688396f14ba",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": true,
+   "expectedBrowser": true,
+   "recomputedSha256": "321a1d2a0afa7c62864cae5bf53589e3a159195b7d4787f206296eddeddd3398"
+  },
+  {
+   "name": "echt: word-grid:1.0.0:2026-11-12",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-13T00:00:00.000Z",
+    "date": "2026-11-12",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "91ad18118863c57e4cf7d432ce2a554982d3c1735b8db502d26b6f23f8a650bc",
+    "opensAt": "2026-11-12T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-12",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "a5a2019ae64a41b9859212b99ceda33a6ac4c21fa02e7236262e1706b8977100",
+    "hiddenDefinition": {
+     "answer": "ultra",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-13T00:00:00.000Z",
+     "date": "2026-11-12",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-12T00:00:00.000Z",
+     "puzzleSeed": "fecd8a7c15a78cfd31e314869485979d03d2725869b7ba81f61eafaab457210a",
+     "roundId": "word-grid:1.0.0:2026-11-12",
+     "salt": "1aa06b193e19f8c7cd3c99b0869c2f4ccf876da7de50a1dba383ca20e942f35a",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": true,
+   "expectedBrowser": true,
+   "recomputedSha256": "91ad18118863c57e4cf7d432ce2a554982d3c1735b8db502d26b6f23f8a650bc"
+  },
+  {
+   "name": "echt: word-grid:1.0.0:2026-11-13",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-14T00:00:00.000Z",
+    "date": "2026-11-13",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "e7f4135d69226586b9bbe62a4fc3a0b002ea7a2cb9a310604130a9990974f05b",
+    "opensAt": "2026-11-13T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-13",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "17038f67ae6535fa2133bf88d0da628cce2c1bb52339914adc3599099e2f13a4",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-14T00:00:00.000Z",
+     "date": "2026-11-13",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-13T00:00:00.000Z",
+     "puzzleSeed": "481912f8ac27c3ced49e7460897a041fcb082323b22ac864ccbf4be6f85fd754",
+     "roundId": "word-grid:1.0.0:2026-11-13",
+     "salt": "04778ca500ffcbd5e94690c036b44f9499d11358f13d33d1e8d5de705755706d",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": true,
+   "expectedBrowser": true,
+   "recomputedSha256": "e7f4135d69226586b9bbe62a4fc3a0b002ea7a2cb9a310604130a9990974f05b"
+  },
+  {
+   "name": "v1: ander antwoord",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "crane",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "8c248034dfd9ae73b52f9f98f0435f0e7431bf9e5cb793f1f4e7ccf41532cfb9",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "96c96d619c9ba33905952c793598f7e0a9a21ce8158d0b0a8af8511169c656ad"
+  },
+  {
+   "name": "v1: ander zout",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "0000000000000000000000000000000000000000000000000000000000000000",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "b14c51fcbe062bec5c15e0fb8184cd4053805e05e7bff1695a8e6aec81072abf"
+  },
+  {
+   "name": "v1: commitment-hash één teken anders",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "b0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "8c248034dfd9ae73b52f9f98f0435f0e7431bf9e5cb793f1f4e7ccf41532cfb9",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1"
+  },
+  {
+   "name": "v1: commitment voor een andere ronde",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-01-01",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "8c248034dfd9ae73b52f9f98f0435f0e7431bf9e5cb793f1f4e7ccf41532cfb9",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1"
+  },
+  {
+   "name": "v1: andere openingstijd in de commitment",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1",
+    "opensAt": "2026-01-01T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "8c248034dfd9ae73b52f9f98f0435f0e7431bf9e5cb793f1f4e7ccf41532cfb9",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1"
+  },
+  {
+   "name": "v1: commitment-schema 2",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 2
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "8c248034dfd9ae73b52f9f98f0435f0e7431bf9e5cb793f1f4e7ccf41532cfb9",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": true,
+   "recomputedSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1"
+  },
+  {
+   "name": "v1: reveal-schema 2",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "8c248034dfd9ae73b52f9f98f0435f0e7431bf9e5cb793f1f4e7ccf41532cfb9",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 2
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1"
+  },
+  {
+   "name": "v1: ongeldige commitmentTxid",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "xyz",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "8c248034dfd9ae73b52f9f98f0435f0e7431bf9e5cb793f1f4e7ccf41532cfb9",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1"
+  },
+  {
+   "name": "v1: reveal zonder definitie",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "a0827cec367c811b8aa19bf70d9dfe339df319cbd5e6cd464adc84e57b29e1f1",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": "throws: Unsupported JSON value",
+   "recomputedSha256": null
+  },
+  {
+   "name": "v1 vorm: extra veld (hash klopt)",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "5903e0a705cfe90493cdbb126a50be81baa72f9f909876c9bb35de4d542efae3",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "8c248034dfd9ae73b52f9f98f0435f0e7431bf9e5cb793f1f4e7ccf41532cfb9",
+     "schemaVersion": 1,
+     "extra": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "5903e0a705cfe90493cdbb126a50be81baa72f9f909876c9bb35de4d542efae3"
+  },
+  {
+   "name": "v1 vorm: zout ontbreekt (hash klopt)",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "2647f7b4f394f3185b2fe369954b4032b949631eaafc258829f357e7673947df",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "2647f7b4f394f3185b2fe369954b4032b949631eaafc258829f357e7673947df"
+  },
+  {
+   "name": "v1 vorm: antwoord in hoofdletters (hash klopt)",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "d498d9fb52176f036c083976ac6ea3fcc5b90b2bef238854c9b4e6c65ec1f740",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "CHAIN",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "8c248034dfd9ae73b52f9f98f0435f0e7431bf9e5cb793f1f4e7ccf41532cfb9",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "d498d9fb52176f036c083976ac6ea3fcc5b90b2bef238854c9b4e6c65ec1f740"
+  },
+  {
+   "name": "v1 vorm: datum zonder streepjes (hash klopt)",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "20261108",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "47b6a89ebf589a4af3cb72bd1148ab505984da9c2b5e6e7058f1d6149bb7b221",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "20261108",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "8c248034dfd9ae73b52f9f98f0435f0e7431bf9e5cb793f1f4e7ccf41532cfb9",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "47b6a89ebf589a4af3cb72bd1148ab505984da9c2b5e6e7058f1d6149bb7b221"
+  },
+  {
+   "name": "v1 vorm: sluit vóór opent (hash klopt)",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-08T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "db3376d0a3326200088801cb0ef1b69625526b3646e5f258ae9f51a8f6b88b3c",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-08T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "8c248034dfd9ae73b52f9f98f0435f0e7431bf9e5cb793f1f4e7ccf41532cfb9",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "db3376d0a3326200088801cb0ef1b69625526b3646e5f258ae9f51a8f6b88b3c"
+  },
+  {
+   "name": "v1 vorm: chainId als getal (hash klopt)",
+   "commitment": {
+    "chainId": 5,
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "8cdfbd59a015711850574cbf55d954ed8c0780662df0567cb6689d829c3b1a42",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": 5,
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "8c248034dfd9ae73b52f9f98f0435f0e7431bf9e5cb793f1f4e7ccf41532cfb9",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": true,
+   "recomputedSha256": "8cdfbd59a015711850574cbf55d954ed8c0780662df0567cb6689d829c3b1a42"
+  },
+  {
+   "name": "v1 vorm: lege chainId (hash klopt)",
+   "commitment": {
+    "chainId": "",
+    "closesAt": "2026-11-09T00:00:00.000Z",
+    "date": "2026-11-08",
+    "gameId": "word-grid",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "cadd5357e7f0834b3a6a34907cb17972643c7c002ad5396c5a68aed9ce978252",
+    "opensAt": "2026-11-08T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-08",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "404162a32503f86fc1fb31f79cc79d12b7efd9b2b3380329861211b8d18e728b",
+    "hiddenDefinition": {
+     "answer": "chain",
+     "chainId": "",
+     "closesAt": "2026-11-09T00:00:00.000Z",
+     "date": "2026-11-08",
+     "gameId": "word-grid",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-08T00:00:00.000Z",
+     "puzzleSeed": "07ea758ec77ca4fb8c7588a646062fdc1d8e75f1a18970f1ba8e7352395f11cc",
+     "roundId": "word-grid:1.0.0:2026-11-08",
+     "salt": "8c248034dfd9ae73b52f9f98f0435f0e7431bf9e5cb793f1f4e7ccf41532cfb9",
+     "schemaVersion": 1
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": true,
+   "recomputedSha256": "cadd5357e7f0834b3a6a34907cb17972643c7c002ad5396c5a68aed9ce978252"
+  },
+  {
+   "name": "v2: ander doel",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-12T00:00:00.000Z",
+    "date": "2026-11-11",
+    "gameId": "number-target",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "f04c464889f230c3dd0318ecce3d609f0d9df63a008d2bfb61f9fdebb9dea4c8",
+    "opensAt": "2026-11-11T00:00:00.000Z",
+    "roundId": "number-target:1.0.0:2026-11-11",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "a751fa826077ba1681dd4c25a09ef996a2ab28864f39a77f3ae02ea1e7b07eba",
+    "hiddenDefinition": {
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-12T00:00:00.000Z",
+     "date": "2026-11-11",
+     "gameId": "number-target",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-11T00:00:00.000Z",
+     "puzzle": {
+      "numbers": [
+       100,
+       75,
+       5,
+       10,
+       2,
+       5
+      ],
+      "solution": "(100-(10*5))*5",
+      "target": 251
+     },
+     "roundId": "number-target:1.0.0:2026-11-11",
+     "salt": "ccdcd82557b18970d8df830f18e3b609f1a947f79b2bba6b3f74feec85b4d0a0",
+     "schemaVersion": 2
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "3e1f416798c5b412cd7ecde4b8d512b4e9a7d4770e68073254af9557ae967deb"
+  },
+  {
+   "name": "v2: commitment-hash één teken anders",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-12T00:00:00.000Z",
+    "date": "2026-11-11",
+    "gameId": "number-target",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "a04c464889f230c3dd0318ecce3d609f0d9df63a008d2bfb61f9fdebb9dea4c8",
+    "opensAt": "2026-11-11T00:00:00.000Z",
+    "roundId": "number-target:1.0.0:2026-11-11",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "a751fa826077ba1681dd4c25a09ef996a2ab28864f39a77f3ae02ea1e7b07eba",
+    "hiddenDefinition": {
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-12T00:00:00.000Z",
+     "date": "2026-11-11",
+     "gameId": "number-target",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-11T00:00:00.000Z",
+     "puzzle": {
+      "numbers": [
+       100,
+       75,
+       5,
+       10,
+       2,
+       5
+      ],
+      "solution": "(100-(10*5))*5",
+      "target": 250
+     },
+     "roundId": "number-target:1.0.0:2026-11-11",
+     "salt": "ccdcd82557b18970d8df830f18e3b609f1a947f79b2bba6b3f74feec85b4d0a0",
+     "schemaVersion": 2
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "f04c464889f230c3dd0318ecce3d609f0d9df63a008d2bfb61f9fdebb9dea4c8"
+  },
+  {
+   "name": "v2 vorm: ronde-ID past niet bij game (hash klopt)",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-12T00:00:00.000Z",
+    "date": "2026-11-11",
+    "gameId": "number-target",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "dde730336da9bd849613151483f8435fbe5db2a204cd5bdef2b5c03520d6474a",
+    "opensAt": "2026-11-11T00:00:00.000Z",
+    "roundId": "word-grid:1.0.0:2026-11-11",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "a751fa826077ba1681dd4c25a09ef996a2ab28864f39a77f3ae02ea1e7b07eba",
+    "hiddenDefinition": {
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-12T00:00:00.000Z",
+     "date": "2026-11-11",
+     "gameId": "number-target",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-11T00:00:00.000Z",
+     "puzzle": {
+      "numbers": [
+       100,
+       75,
+       5,
+       10,
+       2,
+       5
+      ],
+      "solution": "(100-(10*5))*5",
+      "target": 250
+     },
+     "roundId": "word-grid:1.0.0:2026-11-11",
+     "salt": "ccdcd82557b18970d8df830f18e3b609f1a947f79b2bba6b3f74feec85b4d0a0",
+     "schemaVersion": 2
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "dde730336da9bd849613151483f8435fbe5db2a204cd5bdef2b5c03520d6474a"
+  },
+  {
+   "name": "v2 vorm: onhaalbare puzzel (hash klopt)",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-12T00:00:00.000Z",
+    "date": "2026-11-11",
+    "gameId": "number-target",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "3e1f416798c5b412cd7ecde4b8d512b4e9a7d4770e68073254af9557ae967deb",
+    "opensAt": "2026-11-11T00:00:00.000Z",
+    "roundId": "number-target:1.0.0:2026-11-11",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "a751fa826077ba1681dd4c25a09ef996a2ab28864f39a77f3ae02ea1e7b07eba",
+    "hiddenDefinition": {
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-12T00:00:00.000Z",
+     "date": "2026-11-11",
+     "gameId": "number-target",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-11T00:00:00.000Z",
+     "puzzle": {
+      "numbers": [
+       100,
+       75,
+       5,
+       10,
+       2,
+       5
+      ],
+      "solution": "(100-(10*5))*5",
+      "target": 251
+     },
+     "roundId": "number-target:1.0.0:2026-11-11",
+     "salt": "ccdcd82557b18970d8df830f18e3b609f1a947f79b2bba6b3f74feec85b4d0a0",
+     "schemaVersion": 2
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "3e1f416798c5b412cd7ecde4b8d512b4e9a7d4770e68073254af9557ae967deb"
+  },
+  {
+   "name": "v2 vorm: extra veld (hash klopt)",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-12T00:00:00.000Z",
+    "date": "2026-11-11",
+    "gameId": "number-target",
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "350b00dd936f0335b50c61f624e4a63b3815cc22139e0463f3f87774585121cf",
+    "opensAt": "2026-11-11T00:00:00.000Z",
+    "roundId": "number-target:1.0.0:2026-11-11",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "a751fa826077ba1681dd4c25a09ef996a2ab28864f39a77f3ae02ea1e7b07eba",
+    "hiddenDefinition": {
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-12T00:00:00.000Z",
+     "date": "2026-11-11",
+     "gameId": "number-target",
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-11T00:00:00.000Z",
+     "puzzle": {
+      "numbers": [
+       100,
+       75,
+       5,
+       10,
+       2,
+       5
+      ],
+      "solution": "(100-(10*5))*5",
+      "target": 250
+     },
+     "roundId": "number-target:1.0.0:2026-11-11",
+     "salt": "ccdcd82557b18970d8df830f18e3b609f1a947f79b2bba6b3f74feec85b4d0a0",
+     "schemaVersion": 2,
+     "puzzleSeed": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "350b00dd936f0335b50c61f624e4a63b3815cc22139e0463f3f87774585121cf"
+  },
+  {
+   "name": "v2 vorm: gameId als getal (hash klopt)",
+   "commitment": {
+    "chainId": "vrsctest",
+    "closesAt": "2026-11-12T00:00:00.000Z",
+    "date": "2026-11-11",
+    "gameId": 7,
+    "gameVersion": "1.0.0",
+    "hiddenDefinitionSha256": "14b5046de6a9bb2bf8893085ca6d6157a49a3be5927f7add29476b0ca858655f",
+    "opensAt": "2026-11-11T00:00:00.000Z",
+    "roundId": "number-target:1.0.0:2026-11-11",
+    "schemaVersion": 1
+   },
+   "reveal": {
+    "commitmentTxid": "a751fa826077ba1681dd4c25a09ef996a2ab28864f39a77f3ae02ea1e7b07eba",
+    "hiddenDefinition": {
+     "chainId": "vrsctest",
+     "closesAt": "2026-11-12T00:00:00.000Z",
+     "date": "2026-11-11",
+     "gameId": 7,
+     "gameVersion": "1.0.0",
+     "opensAt": "2026-11-11T00:00:00.000Z",
+     "puzzle": {
+      "numbers": [
+       100,
+       75,
+       5,
+       10,
+       2,
+       5
+      ],
+      "solution": "(100-(10*5))*5",
+      "target": 250
+     },
+     "roundId": "number-target:1.0.0:2026-11-11",
+     "salt": "ccdcd82557b18970d8df830f18e3b609f1a947f79b2bba6b3f74feec85b4d0a0",
+     "schemaVersion": 2
+    },
+    "schemaVersion": 1
+   },
+   "expectedServer": false,
+   "expectedBrowser": false,
+   "recomputedSha256": "14b5046de6a9bb2bf8893085ca6d6157a49a3be5927f7add29476b0ca858655f"
+  }
+ ]
+}

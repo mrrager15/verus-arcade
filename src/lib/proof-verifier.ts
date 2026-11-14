@@ -1,5 +1,6 @@
 import { sha256Hex as sha256HexBytes } from './browser-safe';
-import { gameRules } from '../../shared/games/index.mjs';
+import { verifyRoundReveal as verifyShared } from '../../shared/round-proof.mjs';
+
 /** Schema 2 (fase 8): elke game; de puzzel controleert de game zelf. */
 export type HiddenDefinitionV2 = {
 	schemaVersion: 2;
@@ -30,28 +31,6 @@ export type HiddenDefinitionV1 = {
 
 export type HiddenDefinition = HiddenDefinitionV1 | HiddenDefinitionV2;
 
-/** Controleert de vorm van schema 2, inclusief de puzzel volgens de regels van de game. */
-function validDefinitionV2(definition: HiddenDefinitionV2): boolean {
-	const keys = ['schemaVersion', 'roundId', 'chainId', 'gameId', 'gameVersion', 'date', 'opensAt', 'closesAt', 'puzzle', 'salt'];
-	if (
-		Object.keys(definition).length !== keys.length ||
-		!keys.every((key) => key in definition) ||
-		!definition.roundId.startsWith(`${definition.gameId}:${definition.gameVersion}:`) ||
-		!/^\d{4}-\d{2}-\d{2}$/.test(definition.date) ||
-		!/^[0-9a-f]{64}$/.test(definition.salt) ||
-		!Number.isFinite(Date.parse(definition.opensAt)) ||
-		!(Date.parse(definition.closesAt) > Date.parse(definition.opensAt))
-	) {
-		return false;
-	}
-	try {
-		gameRules(definition.gameId, definition.gameVersion).validatePuzzle(definition.puzzle);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
 export type Commitment = {
 	schemaVersion: 1;
 	roundId: string;
@@ -70,75 +49,22 @@ export type Reveal = {
 	commitmentTxid: string;
 };
 
-function canonicalJson(value: unknown): string {
-	if (value === null || typeof value === 'boolean' || typeof value === 'string') {
-		return JSON.stringify(value);
-	}
-	if (typeof value === 'number') {
-		if (!Number.isFinite(value)) throw new Error('Non-finite number');
-		return JSON.stringify(value);
-	}
-	if (Array.isArray(value)) {
-		return `[${value.map(canonicalJson).join(',')}]`;
-	}
-	if (typeof value === 'object') {
-		const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
-			a < b ? -1 : a > b ? 1 : 0
-		);
-		return `{${entries
-			.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
-			.join(',')}}`;
-	}
-	throw new Error('Unsupported JSON value');
-}
-
-// crypto.subtle ontbreekt op http://<LAN-IP>; browser-safe valt terug op pure JS.
-async function sha256Hex(value: string): Promise<string> {
+/**
+ * sha256 van een UTF-8-tekst als hex. crypto.subtle ontbreekt op http://<LAN-IP>;
+ * browser-safe valt dan terug op pure JS.
+ */
+export async function sha256Text(value: string): Promise<string> {
 	return sha256HexBytes(new TextEncoder().encode(value));
 }
 
+/**
+ * Klopt de reveal met de commitment? De logica staat sinds fase 4 in
+ * shared/round-proof.mjs (dezelfde als op de server en in de losse verifier).
+ */
 export async function verifyRoundReveal(
 	commitment: Commitment,
 	reveal: Reveal
 ): Promise<{ valid: boolean; recomputedSha256: string }> {
-	const definition = reveal.hiddenDefinition;
-	const recomputedSha256 = await sha256Hex(canonicalJson(definition));
-	const requiredKeys = [
-		'schemaVersion',
-		'roundId',
-		'chainId',
-		'gameId',
-		'gameVersion',
-		'date',
-		'opensAt',
-		'closesAt',
-		'puzzleSeed',
-		'answer',
-		'salt'
-	];
-	const schemaValid =
-		definition?.schemaVersion === 2
-			? validDefinitionV2(definition)
-			: definition?.schemaVersion === 1 &&
-		Object.keys(definition).length === requiredKeys.length &&
-		requiredKeys.every((key) => key in definition) &&
-		/^\d{4}-\d{2}-\d{2}$/.test(definition.date) &&
-		/^[0-9a-f]{64}$/.test(definition.puzzleSeed) &&
-		/^[a-z]{5}$/.test(definition.answer) &&
-		/^[0-9a-f]{64}$/.test(definition.salt) &&
-		Number.isFinite(Date.parse(definition.opensAt)) &&
-		Date.parse(definition.closesAt) > Date.parse(definition.opensAt);
-	const valid =
-		schemaValid &&
-		reveal.schemaVersion === 1 &&
-		/^[0-9a-f]{64}$/.test(reveal.commitmentTxid) &&
-		commitment.roundId === definition.roundId &&
-		commitment.chainId === definition.chainId &&
-		commitment.gameId === definition.gameId &&
-		commitment.gameVersion === definition.gameVersion &&
-		commitment.date === definition.date &&
-		commitment.opensAt === definition.opensAt &&
-		commitment.closesAt === definition.closesAt &&
-		recomputedSha256 === commitment.hiddenDefinitionSha256;
-	return { valid, recomputedSha256 };
+	const result = await verifyShared({ commitment, reveal }, sha256Text);
+	return { valid: result.valid, recomputedSha256: result.recomputedSha256 ?? '' };
 }

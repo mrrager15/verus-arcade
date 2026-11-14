@@ -34,3 +34,6 @@ jobs:
 
       - name: Build production application
         run: npm run build
+
+      - name: Build standalone verifier (one self-contained HTML file)
+        run: npm run build:verifier

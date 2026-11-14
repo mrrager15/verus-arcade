@@ -1,0 +1,60 @@
+# Fase 4: de losse verifier (één zelfstandig HTML-bestand) publiceren op GitHub Pages.
+# Hij praat alleen met een VRSCTEST-node (standaard api.verustest.net), nooit met de Arcade-server.
+# Eenmalig nodig: repo-instellingen → Pages → Source: "GitHub Actions".
+name: Standalone verifier (GitHub Pages)
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build standalone verifier
+        run: npm run build:verifier
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the verifier
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build-verifier
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

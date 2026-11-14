@@ -11,18 +11,20 @@ Stack: SvelteKit (adapter-node) + Express + SQLite (`node:sqlite`) + verusd JSON
 | Pad | Inhoud |
 | --- | --- |
 | `src/` | SvelteKit-UI; bord per game in `src/lib/games/`; routes `profile`, `verify`, `attestations` |
+| `src/lib/verifier/` | Onafhankelijke verifier (ronde, profiel, deellink): componenten voor de app én de losse verifier (`StandaloneApp.svelte`) |
+| `verifier/` | Ingang van de losse verifier (`index.html`, `main.ts`); build → `build-verifier/index.html` (gitignored), gepubliceerd op GitHub Pages |
 | `server/` | Express-app, API, Daily-service, bewijzen, attestaties, manifesten, nachtcyclus-plan |
 | `server/db/` | SQLite-repository en migraties |
 | `server/verus/` | Gateway, RPC-client, wallet-verzoeken, spelersrecords, profiel |
 | `server/games/` | Puzzelgeneratoren per game |
-| `shared/` | Deterministische code voor browser en server (spelregels, Verus-MMR, fixtures) |
+| `shared/` | Code voor browser én server, zonder Node-imports: spelregels, Verus-MMR, rondebewijs, resultaatsets, spelersrecords, chain-lezer, handtekeningen, ontsleutelen, onafhankelijke controles (zie `docs/INDEPENDENT_VERIFIER.md`) |
 | `shared/games/<game>/<versie>/` | `rules.mjs`, `generator.mjs`, `answers.mjs`, `vectors.json`; register in `shared/games/index.mjs` |
 | `scripts/operator/` | Operator-commando's (rondes, nachtcyclus, attestaties, manifesten, publicaties), elk met een ACK |
 | `scripts/integration/` | Tests tegen een echte VRSCTEST-daemon |
 | `scripts/agent/` | Hulpscripts voor Claude: RPC-relay (+ `relay-policy.mjs`), `http-check`, `net-check`, `replay-check` |
 | `scripts/storage-poc/` | Experimenten met Verus-opslag |
 | `vendor/verus-connect/` | Gevendorde login-bibliotheek. **Niet wijzigen**; uitbreiden met een router ervoor |
-| `docs/` | `OPERATOR_RUNBOOK.md`, `SDK.md`, `TECHNICAL_FOUNDATION.md`, ADR's in `docs/adr/` |
+| `docs/` | `OPERATOR_RUNBOOK.md`, `SDK.md`, `INDEPENDENT_VERIFIER.md`, `TECHNICAL_FOUNDATION.md`, ADR's in `docs/adr/` |
 | `server/data/` | Runtime: SQLite-database, journals, `daily-cycle.log`, `daily-cycle.lock` (gitignored) |
 | `werkmap/` | Privé projectnotities (gitignored; ontbreekt in een verse clone) |
 
@@ -36,9 +38,15 @@ npm run build             # productiebuild in build/; de server serveert die op 
 npm run server:watch      # dev-server, herstart bij gewijzigde servercode of nieuwe build
 npm run server:watch -- --test   # idem, met korte testrondes
 npm run dev               # Vite op 5173 (alleen localhost)
+npm run build:verifier    # losse verifier: build-verifier/index.html (één zelfstandig bestand)
+npm run preview:verifier  # die bekijken op http://localhost:4174 (herstarten na een nieuwe build)
+node scripts/agent/round-check.mjs <ronde-id>       # ronde nagaan via de publieke RPC (geen server, geen .env)
+node scripts/agent/profile-check.mjs <i-adres>      # profiel idem
 ```
 
-Operator-voorbeelden staan in `docs/OPERATOR_RUNBOOK.md` (rondes: sectie 0–5, publicaties: 6, nachtcyclus: 7, manifesten: 8).
+Operator-voorbeelden staan in `docs/OPERATOR_RUNBOOK.md` (rondes: sectie 0–5, publicaties: 6, nachtcyclus: 7, manifesten: 8, onafhankelijke controle: 9).
+
+Code in `shared/` draait ook in de browser: geen `Buffer`, geen `node:`-imports, geen SDK; hashes en crypto via `@noble/*`. Een nieuwe gedeelde module die nog geen pagina importeert, apart nakijken met `npx tsc --ignoreConfig --noEmit --allowJs --checkJs --strict --skipLibCheck --module esnext --target es2022 --moduleResolution bundler --lib es2022,dom <bestand>`.
 
 ## VRSCTEST-regels (hard)
 

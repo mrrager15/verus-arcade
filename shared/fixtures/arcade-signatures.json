@@ -1,0 +1,118 @@
+{
+ "description": "Echte handtekeningen van Arcade@ over attestatie-wortels (fase 2b), met Arcade@ op tekenhoogte (api.verustest.net) en de uitkomst van verusid-ts-client zoals de server die gebruikt (fase 4 stap 4). Alleen wortel en handtekening: geen spelersgegevens.",
+ "generatedAt": "2026-11-14T19:53:28.067Z",
+ "cases": [
+  {
+   "signaturedata": {
+    "version": 1,
+    "systemid": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+    "hashtype": 5,
+    "signaturehash": "744d40e3f5082af2008a9547b1781a41a6c0362a8828b4d10c6c252b4910fb00",
+    "identityid": "i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp",
+    "signaturetype": 1,
+    "signature": "AgVhDRQAAUEgr8ehGOWeTjwVB6UxkIfH5Dg1DpMbyJDj9VyJC9yf5mwlWkWHwKROJMvYFp9o2P47wAZL7yAw7ShwyBt9C+eBtQ=="
+   },
+   "signatureheight": 1314145,
+   "identityAtHeight": {
+    "status": "active",
+    "blockheight": 1314138,
+    "identity": {
+     "identityaddress": "i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp",
+     "systemid": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+     "version": 3,
+     "flags": 0,
+     "primaryaddresses": [
+      "R9txC8e9jmbCdyuSAgRofxqA9nN2qnUHHp"
+     ],
+     "minimumsignatures": 1
+    }
+   },
+   "digestHex": "e9575f65919838e5cef9f45d314043f29825553af0a3c7a6819c84e41244efda",
+   "sdkValid": true
+  },
+  {
+   "signaturedata": {
+    "version": 1,
+    "systemid": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+    "hashtype": 5,
+    "signaturehash": "a6d911b61445a59f3d97ccd5a94a20893d420bf0a91ea63df739b3dfab64c90e",
+    "identityid": "i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp",
+    "signaturetype": 1,
+    "signature": "AgVhDRQAAUEfTB0p1fen45w0vKLfw8ioTFoh9zf+tya51luJtnTulS4PL2RgAkvNDrnip/4kxZMIimvWihsgTtxTBzpndtroog=="
+   },
+   "signatureheight": 1314145,
+   "identityAtHeight": {
+    "status": "active",
+    "blockheight": 1314138,
+    "identity": {
+     "identityaddress": "i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp",
+     "systemid": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+     "version": 3,
+     "flags": 0,
+     "primaryaddresses": [
+      "R9txC8e9jmbCdyuSAgRofxqA9nN2qnUHHp"
+     ],
+     "minimumsignatures": 1
+    }
+   },
+   "digestHex": "b6c4c8b0cbdbc3ccdd4d62a4fbecd53f8f62591db14389d4b5eec443fb62cb35",
+   "sdkValid": true
+  },
+  {
+   "signaturedata": {
+    "version": 1,
+    "systemid": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+    "hashtype": 5,
+    "signaturehash": "2ebee21fb93c2315f09954f4a565790e81b2923bbb9e16a685f64fd7a0987f6a",
+    "identityid": "i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp",
+    "signaturetype": 1,
+    "signature": "AgVBEBQAAUEgDVnq9fo6VhGlFPLhNup+6rcjglZKaYzPe+gnTrP6evwiPf7kiGlbaIjyFf+3XtKle3PXMzzdk4r4sLSPi9ayrA=="
+   },
+   "signatureheight": 1314881,
+   "identityAtHeight": {
+    "status": "active",
+    "blockheight": 1314881,
+    "identity": {
+     "identityaddress": "i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp",
+     "systemid": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+     "version": 3,
+     "flags": 0,
+     "primaryaddresses": [
+      "R9txC8e9jmbCdyuSAgRofxqA9nN2qnUHHp"
+     ],
+     "minimumsignatures": 1
+    }
+   },
+   "digestHex": "df0a042774f055cdce098dff4ae4a0d45623b6e72947d24619772f021d509c8a",
+   "sdkValid": true
+  },
+  {
+   "signaturedata": {
+    "version": 1,
+    "systemid": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+    "hashtype": 5,
+    "signaturehash": "963faeaf90ff7eef1836fe5fedd65451020afa5606b3f16233944a4f6aa54dc8",
+    "identityid": "i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp",
+    "signaturetype": 1,
+    "signature": "AgVEEBQAAUEf2/PQOczzRq72d6Tv1/8XBDsotaH/Yw31eKrYBiZO5FwFeAZP6EYCEXZu1KZWY+UKrVD1zKmNaiFE/8+fM5Yprw=="
+   },
+   "signatureheight": 1314884,
+   "identityAtHeight": {
+    "status": "active",
+    "blockheight": 1314884,
+    "identity": {
+     "identityaddress": "i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp",
+     "systemid": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+     "version": 3,
+     "flags": 0,
+     "primaryaddresses": [
+      "R9txC8e9jmbCdyuSAgRofxqA9nN2qnUHHp"
+     ],
+     "minimumsignatures": 1
+    }
+   },
+   "digestHex": "1a2d5a642d170f0e0b3a1ed04d7a384a1ed95c54ef91d3c106a5e98a070ad236",
+   "sdkValid": true
+  }
+ ]
+}

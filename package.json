@@ -18,7 +18,9 @@
 		"server": "node --env-file-if-exists=.env server/auth.mjs",
 		"server:test": "node --env-file-if-exists=.env server/test-server.mjs",
 		"server:watch": "node server/dev-watch.mjs",
-		"server:prod": "node --env-file-if-exists=.env server/prod.mjs"
+		"server:prod": "node --env-file-if-exists=.env server/prod.mjs",
+		"build:verifier": "vite build --config vite.verifier.config.ts && node scripts/build-verifier-inline.mjs",
+		"preview:verifier": "vite preview --config vite.verifier.config.ts --port 4174 --strictPort"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.1",
@@ -33,6 +35,9 @@
 		"vite": "^8.0.16"
 	},
 	"dependencies": {
+		"@noble/ciphers": "1.3.0",
+		"@noble/curves": "1.9.7",
+		"@noble/hashes": "1.8.0",
 		"express": "^5.2.1",
 		"qrcode": "^1.5.4",
 		"verus-connect": "file:vendor/verus-connect",

@@ -21,6 +21,7 @@ export const HASH_SHA256 = 5;
 /** DataDescriptor-vlag: zout aanwezig. Een openbaar gemaakt blad heeft precies deze vlag. */
 export const FLAG_HAS_SALT = 2;
 
+/** @param {string} hex */
 export function hexToBytes(hex) {
   if (typeof hex !== 'string' || hex.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(hex)) throw new Error('Invalid hex');
   const out = new Uint8Array(hex.length / 2);
@@ -28,10 +29,12 @@ export function hexToBytes(hex) {
   return out;
 }
 
+/** @param {Uint8Array} bytes */
 export function bytesToHex(bytes) {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** @param {...Uint8Array} parts */
 function concat(...parts) {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let offset = 0;
@@ -39,11 +42,15 @@ function concat(...parts) {
   return out;
 }
 
+/** @param {Uint8Array} a @param {Uint8Array} b */
 function equalBytes(a, b) {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
-/** Blad-hash van een gezouten waarde: hash(data ‖ zout). */
+/**
+ * Blad-hash van een gezouten waarde: hash(data ‖ zout).
+ * @param {Uint8Array} data @param {Uint8Array} salt @param {(bytes: Uint8Array) => Uint8Array} hash
+ */
 export function saltedLeafHash(data, salt, hash) {
   if (salt.length !== 32) throw new Error('Salt must be 32 bytes');
   return hash(concat(data, salt));
@@ -52,19 +59,24 @@ export function saltedLeafHash(data, salt, hash) {
 /**
  * Wortel van een MMR over de gegeven bladeren (elk 32 bytes), in de volgorde
  * waarin ze toegevoegd zijn. `hashPair(links, rechts)` geeft de ouderknoop.
+ * @param {Uint8Array[]} leaves
+ * @param {(left: Uint8Array, right: Uint8Array) => Uint8Array} hashPair
+ * @returns {Uint8Array}
  */
 export function mmrRoot(leaves, hashPair) {
   if (!Array.isArray(leaves) || leaves.length === 0) throw new Error('MMR needs at least one leaf');
   for (const leaf of leaves) if (!(leaf instanceof Uint8Array) || leaf.length !== 32) throw new Error('MMR leaf must be 32 bytes');
   // Lagen: elke laag erboven heeft floor(n/2) knopen (paren van links naar rechts).
   const layers = [leaves];
-  while (layers.at(-1).length > 1) {
-    const below = layers.at(-1);
+  while (/** @type {Uint8Array[]} */ (layers.at(-1)).length > 1) {
+    const below = /** @type {Uint8Array[]} */ (layers.at(-1));
+    /** @type {Uint8Array[]} */
     const above = [];
     for (let i = 0; i + 1 < below.length; i += 2) above.push(hashPair(below[i], below[i + 1]));
     layers.push(above);
   }
   // Toppen: de laatste knoop van een laag is een top als de laag erboven hem niet bevat.
+  /** @type {Uint8Array[]} */
   const peaks = [];
   for (let h = 0; h < layers.length; h++) {
     const size = layers[h].length;
@@ -73,6 +85,7 @@ export function mmrRoot(leaves, hashPair) {
   // Toppen samenvoegen; oneven laatste schuift door (minstens één ronde, zoals de daemon).
   let current = peaks;
   do {
+    /** @type {Uint8Array[]} */
     const next = [];
     for (let i = 0; i + 1 < current.length; i += 2) next.push(hashPair(current[i], current[i + 1]));
     if (current.length & 1) next.push(current[current.length - 1]);
@@ -81,6 +94,7 @@ export function mmrRoot(leaves, hashPair) {
   return current[0];
 }
 
+/** @param {Uint8Array} bytes @param {number} offset @returns {[number, number]} */
 function readCompactSize(bytes, offset) {
   const first = bytes[offset];
   if (first === undefined) throw new Error('Truncated compact size');
@@ -94,13 +108,17 @@ function readCompactSize(bytes, offset) {
   throw new Error('Compact size too large');
 }
 
+/** @param {number} n */
 function writeCompactSize(n) {
   if (n < 253) return Uint8Array.of(n);
   if (n <= 0xffff) return Uint8Array.of(253, n & 0xff, n >> 8);
   throw new Error('Compact size too large');
 }
 
-/** `mmrhashes.objectdata` → lijst van blad-hashes. Weigert alles wat niet exact dit formaat is. */
+/**
+ * `mmrhashes.objectdata` → lijst van blad-hashes. Weigert alles wat niet exact dit formaat is.
+ * @param {string} objectDataHex
+ */
 export function decodeMmrHashes(objectDataHex) {
   const bytes = hexToBytes(objectDataHex);
   if (bytesToHex(bytes.subarray(0, 20)) !== VECTOR_UINT256_KEY_HEX) throw new Error('mmrhashes is not a vector of uint256');
@@ -112,7 +130,10 @@ export function decodeMmrHashes(objectDataHex) {
   return Array.from({ length: count }, (_, i) => bytes.slice(afterCount + i * 32, afterCount + (i + 1) * 32));
 }
 
-/** Omgekeerde van `decodeMmrHashes` (voor tests en om zelf een descriptor te bouwen). */
+/**
+ * Omgekeerde van `decodeMmrHashes` (voor tests en om zelf een descriptor te bouwen).
+ * @param {Uint8Array[]} leaves
+ */
 export function encodeMmrHashes(leaves) {
   const vector = concat(writeCompactSize(leaves.length), ...leaves);
   return bytesToHex(concat(hexToBytes(VECTOR_UINT256_KEY_HEX), Uint8Array.of(1), writeCompactSize(vector.length), vector));
@@ -146,19 +167,21 @@ export function buildSaltedMmrDescriptor(entries, sha256) {
  * Controleert NIET de handtekening op de wortel: daarvoor is de identiteit van
  * de ondertekenaar op tekenhoogte nodig (server: daemon of SDK; browser: fase 4).
  * @returns {{ root: string, leafCount: number, disclosed: Array<{ index: number, data: Uint8Array }> }}
+ * @param {any} descriptor
+ * @param {{ sha256: (bytes: Uint8Array) => Uint8Array }} options
  */
 export function verifyMmrDisclosure(descriptor, { sha256 }) {
   if (!descriptor || Number(descriptor.version) !== 1) throw new Error('Unsupported MMR descriptor version');
   if (descriptor.objecthashtype !== HASH_SHA256 || descriptor.mmrhashtype !== HASH_SHA256) throw new Error('Only sha256 MMR descriptors are accepted');
-  const plain = (dd) => dd && Number(dd.version) === 1 && Number(dd.flags) === 0 && typeof dd.objectdata === 'string';
+  const plain = (/** @type {any} */ dd) => dd && Number(dd.version) === 1 && Number(dd.flags) === 0 && typeof dd.objectdata === 'string';
   if (!plain(descriptor.mmrroot) || !plain(descriptor.mmrhashes)) throw new Error('Root and hashes must be plain data descriptors');
   const root = hexToBytes(descriptor.mmrroot.objectdata);
   if (root.length !== 32) throw new Error('MMR root must be 32 bytes');
   const leaves = decodeMmrHashes(descriptor.mmrhashes.objectdata);
   if (leaves.length === 0) throw new Error('MMR has no leaves');
-  const hashPair = (left, right) => sha256(concat(left, right));
+  const hashPair = (/** @type {Uint8Array} */ left, /** @type {Uint8Array} */ right) => sha256(concat(left, right));
   if (!equalBytes(mmrRoot(leaves, hashPair), root)) throw new Error('Leaves do not hash to the MMR root');
-  const disclosed = (descriptor.datadescriptors ?? []).map((dd) => {
+  const disclosed = (descriptor.datadescriptors ?? []).map((/** @type {any} */ dd) => {
     if (Number(dd.version) !== 1 || Number(dd.flags) !== FLAG_HAS_SALT || typeof dd.objectdata !== 'string' || typeof dd.salt !== 'string') {
       throw new Error('Disclosed field must be a plain salted data descriptor');
     }

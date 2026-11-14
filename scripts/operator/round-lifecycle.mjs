@@ -47,7 +47,7 @@ const IDENTITY_I_ADDRESS =
 if (mode.testMode && IDENTITY_I_ADDRESS === REAL_OPERATOR.iAddress) {
   throw new Error('Testrondes mogen nooit op Arcade@: de echte Daily zou botsen');
 }
-// VDXF-keys v1 (zie Arcade v2/STATUS.md, "Vaste gegevens").
+// VDXF-keys v1 (zie werkmap/STATUS.md, "Vaste gegevens").
 const COMMITMENT_VDXF_KEY = 'i5m7tdxizT2PWqLakjjdwsnMAoUqFQXEj7';
 const RESULTS_VDXF_KEY = 'iEuNeBozij6ZkEYeDaz7w5BCYAU5r714cA';
 const REVEAL_VDXF_KEY = 'iCbAUhPCoibgTsmRe8WbJGJTDFmk7mQQuj';

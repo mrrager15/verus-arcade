@@ -9,7 +9,7 @@
  *   3. Identiteiten laden op de tekenhoogte én nu (loadIdentity), zodat een
  *      handtekening getoetst wordt aan de sleutels die toen golden.
  *
- * Ontwerpregels (zie Arcade v2/notes/vatermark-review.md):
+ * Ontwerpregels (zie werkmap/notes/vatermark-review.md):
  *   - Alleen VRSCTEST tot de mainnet-fase. Elke andere chain is een fout.
  *   - Fail closed: een RPC-fout is CHAIN_UNAVAILABLE, nooit "geldig".
  *   - Geen SDK-, HTTP- of RPC-foutobjecten doorgeven: die kunnen config lekken.

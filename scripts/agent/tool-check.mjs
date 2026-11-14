@@ -21,6 +21,6 @@ console.log(JSON.stringify({
   cDevExists: fs.existsSync('C:\\dev'),
   cDevEntries: fs.existsSync('C:\\dev') ? fs.readdirSync('C:\\dev') : null,
   repoSizeHint: fs.readdirSync('.').length,
-  relayDir: fs.existsSync(path.resolve('..', '.relay')) ? path.resolve('..', '.relay') : (fs.existsSync('.relay') ? path.resolve('.relay') : 'onbekend'),
+  relayDir: fs.existsSync(path.resolve('werkmap', '.relay')) ? path.resolve('werkmap', '.relay') : 'onbekend',
   gitRemote: run('git remote get-url origin'),
 }, null, 2));

@@ -169,6 +169,27 @@ export async function verifyRoundIndependently({ roundId, reader, sha256Hex, ope
     }
   }
 
+  const evaluated = await evaluateRound({ found, parts, problems, reader, sha256Hex, withTiming: true });
+  result.timing = evaluated.timing;
+  return finish(evaluated.verdict);
+}
+
+/**
+ * Stap 3–6 voor één ronde: per stuk transactie en bevestigingen, vorm, samenhang,
+ * (optioneel) tijdstippen, en het oordeel. `found` komt uit `findValues` op de
+ * geschiedenis van de operator; `parts` en `problems` worden ingevuld.
+ * @param {{
+ *   found: { commitment: Array<{ value: any, entry: HistoryEntry }>, results: Array<{ value: any, entry: HistoryEntry }>, reveal: Array<{ value: any, entry: HistoryEntry }> },
+ *   parts: { commitment: Part, results: Part, reveal: Part },
+ *   problems: string[],
+ *   reader: ReturnType<typeof import('./chain-reader.mjs').createChainReader>,
+ *   sha256Hex: (text: string) => Promise<string>,
+ *   withTiming: boolean,
+ * }} input
+ */
+async function evaluateRound({ found, parts, problems, reader, sha256Hex, withTiming }) {
+  /** @type {{ commitmentBeforeOpen: boolean | null, resultsAfterClose: boolean | null, revealAfterResults: boolean | null } | null} */
+  let timing = null;
   // 3. Per stuk: één waarde, haar transactie en bevestigingen.
   for (const name of /** @type {const} */ (['commitment', 'results', 'reveal'])) {
     const matches = found[name];
@@ -226,13 +247,13 @@ export async function verifyRoundIndependently({ roundId, reader, sha256Hex, ope
   }
 
   // 5. Tijdstippen: informatie, geen oordeel. Lukt het lezen niet, dan blijven ze leeg.
-  if (commitmentOk) {
+  if (withTiming && commitmentOk) {
     try {
       const opensAt = Date.parse(commitment.value.opensAt) / 1000;
       const closesAt = Date.parse(commitment.value.closesAt) / 1000;
       const time = async (/** @type {Part} */ part) => (part.height === null || !usable(part) ? null : reader.blockTime(part.height));
       const [tCommitment, tResults] = [await time(commitment), await time(results)];
-      result.timing = {
+      timing = {
         commitmentBeforeOpen: tCommitment === null ? null : tCommitment < opensAt,
         resultsAfterClose: tResults === null ? null : tResults >= closesAt,
         revealAfterResults: results.height === null || reveal.height === null || !usable(reveal) ? null : reveal.height >= results.height,
@@ -245,10 +266,65 @@ export async function verifyRoundIndependently({ roundId, reader, sha256Hex, ope
   // 6. Oordeel.
   const statuses = Object.values(parts).map((part) => part.status);
   for (const [name, part] of Object.entries(parts)) if (part.problem) problems.push(`${name}: ${part.problem}`);
-  if (statuses.includes(STATUS.INVALID)) return finish(VERDICT.INVALID);
-  if (commitment.status === STATUS.UNAVAILABLE) return finish(VERDICT.UNAVAILABLE);
-  if (commitment.status === STATUS.MISSING) return finish(VERDICT.NOT_FOUND);
-  if (statuses.every((status) => status === STATUS.CONFIRMED)) return finish(VERDICT.VERIFIED);
-  if (statuses.includes(STATUS.UNAVAILABLE)) return finish(VERDICT.UNAVAILABLE);
-  return finish(VERDICT.INCOMPLETE);
+  /** @type {string} */
+  let verdict = VERDICT.INCOMPLETE;
+  if (statuses.includes(STATUS.INVALID)) verdict = VERDICT.INVALID;
+  else if (commitment.status === STATUS.UNAVAILABLE) verdict = VERDICT.UNAVAILABLE;
+  else if (commitment.status === STATUS.MISSING) verdict = VERDICT.NOT_FOUND;
+  else if (statuses.every((status) => status === STATUS.CONFIRMED)) verdict = VERDICT.VERIFIED;
+  else if (statuses.includes(STATUS.UNAVAILABLE)) verdict = VERDICT.UNAVAILABLE;
+  return { verdict, timing };
+}
+
+/**
+ * Meerdere rondes tegelijk nagaan met één leesbeurt van de operator-geschiedenis
+ * (één venster van de vroegste tot de laatste ronde, plus een later venster als
+ * resultaten of reveal ontbreken). Voor het profiel: de officiële wortel en de
+ * puzzel per ronde komen hier vandaan. Zonder tijdstippen.
+ * Gooit bij WRONG_CHAIN of als de geschiedenis niet te lezen is (de aanroeper
+ * beslist dan "niet beschikbaar").
+ * @param {{
+ *   roundIds: string[],
+ *   reader: ReturnType<typeof import('./chain-reader.mjs').createChainReader>,
+ *   sha256Hex: (text: string) => Promise<string>,
+ *   operatorId?: string,
+ *   marginDays?: number,
+ *   laterDays?: number,
+ * }} input
+ * @returns {Promise<Map<string, { verdict: string, parts: { commitment: Part, results: Part, reveal: Part }, problems: string[] }>>}
+ */
+export async function verifyRoundsTogether({ roundIds, reader, sha256Hex, operatorId = ARCADE_OPERATOR_ID, marginDays = 2, laterDays = 30 }) {
+  const unique = [...new Set(roundIds)];
+  /** @type {Map<string, { verdict: string, parts: { commitment: Part, results: Part, reveal: Part }, problems: string[] }>} */
+  const out = new Map();
+  if (unique.length === 0) return out;
+  const opens = unique.map((id) => parseRoundId(id).approxOpensMs);
+  const first = Math.min(...opens);
+  const last = Math.max(...opens);
+  const { tip } = await reader.info();
+  const window = await reader.windowForTimes({ fromMs: first - marginDays * DAY_MS, toMs: last + DAY_MS + marginDays * DAY_MS });
+  let history = await reader.identityHistory({ identityId: operatorId, fromHeight: window.fromHeight, toHeight: window.toHeight });
+  const lookup = (/** @type {string} */ roundId) => ({
+    commitment: findValues(history, ROUND_KEYS.commitment, (v) => v?.roundId === roundId),
+    results: findValues(history, ROUND_KEYS.results, (v) => v?.roundId === roundId),
+    reveal: findValues(history, ROUND_KEYS.reveal, (v) => v?.hiddenDefinition?.roundId === roundId),
+  });
+  const incomplete = unique.some((id) => {
+    const f = lookup(id);
+    return f.commitment.length > 0 && (f.results.length === 0 || f.reveal.length === 0);
+  });
+  if (incomplete && window.toHeight < tip) {
+    const later = await reader.windowForTimes({ fromMs: last + DAY_MS, toMs: last + DAY_MS + laterDays * DAY_MS });
+    if (later.toHeight > window.toHeight) {
+      history = [...history, ...await reader.identityHistory({ identityId: operatorId, fromHeight: window.toHeight + 1, toHeight: later.toHeight })];
+    }
+  }
+  for (const roundId of unique) {
+    const parts = { commitment: emptyPart(), results: emptyPart(), reveal: emptyPart() };
+    /** @type {string[]} */
+    const problems = [];
+    const { verdict } = await evaluateRound({ found: lookup(roundId), parts, problems, reader, sha256Hex, withTiming: false });
+    out.set(roundId, { verdict, parts, problems });
+  }
+  return out;
 }

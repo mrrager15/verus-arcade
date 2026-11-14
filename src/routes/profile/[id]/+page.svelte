@@ -71,6 +71,10 @@
 			<code>{profile.playerId}</code> · read at block {profile.readAtHeight} · records under the namespace of
 			<strong>{profile.namespace.serviceFqn}</strong>
 		</p>
+		<p class="meta">
+			This page is assembled by the Arcade server.
+			<a href={`/profile/${encodeURIComponent(profile.playerId)}/independent`}>Check it in your browser from the chain only →</a>
+		</p>
 
 		{#if profile.results.length === 0}
 			<p class="empty">No Arcade results stored in this identity yet.</p>

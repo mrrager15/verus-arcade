@@ -1,0 +1,856 @@
+{
+  "contract": 1,
+  "slug": "word-grid",
+  "version": "1.0.0",
+  "generatedFrom": "shared/word-grid.mjs at master 396aabc (pre-contract implementation)",
+  "cases": [
+    {
+      "name": "first try",
+      "puzzle": {
+        "answer": "crane"
+      },
+      "actions": [
+        "crane"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "g",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": true,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 1
+      },
+      "terminal": true
+    },
+    {
+      "name": "second try",
+      "puzzle": {
+        "answer": "crane"
+      },
+      "actions": [
+        "slate",
+        "crane"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "x",
+            "x",
+            "g",
+            "x",
+            "g"
+          ],
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        },
+        {
+          "pattern": [
+            "g",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": true,
+          "actionsUsed": 2,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 2
+      },
+      "terminal": true
+    },
+    {
+      "name": "sixth try",
+      "puzzle": {
+        "answer": "pound"
+      },
+      "actions": [
+        "adieu",
+        "story",
+        "flick",
+        "bumpy",
+        "mound",
+        "pound"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "x",
+            "y",
+            "x",
+            "x",
+            "y"
+          ],
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        },
+        {
+          "pattern": [
+            "x",
+            "x",
+            "y",
+            "x",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 2,
+          "actionsLeft": 4
+        },
+        {
+          "pattern": [
+            "x",
+            "x",
+            "x",
+            "x",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 3,
+          "actionsLeft": 3
+        },
+        {
+          "pattern": [
+            "x",
+            "y",
+            "x",
+            "y",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 4,
+          "actionsLeft": 2
+        },
+        {
+          "pattern": [
+            "x",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": false,
+          "actionsUsed": 5,
+          "actionsLeft": 1
+        },
+        {
+          "pattern": [
+            "g",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": true,
+          "actionsUsed": 6,
+          "actionsLeft": 0
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 6
+      },
+      "terminal": true
+    },
+    {
+      "name": "six misses",
+      "puzzle": {
+        "answer": "zebra"
+      },
+      "actions": [
+        "crane",
+        "slate",
+        "pious",
+        "dutch",
+        "flock",
+        "mummy"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "x",
+            "y",
+            "y",
+            "x",
+            "y"
+          ],
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        },
+        {
+          "pattern": [
+            "x",
+            "x",
+            "y",
+            "x",
+            "y"
+          ],
+          "solved": false,
+          "actionsUsed": 2,
+          "actionsLeft": 4
+        },
+        {
+          "pattern": [
+            "x",
+            "x",
+            "x",
+            "x",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 3,
+          "actionsLeft": 3
+        },
+        {
+          "pattern": [
+            "x",
+            "x",
+            "x",
+            "x",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 4,
+          "actionsLeft": 2
+        },
+        {
+          "pattern": [
+            "x",
+            "x",
+            "x",
+            "x",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 5,
+          "actionsLeft": 1
+        },
+        {
+          "pattern": [
+            "x",
+            "x",
+            "x",
+            "x",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 6,
+          "actionsLeft": 0
+        }
+      ],
+      "score": {
+        "status": "unsolved",
+        "actionsUsed": 6
+      },
+      "terminal": true
+    },
+    {
+      "name": "uppercase is normalized",
+      "puzzle": {
+        "answer": "crane"
+      },
+      "actions": [
+        "CrAnE"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "g",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": true,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 1
+      },
+      "terminal": true
+    },
+    {
+      "name": "double letter in guess, single in answer",
+      "puzzle": {
+        "answer": "abbey"
+      },
+      "actions": [
+        "bobby"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "y",
+            "x",
+            "g",
+            "x",
+            "g"
+          ],
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        }
+      ],
+      "score": {
+        "status": "unsolved",
+        "actionsUsed": 1
+      },
+      "terminal": false
+    },
+    {
+      "name": "double letter in answer",
+      "puzzle": {
+        "answer": "apple"
+      },
+      "actions": [
+        "papal"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "y",
+            "y",
+            "g",
+            "x",
+            "y"
+          ],
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        }
+      ],
+      "score": {
+        "status": "unsolved",
+        "actionsUsed": 1
+      },
+      "terminal": false
+    },
+    {
+      "name": "triple letter guess",
+      "puzzle": {
+        "answer": "stood"
+      },
+      "actions": [
+        "oozes",
+        "stood"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "y",
+            "y",
+            "x",
+            "x",
+            "y"
+          ],
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        },
+        {
+          "pattern": [
+            "g",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": true,
+          "actionsUsed": 2,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 2
+      },
+      "terminal": true
+    },
+    {
+      "name": "repeated letter yellow then green",
+      "puzzle": {
+        "answer": "eerie"
+      },
+      "actions": [
+        "peeve",
+        "eerie"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "x",
+            "g",
+            "y",
+            "x",
+            "g"
+          ],
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        },
+        {
+          "pattern": [
+            "g",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": true,
+          "actionsUsed": 2,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 2
+      },
+      "terminal": true
+    },
+    {
+      "name": "all yellow anagram",
+      "puzzle": {
+        "answer": "least"
+      },
+      "actions": [
+        "steal",
+        "slate",
+        "tales",
+        "least"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "y",
+            "y",
+            "y",
+            "y",
+            "y"
+          ],
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        },
+        {
+          "pattern": [
+            "y",
+            "y",
+            "g",
+            "y",
+            "y"
+          ],
+          "solved": false,
+          "actionsUsed": 2,
+          "actionsLeft": 4
+        },
+        {
+          "pattern": [
+            "y",
+            "y",
+            "y",
+            "y",
+            "y"
+          ],
+          "solved": false,
+          "actionsUsed": 3,
+          "actionsLeft": 3
+        },
+        {
+          "pattern": [
+            "g",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": true,
+          "actionsUsed": 4,
+          "actionsLeft": 2
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 4
+      },
+      "terminal": true
+    },
+    {
+      "name": "no common letters",
+      "puzzle": {
+        "answer": "crypt"
+      },
+      "actions": [
+        "audio",
+        "whelk",
+        "crypt"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "x",
+            "x",
+            "x",
+            "x",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        },
+        {
+          "pattern": [
+            "x",
+            "x",
+            "x",
+            "x",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 2,
+          "actionsLeft": 4
+        },
+        {
+          "pattern": [
+            "g",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": true,
+          "actionsUsed": 3,
+          "actionsLeft": 3
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 3
+      },
+      "terminal": true
+    },
+    {
+      "name": "same guess twice is allowed",
+      "puzzle": {
+        "answer": "mango"
+      },
+      "actions": [
+        "tango",
+        "tango",
+        "mango"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "x",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        },
+        {
+          "pattern": [
+            "x",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": false,
+          "actionsUsed": 2,
+          "actionsLeft": 4
+        },
+        {
+          "pattern": [
+            "g",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": true,
+          "actionsUsed": 3,
+          "actionsLeft": 3
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 3
+      },
+      "terminal": true
+    },
+    {
+      "name": "answer with double o",
+      "puzzle": {
+        "answer": "flood"
+      },
+      "actions": [
+        "fooly",
+        "flood"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "g",
+            "y",
+            "g",
+            "y",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        },
+        {
+          "pattern": [
+            "g",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": true,
+          "actionsUsed": 2,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 2
+      },
+      "terminal": true
+    },
+    {
+      "name": "green beats yellow for same letter",
+      "puzzle": {
+        "answer": "robot"
+      },
+      "actions": [
+        "otter",
+        "robot"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "y",
+            "y",
+            "x",
+            "x",
+            "y"
+          ],
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        },
+        {
+          "pattern": [
+            "g",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": true,
+          "actionsUsed": 2,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 2
+      },
+      "terminal": true
+    },
+    {
+      "name": "five misses then solve",
+      "puzzle": {
+        "answer": "quart"
+      },
+      "actions": [
+        "crane",
+        "sloth",
+        "buddy",
+        "pique",
+        "quark",
+        "quart"
+      ],
+      "feedback": [
+        {
+          "pattern": [
+            "x",
+            "y",
+            "g",
+            "x",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 5
+        },
+        {
+          "pattern": [
+            "x",
+            "x",
+            "x",
+            "y",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 2,
+          "actionsLeft": 4
+        },
+        {
+          "pattern": [
+            "x",
+            "g",
+            "x",
+            "x",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 3,
+          "actionsLeft": 3
+        },
+        {
+          "pattern": [
+            "x",
+            "x",
+            "y",
+            "y",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 4,
+          "actionsLeft": 2
+        },
+        {
+          "pattern": [
+            "g",
+            "g",
+            "g",
+            "g",
+            "x"
+          ],
+          "solved": false,
+          "actionsUsed": 5,
+          "actionsLeft": 1
+        },
+        {
+          "pattern": [
+            "g",
+            "g",
+            "g",
+            "g",
+            "g"
+          ],
+          "solved": true,
+          "actionsUsed": 6,
+          "actionsLeft": 0
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 6
+      },
+      "terminal": true
+    },
+    {
+      "name": "invalid: too short",
+      "puzzle": {
+        "answer": "crane"
+      },
+      "actions": [
+        "cran"
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: digits",
+      "puzzle": {
+        "answer": "crane"
+      },
+      "actions": [
+        "cr4ne"
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: accented letter",
+      "puzzle": {
+        "answer": "crane"
+      },
+      "actions": [
+        "crâne"
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: not a string",
+      "puzzle": {
+        "answer": "crane"
+      },
+      "actions": [
+        12345
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: action after solve",
+      "puzzle": {
+        "answer": "crane"
+      },
+      "actions": [
+        "crane",
+        "slate"
+      ],
+      "errorAt": 1
+    },
+    {
+      "name": "invalid: seventh action",
+      "puzzle": {
+        "answer": "zebra"
+      },
+      "actions": [
+        "crane",
+        "slate",
+        "pious",
+        "dutch",
+        "flock",
+        "mummy",
+        "zebra"
+      ],
+      "errorAt": 6
+    },
+    {
+      "name": "invalid: whitespace",
+      "puzzle": {
+        "answer": "crane"
+      },
+      "actions": [
+        " crane"
+      ],
+      "errorAt": 0
+    }
+  ]
+}

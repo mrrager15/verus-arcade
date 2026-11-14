@@ -32,7 +32,7 @@ const LOGIN_RETURN_PATH = '/verus/login-return';
 const WALLET_RETURN_PATH = '/verus/wallet-return';
 
 /** Build the Express app with /verus (auth) and /api (game) mounted. */
-export function makeArcadeApp({ dailyService = null, attemptSignatureService = null, playerPublicationService = null, attestationService = null } = {}) {
+export function makeArcadeApp({ dailyService = null, attemptSignatureService = null, playerPublicationService = null, attestationService = null, gameManifestService = null } = {}) {
   const app = express();
 
   // Landingspagina voor de browser op de telefoon na een wallet-actie
@@ -92,6 +92,7 @@ export function makeArcadeApp({ dailyService = null, attemptSignatureService = n
         dailyService,
         resolveSession,
         attemptSignatureService,
+        gameManifestService,
         playerPublicationService,
         attestationService,
         // Na een handtekening of publicatie landt de telefoon op dezelfde landingspagina;

@@ -38,8 +38,8 @@ import { checkRpc, resolveRun as resolveRunPolicy } from './relay-policy.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');
-const RELAY_DIR = process.env.ARCADE_RELAY_DIR
-  ?? path.resolve(REPO_ROOT, '..', 'Arcade v2', '.relay');
+// De relay-map staat in de werkmap van de repo (`werkmap/.relay`; git negeert `werkmap/`).
+const RELAY_DIR = process.env.ARCADE_RELAY_DIR ?? path.resolve(REPO_ROOT, 'werkmap', '.relay');
 const DIRS = {
   requests: path.join(RELAY_DIR, 'requests'),
   responses: path.join(RELAY_DIR, 'responses'),

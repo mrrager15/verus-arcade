@@ -1,0 +1,839 @@
+{
+  "contract": 1,
+  "slug": "number-target",
+  "version": "1.0.0",
+  "generatedFrom": "rules.mjs, values cross-checked with JavaScript arithmetic",
+  "cases": [
+    {
+      "name": "solve first try",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "(100+3)*7+7"
+      ],
+      "feedback": [
+        {
+          "value": 728,
+          "distance": 0,
+          "solved": true,
+          "actionsUsed": 1,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 1
+      },
+      "terminal": true
+    },
+    {
+      "name": "miss then solve",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "100*7",
+        "(100+3)*7+7"
+      ],
+      "feedback": [
+        {
+          "value": 700,
+          "distance": 28,
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 4
+        },
+        {
+          "value": 728,
+          "distance": 0,
+          "solved": true,
+          "actionsUsed": 2,
+          "actionsLeft": 3
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 2
+      },
+      "terminal": true
+    },
+    {
+      "name": "five misses",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "100",
+        "25*3",
+        "100+25",
+        "7*7",
+        "7+7+1"
+      ],
+      "feedback": [
+        {
+          "value": 100,
+          "distance": 628,
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 4
+        },
+        {
+          "value": 75,
+          "distance": 653,
+          "solved": false,
+          "actionsUsed": 2,
+          "actionsLeft": 3
+        },
+        {
+          "value": 125,
+          "distance": 603,
+          "solved": false,
+          "actionsUsed": 3,
+          "actionsLeft": 2
+        },
+        {
+          "value": 49,
+          "distance": 679,
+          "solved": false,
+          "actionsUsed": 4,
+          "actionsLeft": 1
+        },
+        {
+          "value": 15,
+          "distance": 713,
+          "solved": false,
+          "actionsUsed": 5,
+          "actionsLeft": 0
+        }
+      ],
+      "score": {
+        "status": "unsolved",
+        "actionsUsed": 5
+      },
+      "terminal": true
+    },
+    {
+      "name": "single number is a calculation",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "25"
+      ],
+      "feedback": [
+        {
+          "value": 25,
+          "distance": 703,
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "unsolved",
+        "actionsUsed": 1
+      },
+      "terminal": false
+    },
+    {
+      "name": "spaces, × and ÷ are normalized",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        " ( 100 + 3 ) × 7 + 7 "
+      ],
+      "feedback": [
+        {
+          "value": 728,
+          "distance": 0,
+          "solved": true,
+          "actionsUsed": 1,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 1
+      },
+      "terminal": true
+    },
+    {
+      "name": "x and : are normalized",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "100:25x7"
+      ],
+      "feedback": [
+        {
+          "value": 28,
+          "distance": 700,
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "unsolved",
+        "actionsUsed": 1
+      },
+      "terminal": false
+    },
+    {
+      "name": "exact division",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "100/25*7"
+      ],
+      "feedback": [
+        {
+          "value": 28,
+          "distance": 700,
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "unsolved",
+        "actionsUsed": 1
+      },
+      "terminal": false
+    },
+    {
+      "name": "precedence: * before +",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "3+7*100"
+      ],
+      "feedback": [
+        {
+          "value": 703,
+          "distance": 25,
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "unsolved",
+        "actionsUsed": 1
+      },
+      "terminal": false
+    },
+    {
+      "name": "subtraction is left-associative",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "100-7-3"
+      ],
+      "feedback": [
+        {
+          "value": 90,
+          "distance": 638,
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "unsolved",
+        "actionsUsed": 1
+      },
+      "terminal": false
+    },
+    {
+      "name": "nested brackets",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "((25+3))*7"
+      ],
+      "feedback": [
+        {
+          "value": 196,
+          "distance": 532,
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "unsolved",
+        "actionsUsed": 1
+      },
+      "terminal": false
+    },
+    {
+      "name": "both sevens may be used",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "7*7+100"
+      ],
+      "feedback": [
+        {
+          "value": 149,
+          "distance": 579,
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "unsolved",
+        "actionsUsed": 1
+      },
+      "terminal": false
+    },
+    {
+      "name": "solve on the fifth try",
+      "puzzle": {
+        "numbers": [
+          75,
+          50,
+          9,
+          8,
+          3,
+          7
+        ],
+        "target": 688,
+        "solution": "8*(((7-3)*9)+50)"
+      },
+      "actions": [
+        "75+50",
+        "75*9",
+        "8*9*7+75",
+        "(75+50)*8-3*7",
+        "8*(((7-3)*9)+50)"
+      ],
+      "feedback": [
+        {
+          "value": 125,
+          "distance": 563,
+          "solved": false,
+          "actionsUsed": 1,
+          "actionsLeft": 4
+        },
+        {
+          "value": 675,
+          "distance": 13,
+          "solved": false,
+          "actionsUsed": 2,
+          "actionsLeft": 3
+        },
+        {
+          "value": 579,
+          "distance": 109,
+          "solved": false,
+          "actionsUsed": 3,
+          "actionsLeft": 2
+        },
+        {
+          "value": 979,
+          "distance": 291,
+          "solved": false,
+          "actionsUsed": 4,
+          "actionsLeft": 1
+        },
+        {
+          "value": 688,
+          "distance": 0,
+          "solved": true,
+          "actionsUsed": 5,
+          "actionsLeft": 0
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 5
+      },
+      "terminal": true
+    },
+    {
+      "name": "other puzzle, own solution",
+      "puzzle": {
+        "numbers": [
+          50,
+          25,
+          2,
+          10,
+          6,
+          10
+        ],
+        "target": 264,
+        "solution": "((6-2)+10)+(10*25)"
+      },
+      "actions": [
+        "((6-2)+10)+(10*25)"
+      ],
+      "feedback": [
+        {
+          "value": 264,
+          "distance": 0,
+          "solved": true,
+          "actionsUsed": 1,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 1
+      },
+      "terminal": true
+    },
+    {
+      "name": "other puzzle, different solution",
+      "puzzle": {
+        "numbers": [
+          50,
+          25,
+          2,
+          10,
+          6,
+          10
+        ],
+        "target": 264,
+        "solution": "((6-2)+10)+(10*25)"
+      },
+      "actions": [
+        "10*25+10+6-2"
+      ],
+      "feedback": [
+        {
+          "value": 264,
+          "distance": 0,
+          "solved": true,
+          "actionsUsed": 1,
+          "actionsLeft": 4
+        }
+      ],
+      "score": {
+        "status": "solved",
+        "actionsUsed": 1
+      },
+      "terminal": true
+    },
+    {
+      "name": "invalid: division not exact",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "100/3"
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: negative intermediate",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "3-7"
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: zero result",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "7-7"
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: number not in the list",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "8*100"
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: number used twice",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "100+100"
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: seven used three times",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "7*7*7"
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: letters",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "abc"
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: empty",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "   "
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: bracket not closed",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "(100+3"
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: leading minus",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "-3+100"
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: leading zero",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "07+100"
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: not text",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        728
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: too long",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "1+(1)(1)(1)(1)(1)(1)(1)(1)(1)(1)(1)(1)(1)(1)(1)(1)(1)(1)(1)(1)"
+      ],
+      "errorAt": 0
+    },
+    {
+      "name": "invalid: after solving",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "(100+3)*7+7",
+        "100"
+      ],
+      "errorAt": 1
+    },
+    {
+      "name": "invalid: sixth action",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "100",
+        "25*3",
+        "100+25",
+        "7*7",
+        "7+7+1",
+        "25"
+      ],
+      "errorAt": 5
+    },
+    {
+      "name": "invalid action does not use a try",
+      "puzzle": {
+        "numbers": [
+          100,
+          25,
+          3,
+          7,
+          7,
+          1
+        ],
+        "target": 728,
+        "solution": "(100+3)*7+7"
+      },
+      "actions": [
+        "100/3",
+        "100"
+      ],
+      "errorAt": 0
+    }
+  ]
+}

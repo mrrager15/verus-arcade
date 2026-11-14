@@ -2,7 +2,9 @@ import crypto from 'node:crypto';
 
 import { canonicalJson } from '../canonical-json.mjs';
 import { buildResultSet, createInclusionProof } from '../result-set.mjs';
-import { hiddenDefinitionHash } from '../round-proof.mjs';
+import { definitionPuzzle, hiddenDefinitionHash } from '../round-proof.mjs';
+import { storedActionValue, usesGenericRecords } from '../attempt-actions.mjs';
+import { gameRules } from '../../shared/games/index.mjs';
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token, 'utf8').digest('hex');
@@ -597,6 +599,11 @@ export class ArcadeRepository {
       const signatures = new Map(
         this.listRoundAttemptSignatures(round).map((signature) => [signature.attemptId, signature]),
       );
+      // Fase 8: definitieschema 2 → resultaatschema 3 (elke game, score door de regels nagerekend).
+      const definition = this.getRoundPrivateDefinition(roundRecordId);
+      const generic = usesGenericRecords(definition);
+      const rules = generic ? gameRules(round.game_id, round.game_version) : null;
+      const puzzle = generic ? definitionPuzzle(definition) : null;
       const records = attempts.map((attempt) => {
         const signed = signatures.get(attempt.id);
         const actions = this.database
@@ -607,6 +614,30 @@ export class ArcadeRepository {
             ORDER BY sequence
           `)
           .all(attempt.id);
+        if (generic) {
+          const values = actions.map((action) => ({
+            sequence: Number(action.sequence),
+            value: storedActionValue(JSON.parse(action.canonical_action)),
+          }));
+          let state = rules.newState(puzzle);
+          for (const { value } of values) state = rules.applyAction(state, value).state;
+          const completed = attempt.status === 'completed';
+          const solved = completed && rules.score(state).status === 'solved';
+          return {
+            schemaVersion: 3,
+            roundId: round.round_id,
+            chainId: round.chain_id,
+            gameId: round.game_id,
+            gameVersion: round.game_version,
+            playerIAddress: attempt.player_i_address,
+            status: completed ? (solved ? 'solved' : 'unsolved') : 'abandoned',
+            actions: values,
+            score: { solved, actionsUsed: values.length },
+            playerSignature: signed
+              ? { height: signed.signingHeight, signature: signed.nativeSignature }
+              : null,
+          };
+        }
         const guesses = actions.map((action) => {
           const canonicalAction = JSON.parse(action.canonical_action);
           return {
@@ -1138,6 +1169,48 @@ export class ArcadeRepository {
       .map(mapPlayerPublication);
   }
 
+  // ---- Fase 8: game-manifesten ----------------------------------------------
+
+  /** Nieuw of vervangen tekenverzoek voor het manifest van een game-versie (nooit over een getekend manifest). */
+  saveGameManifestRequest({ slug, gameVersion, developer, manifest, message, requestIdHex = null, requestHex = null, walletUri = null, expiresHeight = null, now }) {
+    return inImmediateTransaction(this.database, () => {
+      const existing = this.getGameManifest(slug, gameVersion);
+      if (existing?.status === 'signed') {
+        throw new RepositoryConflictError('GAME_MANIFEST_SIGNED', 'This game version already has a signed manifest');
+      }
+      this.database.prepare(`
+        INSERT INTO game_manifests (slug, game_version, developer, status, manifest_json, message, request_id_hex, request_hex, wallet_uri, expires_height, signed_json, created_at_ms, updated_at_ms)
+        VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+        ON CONFLICT (slug, game_version) DO UPDATE SET
+          developer = excluded.developer, status = 'pending', manifest_json = excluded.manifest_json, message = excluded.message,
+          request_id_hex = excluded.request_id_hex, request_hex = excluded.request_hex, wallet_uri = excluded.wallet_uri,
+          expires_height = excluded.expires_height, signed_json = NULL, updated_at_ms = excluded.updated_at_ms
+      `).run(slug, gameVersion, developer, JSON.stringify(manifest), message, requestIdHex, requestHex, walletUri, expiresHeight, now, now);
+      return this.getGameManifest(slug, gameVersion);
+    });
+  }
+
+  markGameManifestSigned({ slug, gameVersion, signed, now }) {
+    this.database.prepare(`
+      UPDATE game_manifests SET status = 'signed', signed_json = ?, updated_at_ms = ? WHERE slug = ? AND game_version = ?
+    `).run(JSON.stringify(signed), now, slug, gameVersion);
+    return this.getGameManifest(slug, gameVersion);
+  }
+
+  getGameManifest(slug, gameVersion) {
+    const row = this.database.prepare('SELECT * FROM game_manifests WHERE slug = ? AND game_version = ?').get(slug, gameVersion);
+    return row ? mapGameManifest(row) : null;
+  }
+
+  getGameManifestByRequest(requestIdHex) {
+    const row = this.database.prepare('SELECT * FROM game_manifests WHERE request_id_hex = ?').get(requestIdHex);
+    return row ? mapGameManifest(row) : null;
+  }
+
+  listGameManifests() {
+    return this.database.prepare('SELECT * FROM game_manifests ORDER BY slug, game_version').all().map(mapGameManifest);
+  }
+
   // ---- Fase 2b: attestaties ------------------------------------------------
 
   getAttestation({ playerIAddress, roundRecordId }) {
@@ -1165,6 +1238,20 @@ export class ArcadeRepository {
         ORDER BY r.opens_at_ms
       `)
       .all(chainId, gameId, gameVersion, playerIAddress)
+      .map(mapAttestation);
+  }
+
+  /** Alle attestaties van een speler over alle games, oudste ronde eerst (bij gelijke start: op ronde-ID). */
+  listPlayerAttestationsAllGames({ chainId, playerIAddress }) {
+    return this.database
+      .prepare(`
+        SELECT a.*
+        FROM attestations a
+        JOIN rounds r ON r.id = a.round_record_id
+        WHERE a.chain_id = ? AND a.player_i_address = ?
+        ORDER BY r.opens_at_ms, r.round_id
+      `)
+      .all(chainId, playerIAddress)
       .map(mapAttestation);
   }
 
@@ -1276,3 +1363,20 @@ function mapAttemptSignature(row) {
   };
 }
 
+function mapGameManifest(row) {
+  return {
+    slug: row.slug,
+    gameVersion: row.game_version,
+    developer: row.developer,
+    status: row.status,
+    manifest: JSON.parse(row.manifest_json),
+    message: row.message,
+    requestIdHex: row.request_id_hex ?? null,
+    requestHex: row.request_hex ?? null,
+    walletUri: row.wallet_uri ?? null,
+    expiresHeight: row.expires_height === null ? null : Number(row.expires_height),
+    signed: row.signed_json ? JSON.parse(row.signed_json) : null,
+    createdAt: Number(row.created_at_ms),
+    updatedAt: Number(row.updated_at_ms),
+  };
+}

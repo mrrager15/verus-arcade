@@ -185,3 +185,56 @@ test('v2 compact past in een Verus Mobile-deeplink tot 20.000 spelers; v1 al nie
   assert.ok(sizes[3].deeplinkV1 > MOBILE_MAX, `v1 bij 3 spelers zou ${sizes[3].deeplinkV1} tekens zijn`);
   console.log('# deeplink-schatting (bytes → tekens):', JSON.stringify(sizes));
 });
+
+// ---- Fase 8: resultaatschema 3 en compact v3 (elke game) --------------------
+
+const NT_ROUND = Object.freeze({ id: 'number-target:1.0.0:2026-11-13', round_id: 'number-target:1.0.0:2026-11-13', chain_id: 'vrsctest', game_id: 'number-target', game_version: '1.0.0' });
+
+function v3Record(player, actions, status, signature = null) {
+  return {
+    schemaVersion: 3, roundId: NT_ROUND.round_id, chainId: 'vrsctest', gameId: 'number-target', gameVersion: '1.0.0',
+    playerIAddress: player, status,
+    actions: actions.map((value, i) => ({ sequence: i + 1, value })),
+    score: { solved: status === 'solved', actionsUsed: actions.length },
+    playerSignature: signature,
+  };
+}
+
+test('fase 8: compact v3 bouwt het bewezen schema-3-record byte-exact opnieuw op', () => {
+  const others = ['iBdu6ywTH7xBKyDybK8XjQwBjjPDp5hGyu', 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq', 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV'];
+  const records = [
+    v3Record(PLAYER, ['100*7', '(100+3)*7+7'], 'solved', { height: 1500, signature: SIGNATURE }),
+    ...others.map((p, i) => v3Record(p, ['25'.slice(0, 1 + (i % 2)) || '25'], 'unsolved')),
+  ];
+  const set = buildResultSet(records);
+  const index = set.entries.find((e) => e.record.playerIAddress === PLAYER).leafIndex;
+  const proof = createInclusionProof(set, index);
+  const compact = buildCompactPlayerResultRecord({ round: NT_ROUND, proof });
+  assert.equal(compact.version, 3);
+  assert.equal(compact.actions, '100*7,(100+3)*7+7');
+  assert.ok(!('guesses' in compact));
+  const expanded = expandCompactPlayerResult(compact, { player: PLAYER });
+  assert.equal(canonicalJson(expanded.record), canonicalJson(records[0]));
+  assert.equal(expanded.resultRoot, set.rootSha256);
+  const parsed = parsePlayerResultRecord(serializePlayerResultRecord(compact, { player: PLAYER }).json, { player: PLAYER });
+  assert.equal(parsed.version, 3);
+  assert.equal(parsed.actionsUsed, 2);
+  assert.equal(parsed.status, 'solved');
+  // Een zet die niet canoniek is of niet bij de game hoort, wordt geweigerd.
+  assert.throws(() => expandCompactPlayerResult({ ...compact, actions: '100 * 7' }, { player: PLAYER }), /Invalid actions/);
+  assert.throws(() => expandCompactPlayerResult({ ...compact, actions: 'crane' }, { player: PLAYER }), /Invalid actions/);
+  assert.throws(() => expandCompactPlayerResult({ ...compact, actions: '1,1,1,1,1,1' }, { player: PLAYER }), /Too many actions/);
+  assert.throws(() => expandCompactPlayerResult({ ...compact, round: 'chess:1.0.0:2026-11-13' }, { player: PLAYER }), /not registered/);
+  // Een v3-record met `guesses` (v2-vorm) past niet.
+  const { actions, ...rest } = compact;
+  assert.throws(() => expandCompactPlayerResult({ ...rest, guesses: actions }, { player: PLAYER }), /schema v3/);
+});
+
+test('fase 8: resultaatschema 3 controleert zetten met de regels van de game', () => {
+  assert.doesNotThrow(() => buildResultSet([v3Record(PLAYER, ['100*7'], 'unsolved')]));
+  assert.throws(() => buildResultSet([v3Record(PLAYER, ['100 * 7'], 'unsolved')]), /not canonical/);
+  assert.throws(() => buildResultSet([v3Record(PLAYER, ['crane'], 'unsolved')]), /not valid for number-target/);
+  assert.throws(() => buildResultSet([{ ...v3Record(PLAYER, ['100'], 'solved'), score: { solved: true, actionsUsed: 2 } }]), /score/);
+  assert.throws(() => buildResultSet([{ ...v3Record(PLAYER, ['100'], 'unsolved'), roundId: 'word-grid:1.0.0:2026-11-13' }]), /round or player/);
+  assert.throws(() => buildResultSet([v3Record(PLAYER, ['1', '2', '3', '7', '25', '100'], 'unsolved')]), /actions/);
+});

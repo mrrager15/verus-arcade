@@ -5,14 +5,12 @@
  * en alles hier unit-testbaar is.
  *
  * Een Daily loopt standaard van 00:00:00 UTC op de rondedatum tot 00:00:00 UTC
- * de dag erna. Het record-ID is `word-grid:1.0.0:JJJJ-MM-DD`, hetzelfde patroon
- * als de v1-rondes, zodat de verifier en het resultaatrecord niets hoeven te
- * veranderen.
+ * de dag erna. Het record-ID is `<game>:<versie>:JJJJ-MM-DD` (bv.
+ * `word-grid:1.0.0:2026-11-12`), hetzelfde patroon als de v1-rondes.
  */
 import crypto from 'node:crypto';
 
-import { WORD_GRID_GAME_ID, WORD_GRID_VERSION } from './games/word-grid/engine.mjs';
-import { ANSWERS } from './words.mjs';
+import { DEFAULT_GAME, gameGenerator, parseGameOption } from './games/generators.mjs';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -22,8 +20,9 @@ export function utcDateOf(ms) {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-export function dailyRoundRecordId(date) {
-  return `${WORD_GRID_GAME_ID}:${WORD_GRID_VERSION}:${date}`;
+/** Ronde-ID van een Daily: `<game>:<versie>:<datum>` (zonder game: Word Grid 1.0.0). */
+export function dailyRoundRecordId(date, game = DEFAULT_GAME) {
+  return `${game.gameId}:${game.gameVersion}:${date}`;
 }
 
 /**
@@ -61,7 +60,7 @@ export function dailyRoundSchedule({ date, opensAt, closesAt, now = Date.now() }
  * Testronde (zie server/test-rounds.mjs): opent nu (afgerond op de minuut, UTC)
  * en sluit na `minutes` minuten. Record-ID met tijdslot: `…:JJJJ-MM-DDTUUMM`.
  */
-export function testRoundSchedule({ minutes, now = Date.now() }) {
+export function testRoundSchedule({ minutes, now = Date.now(), game = DEFAULT_GAME }) {
   const n = Number(minutes);
   if (!Number.isSafeInteger(n) || n < 3 || n > 180) throw new Error('--test-minutes moet tussen 3 en 180 liggen');
   const opensAtMs = Math.floor(now / 60_000) * 60_000;
@@ -71,7 +70,7 @@ export function testRoundSchedule({ minutes, now = Date.now() }) {
   const slot = `${iso.slice(11, 13)}${iso.slice(14, 16)}`;
   return {
     date,
-    recordId: `${dailyRoundRecordId(date)}T${slot}`,
+    recordId: `${dailyRoundRecordId(date, game)}T${slot}`,
     opensAt: iso,
     closesAt: new Date(closesAtMs).toISOString(),
     opensAtMs,
@@ -80,41 +79,55 @@ export function testRoundSchedule({ minutes, now = Date.now() }) {
 }
 
 /**
- * Bouwt de geheime rondedefinitie (schema 1) voor een Daily: willekeurig
- * antwoord, puzzle-seed en salt. Alleen de sha256 hiervan komt op de chain.
- * `random` is injecteerbaar voor tests.
+ * Games die nog rondes in definitieschema 1 krijgen (alleen Word Grid 1.0.0).
+ * Fase 8: pas omzetten als het generieke pad (schema 2 → resultaat schema 3)
+ * end-to-end bewezen is; tot dan blijft de echte Daily op het beproefde pad.
+ */
+const LEGACY_DEFINITION_GAMES = new Set(['word-grid@1.0.0']);
+
+/**
+ * Bouwt de geheime rondedefinitie voor een Daily van een game: de puzzel komt
+ * van de generator van die game, plus een salt. Alleen de sha256 hiervan komt
+ * op de chain. Schema 2 (fase 8) voor elke game; Word Grid 1.0.0 voorlopig nog
+ * schema 1 (zie hierboven). `random` en `answers` (alleen Word Grid) zijn
+ * injecteerbaar voor tests.
  */
 export function createDailyHiddenDefinition({
   schedule,
   chainId = 'vrsctest',
-  answers = ANSWERS,
+  game = DEFAULT_GAME,
+  answers,
+  schemaVersion = LEGACY_DEFINITION_GAMES.has(`${game.gameId}@${game.gameVersion}`) ? 1 : 2,
   random = { bytes: (n) => crypto.randomBytes(n), int: (max) => crypto.randomInt(0, max) },
 }) {
-  if (!Array.isArray(answers) || answers.length === 0) {
-    throw new Error('Geen antwoordenlijst beschikbaar');
-  }
-  return {
-    schemaVersion: 1,
-    roundId: schedule.recordId ?? dailyRoundRecordId(schedule.date),
+  const generator = gameGenerator(game.gameId, game.gameVersion);
+  const base = {
+    roundId: schedule.recordId ?? dailyRoundRecordId(schedule.date, game),
     chainId,
-    gameId: WORD_GRID_GAME_ID,
-    gameVersion: WORD_GRID_VERSION,
+    gameId: game.gameId,
+    gameVersion: game.gameVersion,
     date: schedule.date,
     opensAt: schedule.opensAt,
     closesAt: schedule.closesAt,
-    puzzleSeed: random.bytes(32).toString('hex'),
-    answer: answers[random.int(answers.length)],
-    salt: random.bytes(32).toString('hex'),
   };
+  if (schemaVersion === 1) {
+    if (!LEGACY_DEFINITION_GAMES.has(`${game.gameId}@${game.gameVersion}`)) throw new Error('Schema 1 bestaat alleen voor Word Grid 1.0.0');
+    const puzzleSeed = random.bytes(32).toString('hex');
+    const { answer } = generator.createPuzzle({ random, ...(answers ? { answers } : {}) });
+    return { schemaVersion: 1, ...base, puzzleSeed, answer, salt: random.bytes(32).toString('hex') };
+  }
+  if (schemaVersion !== 2) throw new Error(`Onbekend definitieschema ${schemaVersion}`);
+  const puzzle = generator.createPuzzle({ random, ...(answers ? { answers } : {}) });
+  return { schemaVersion: 2, ...base, puzzle, salt: random.bytes(32).toString('hex') };
 }
 
 /**
- * Leest `--date`, `--opens-at` en `--closes-at` uit CLI-argumenten.
+ * Leest `--date`, `--opens-at`, `--closes-at`, `--test-minutes` en `--game` uit CLI-argumenten.
  * Onbekende opties zijn een fout, zodat een typefout nooit stil genegeerd wordt.
  */
 export function parseRoundCreateOptions(argv = []) {
   const options = {};
-  const names = { '--date': 'date', '--opens-at': 'opensAt', '--closes-at': 'closesAt', '--test-minutes': 'testMinutes' };
+  const names = { '--date': 'date', '--opens-at': 'opensAt', '--closes-at': 'closesAt', '--test-minutes': 'testMinutes', '--game': 'game' };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     const key = names[flag];
@@ -125,6 +138,7 @@ export function parseRoundCreateOptions(argv = []) {
     options[key] = value;
     index += 1;
   }
-  if ('testMinutes' in options && Object.keys(options).length > 1) throw new Error('--test-minutes gaat niet samen met --date/--opens-at/--closes-at');
+  if ('testMinutes' in options && ['date', 'opensAt', 'closesAt'].some((k) => k in options)) throw new Error('--test-minutes gaat niet samen met --date/--opens-at/--closes-at');
+  if ('game' in options) options.game = parseGameOption(options.game);
   return options;
 }

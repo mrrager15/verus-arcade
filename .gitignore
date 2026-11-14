@@ -27,3 +27,7 @@ vite.config.ts.timestamp-*
 
 # Claude RPC-relay werkmap
 .relay/
+
+# Projectnotities (STATUS, logboek, plan, handleidingen): privé, nooit naar GitHub
+/werkmap/
+CLAUDE.local.md

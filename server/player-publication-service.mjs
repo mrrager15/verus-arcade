@@ -21,6 +21,7 @@
  * Geen HTTP hier; de router vertaalt. Fouten zijn DailyServiceError.
  */
 import crypto from 'node:crypto';
+import { definitionPuzzle } from './round-proof.mjs';
 
 import { DailyServiceError } from './daily-service.mjs';
 import { RepositoryConflictError } from './db/repository.mjs';
@@ -228,9 +229,9 @@ export class PlayerPublicationService {
     if (!proof) {
       throw new DailyServiceError('RESULT_COMPLETENESS_FAILURE', 'Final result set does not contain this attempt', 503);
     }
-    // Resultaatschema 2 (sinds fase 1) → compact v2-record (past in een Mobile-deeplink, ook
-    // bij grote rondes); oudere schema-1-rondes houden het volledige v1-record.
-    const record = proof.record.schemaVersion === 2
+    // Resultaatschema 2 (sinds fase 1) → compact v2-record, schema 3 (fase 8) → compact v3 (past
+    // in een Mobile-deeplink, ook bij grote rondes); oudere schema-1-rondes houden het volledige v1-record.
+    const record = proof.record.schemaVersion >= 2
       ? buildCompactPlayerResultRecord({ round, proof })
       : buildPlayerResultRecord({ round, proof, resultRootTxid: resultSet.resultsTxid });
     return {
@@ -359,7 +360,14 @@ export class PlayerPublicationService {
         const set = round ? this.repository.getRoundResultSet(round.id) : null;
         return set?.resultsTxid ? set.rootSha256 : null;
       };
-      const collected = await collectPlayerResults({ playerId, content, history, serviceId, serviceFqn, decrypt: this.#decrypt, resolveRoot });
+      // Fase 8: de onthulde puzzel (alleen na de reveal), om het record na te spelen.
+      const resolvePuzzle = (roundId) => {
+        const round = this.repository.getRound(roundId);
+        const reveal = round ? this.repository.getRoundReveal(round.id) : null;
+        if (!reveal?.hiddenDefinition) return null;
+        try { return definitionPuzzle(reveal.hiddenDefinition); } catch { return null; }
+      };
+      const collected = await collectPlayerResults({ playerId, content, history, serviceId, serviceFqn, decrypt: this.#decrypt, resolveRoot, resolvePuzzle });
       return {
         playerId,
         name: content?.fullyqualifiedname ?? content?.identity?.name ?? null,

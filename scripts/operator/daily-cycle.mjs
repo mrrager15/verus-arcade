@@ -5,7 +5,7 @@
  *
  * Doet voor elke gesloten ronde, oudste eerst: finalize → results (wachten op
  * bevestiging) → attestaties → reveal (wachten op bevestiging); daarna zorgt het
- * dat de Daily van vandaag en morgen (UTC) bestaan en open zijn (aanmaken →
+ * dat de Daily van elke game voor vandaag en morgen (UTC) bestaan en open zijn (aanmaken →
  * uitzenden → wachten). Elke stap is het bestaande operator-commando met zijn
  * eigen ACK; tussen twee identity-updates op de operator-ID wacht het altijd op
  * een bevestiging. Herstartbaar: wordt `--max-wait` (standaard 480 s) bereikt,
@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { STEP_ACKS, missingDailyDates, nextRoundStep } from '../../server/daily-cycle-plan.mjs';
+import { dailyGames } from '../../server/games/generators.mjs';
 import { applyTestRoundEnvironment } from '../../server/test-rounds.mjs';
 
 const ACK = 'RUN_VRSCTEST_DAILY_CYCLE';
@@ -110,8 +111,12 @@ try {
     if (state !== 'done') { outcome = state; break; }
   }
   if (outcome === 'done' && !mode.testMode && !noCreate) {
-    for (const date of missingDailyDates(rounds.map((r) => r.roundId))) {
-      const created = await lifecycle('round-create', null, ['--date', date]);
+    // Fase 8: een Daily per geregistreerde game (hoogste versie), vandaag en morgen.
+    const wanted = dailyGames().flatMap((game) =>
+      missingDailyDates(rounds.map((r) => r.roundId), Date.now(), `${game.gameId}:${game.gameVersion}`)
+        .map((date) => ({ game, date })));
+    for (const { game, date } of wanted) {
+      const created = await lifecycle('round-create', null, ['--game', `${game.gameId}@${game.gameVersion}`, '--date', date]);
       const roundId = created.json?.round?.roundId;
       steps.push({ round: roundId ?? date, action: 'round-create', ...(created.error ? { error: created.error } : {}) });
       if (created.code !== 0 || !roundId) { outcome = 'blocked'; break; }

@@ -9,6 +9,7 @@
  * Pure functies zonder I/O; de wallet-request zelf staat in requests.mjs.
  */
 import { createHash } from 'node:crypto';
+import { gameRules } from '../../shared/games/index.mjs';
 
 import { canonicalJson } from '../canonical-json.mjs';
 import { RESULT_ALGORITHM, inclusionRoot, verifyInclusionProof } from '../result-set.mjs';
@@ -23,6 +24,9 @@ export const PLAYER_RESULT_VERSION = 1;
  * deeplinks tot 2045 tekens aanvaardt (v1 ging vanaf 3 spelers per ronde over).
  */
 export const PLAYER_RESULT_COMPACT_VERSION = 2;
+/** v3 (fase 8): compact record voor resultaatschema 3 (elke game); `actions` in plaats van `guesses`. */
+export const PLAYER_RESULT_COMPACT_V3 = 3;
+const COMPACT_VERSIONS = [PLAYER_RESULT_COMPACT_VERSION, PLAYER_RESULT_COMPACT_V3];
 /** Grens van Vatermark: één signdata-leaf. */
 export const PLAYER_RESULT_MAX_BYTES = 2048;
 
@@ -138,6 +142,7 @@ export function buildPlayerResultRecord({ round, proof, resultRootTxid }) {
 const ROUND_PARTS = /^([a-z0-9][a-z0-9-]{0,40}):(\d+\.\d+\.\d+):(\d{4}-\d{2}-\d{2}(?:T\d{4})?)$/;
 const STATUSES = ['solved', 'unsolved', 'abandoned'];
 const COMPACT_KEYS = ['schema', 'version', 'round', 'status', 'guesses', 'sig', 'index', 'count', 'proof'];
+const COMPACT_KEYS_V3 = ['schema', 'version', 'round', 'status', 'actions', 'sig', 'index', 'count', 'proof'];
 const MAX_GUESSES = 6;
 
 /**
@@ -156,14 +161,15 @@ export function buildCompactPlayerResultRecord({ round, proof }) {
   if (inner.roundId !== round.round_id || inner.chainId !== round.chain_id || inner.gameId !== round.game_id || inner.gameVersion !== round.game_version) {
     throw new PlayerResultError('INVALID_PROOF', 'Inclusion proof belongs to a different round');
   }
-  if (inner.schemaVersion !== 2) throw new PlayerResultError('UNSUPPORTED_RECORD', 'Compact records need result schema 2');
+  if (inner.schemaVersion !== 2 && inner.schemaVersion !== 3) throw new PlayerResultError('UNSUPPORTED_RECORD', 'Compact records need result schema 2 or 3');
   const signature = inner.playerSignature;
+  const v3 = inner.schemaVersion === 3;
   const compact = {
     schema: PLAYER_RESULT_SCHEMA,
-    version: PLAYER_RESULT_COMPACT_VERSION,
+    version: v3 ? PLAYER_RESULT_COMPACT_V3 : PLAYER_RESULT_COMPACT_VERSION,
     round: round.round_id,
     status: inner.status,
-    guesses: inner.guesses.map((g) => g.word).join(','),
+    ...(v3 ? { actions: inner.actions.map((a) => a.value).join(',') } : { guesses: inner.guesses.map((g) => g.word).join(',') }),
     sig: signature ? signature.signature : null,
     ...(signature ? { sigHeight: signature.height } : {}),
     index: proof.leafIndex,
@@ -186,15 +192,31 @@ export function buildCompactPlayerResultRecord({ round, proof }) {
 export function expandCompactPlayerResult(compact, { player }) {
   const bad = (message) => { throw new PlayerResultError('INVALID_RECORD', message); };
   const keys = compact && typeof compact === 'object' && !Array.isArray(compact) ? Object.keys(compact) : [];
-  const expected = compact?.sig === null ? COMPACT_KEYS : [...COMPACT_KEYS, 'sigHeight'];
-  if (keys.length !== expected.length || expected.some((k) => !keys.includes(k))) bad('Player result record does not match schema v2');
-  if (compact.schema !== PLAYER_RESULT_SCHEMA || compact.version !== PLAYER_RESULT_COMPACT_VERSION) bad('Not a v2 player result record');
-  if (!I_ADDRESS.test(player ?? '')) bad('A v2 record needs the identity it is stored in');
+  const v3 = compact?.version === PLAYER_RESULT_COMPACT_V3;
+  const base = v3 ? COMPACT_KEYS_V3 : COMPACT_KEYS;
+  const expected = compact?.sig === null ? base : [...base, 'sigHeight'];
+  if (keys.length !== expected.length || expected.some((k) => !keys.includes(k))) bad(`Player result record does not match schema v${v3 ? 3 : 2}`);
+  if (compact.schema !== PLAYER_RESULT_SCHEMA || !COMPACT_VERSIONS.includes(compact.version)) bad('Not a compact player result record');
+  if (!I_ADDRESS.test(player ?? '')) bad('A compact record needs the identity it is stored in');
   const parts = ROUND_PARTS.exec(compact.round ?? '');
   if (!parts) bad('Invalid round');
   if (!STATUSES.includes(compact.status)) bad('Invalid status');
-  const words = compact.guesses === '' ? [] : String(compact.guesses).split(',');
-  if (words.length > MAX_GUESSES || words.some((w) => !/^[a-z]{5}$/.test(w))) bad('Invalid guesses');
+  let words = [];
+  let values = [];
+  if (v3) {
+    let rules;
+    try { rules = gameRules(parts[1], parts[2]); } catch (error) { bad(error.message); }
+    values = compact.actions === '' ? [] : String(compact.actions).split(',');
+    if (values.length > rules.meta.maxActions) bad('Too many actions');
+    for (const value of values) {
+      let canonical = null;
+      try { canonical = rules.normalizeAction(value); } catch { /* ongeldig */ }
+      if (canonical !== value) bad('Invalid actions');
+    }
+  } else {
+    words = compact.guesses === '' ? [] : String(compact.guesses).split(',');
+    if (words.length > MAX_GUESSES || words.some((w) => !/^[a-z]{5}$/.test(w))) bad('Invalid guesses');
+  }
   let signature = null;
   if (compact.sig !== null) {
     const raw = typeof compact.sig === 'string' ? Buffer.from(compact.sig, 'base64') : Buffer.alloc(0);
@@ -204,18 +226,20 @@ export function expandCompactPlayerResult(compact, { player }) {
   if (!Number.isSafeInteger(compact.index) || !Number.isSafeInteger(compact.count)) bad('Invalid position');
   const path = typeof compact.proof === 'string' ? Buffer.from(compact.proof, 'base64') : null;
   if (!path || path.toString('base64') !== compact.proof || path.length % 32 !== 0) bad('Invalid proof encoding');
-  const record = {
-    schemaVersion: 2,
-    roundId: compact.round,
-    chainId: 'vrsctest',
-    gameId: parts[1],
-    gameVersion: parts[2],
-    playerIAddress: player,
-    status: compact.status,
-    guesses: words.map((word, i) => ({ sequence: i + 1, word })),
-    score: { solved: compact.status === 'solved', guessesUsed: words.length },
-    playerSignature: signature,
-  };
+  const common = { roundId: compact.round, chainId: 'vrsctest', gameId: parts[1], gameVersion: parts[2], playerIAddress: player, status: compact.status };
+  const record = v3
+    ? {
+        schemaVersion: 3, ...common,
+        actions: values.map((value, i) => ({ sequence: i + 1, value })),
+        score: { solved: compact.status === 'solved', actionsUsed: values.length },
+        playerSignature: signature,
+      }
+    : {
+        schemaVersion: 2, ...common,
+        guesses: words.map((word, i) => ({ sequence: i + 1, word })),
+        score: { solved: compact.status === 'solved', guessesUsed: words.length },
+        playerSignature: signature,
+      };
   let index = compact.index;
   const siblings = [];
   for (let offset = 0; offset < path.length; offset += 32) {
@@ -259,7 +283,7 @@ export function validatePlayerResultRecord(record) {
 
 /** Canonieke JSON (JCS-volgorde) + grootte-controle. */
 export function serializePlayerResultRecord(record, { player } = {}) {
-  if (record?.version === PLAYER_RESULT_COMPACT_VERSION) expandCompactPlayerResult(record, { player });
+  if (COMPACT_VERSIONS.includes(record?.version)) expandCompactPlayerResult(record, { player });
   else validatePlayerResultRecord(record);
   const json = canonicalJson(record);
   const bytes = Buffer.byteLength(json, 'utf8');
@@ -281,7 +305,7 @@ export function parsePlayerResultRecord(text, { player } = {}) {
   } catch {
     throw new PlayerResultError('INVALID_RECORD', 'Published record is not JSON');
   }
-  if (record?.version !== PLAYER_RESULT_COMPACT_VERSION) {
+  if (!COMPACT_VERSIONS.includes(record?.version)) {
     validatePlayerResultRecord(record);
     return record;
   }
@@ -289,14 +313,15 @@ export function parsePlayerResultRecord(text, { player } = {}) {
   const expanded = expandCompactPlayerResult(record, { player });
   return {
     schema: PLAYER_RESULT_SCHEMA,
-    version: PLAYER_RESULT_COMPACT_VERSION,
+    version: record.version,
     round: expanded.record.roundId,
     chain: expanded.record.chainId,
     game: expanded.record.gameId,
     gameVersion: expanded.record.gameVersion,
     player: expanded.record.playerIAddress,
     status: expanded.record.status,
-    guesses: expanded.record.score.guessesUsed,
+    guesses: expanded.record.score.guessesUsed ?? expanded.record.score.actionsUsed,
+    actionsUsed: expanded.record.score.guessesUsed ?? expanded.record.score.actionsUsed,
     resultRoot: expanded.resultRoot,
     resultRootTxid: null,
     proof: { algorithm: RESULT_ALGORITHM, record: expanded.record, leafIndex: expanded.leafIndex, leafCount: expanded.leafCount },

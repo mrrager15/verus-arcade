@@ -7,14 +7,14 @@
 	 */
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { createChainReader, DEFAULT_RPC_URL } from '../../../../../shared/chain-reader.mjs';
+	import { createChainReader } from '../../../../../shared/chain-reader.mjs';
 	import { verifyRoundIndependently } from '../../../../../shared/independent-round.mjs';
 	import { sha256Text } from '$lib/proof-verifier';
+	import { DEFAULT_RPC_URL, rememberedRpcUrl, rememberRpcUrl, rpcHost } from '$lib/verifier-rpc';
 
 	type Check = Awaited<ReturnType<typeof verifyRoundIndependently>>;
 	type Part = Check['parts']['commitment'];
 
-	const STORAGE_KEY = 'arcade.verifier.rpcUrl';
 	const VERDICTS: Record<string, { tone: string; title: string; text: string }> = {
 		verified: {
 			tone: 'ok',
@@ -62,30 +62,7 @@
 
 	const roundId = $derived(page.params.round ?? '');
 	const verdict = $derived(check ? VERDICTS[check.verdict] : null);
-	const host = $derived.by(() => {
-		try {
-			return new URL(check?.source.url ?? rpcUrl).host;
-		} catch {
-			return rpcUrl;
-		}
-	});
-
-	function remembered(): string | null {
-		try {
-			return localStorage.getItem(STORAGE_KEY);
-		} catch {
-			return null;
-		}
-	}
-
-	function remember(url: string) {
-		try {
-			if (url === DEFAULT_RPC_URL) localStorage.removeItem(STORAGE_KEY);
-			else localStorage.setItem(STORAGE_KEY, url);
-		} catch {
-			/* geen opslag: dan niet onthouden */
-		}
-	}
+	const host = $derived(rpcHost(check?.source.url ?? rpcUrl));
 
 	async function run() {
 		running = true;
@@ -94,8 +71,7 @@
 		try {
 			const reader = createChainReader({ url: rpcUrl.trim() });
 			check = await verifyRoundIndependently({ roundId, reader, sha256Hex: sha256Text });
-			// Alleen een RPC die echt VRSCTEST antwoordde onthouden, geen tikfout of dode node.
-			if (check.verdict !== 'unavailable' && check.verdict !== 'wrong-chain') remember(rpcUrl.trim());
+			rememberRpcUrl(rpcUrl.trim(), check.verdict);
 		} catch (caught) {
 			const code = (caught as { code?: string })?.code;
 			error =
@@ -117,7 +93,7 @@
 	}
 
 	onMount(() => {
-		rpcUrl = remembered() ?? DEFAULT_RPC_URL;
+		rpcUrl = rememberedRpcUrl();
 		void run();
 	});
 

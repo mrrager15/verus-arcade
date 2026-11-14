@@ -18,11 +18,22 @@ function parseConf(path) {
   return parsed;
 }
 
-const conf = parseConf(CONF_PATH);
-const rpcUrl = `http://${conf.rpchost ?? '127.0.0.1'}:${conf.rpcport}`;
-const authorization = `Basic ${Buffer.from(`${conf.rpcuser}:${conf.rpcpassword}`).toString('base64')}`;
+// De daemon-config pas bij de eerste aanroep lezen, niet bij het importeren: zo
+// draaien de unit-tests (die geen RPC doen) ook zonder daemon, bv. in CI op Linux.
+let connection = null;
+function getConnection() {
+  if (!connection) {
+    const conf = parseConf(CONF_PATH);
+    connection = {
+      rpcUrl: `http://${conf.rpchost ?? '127.0.0.1'}:${conf.rpcport}`,
+      authorization: `Basic ${Buffer.from(`${conf.rpcuser}:${conf.rpcpassword}`).toString('base64')}`,
+    };
+  }
+  return connection;
+}
 
 export async function rpc(method, params = []) {
+  const { rpcUrl, authorization } = getConnection();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {

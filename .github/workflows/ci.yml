@@ -23,6 +23,11 @@ jobs:
           node-version: 22
           cache: npm
 
+      # De lockfile is met npm 11 gemaakt; npm 10 (standaard bij Node 22) weigert hem
+      # ("Missing: @emnapi/runtime from lock file"). Zelfde versie als op de ontwikkel-pc.
+      - name: Use npm 11
+        run: npm install -g npm@11.6.2
+
       - name: Install locked dependencies
         run: npm ci
 

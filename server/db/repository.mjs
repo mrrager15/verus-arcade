@@ -1241,6 +1241,20 @@ export class ArcadeRepository {
       .map(mapAttestation);
   }
 
+  /** Alle attestaties van een speler over alle games, oudste ronde eerst (bij gelijke start: op ronde-ID). */
+  listPlayerAttestationsAllGames({ chainId, playerIAddress }) {
+    return this.database
+      .prepare(`
+        SELECT a.*
+        FROM attestations a
+        JOIN rounds r ON r.id = a.round_record_id
+        WHERE a.chain_id = ? AND a.player_i_address = ?
+        ORDER BY r.opens_at_ms, r.round_id
+      `)
+      .all(chainId, playerIAddress)
+      .map(mapAttestation);
+  }
+
   /** Slaat een attestatie op. Weigert een tweede voor dezelfde speler en ronde. */
   insertAttestation(attestation) {
     try {

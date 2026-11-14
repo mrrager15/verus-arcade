@@ -101,7 +101,7 @@ export function sealedAttestationRecord(attestation, round) {
   return compactSealedRecord({ roundId: round.round_id, descriptor: attestation.descriptor, signaturedata: attestation.signaturedata, signatureHeight: attestation.signatureHeight });
 }
 
-const WORD_GRID = { chainId: 'vrsctest', gameId: 'word-grid', gameVersion: '1.0.0' };
+const CHAIN_ID = 'vrsctest';
 
 /**
  * Fase 2b voor de webapp: eigen attestaties tonen, een deellink maken met
@@ -118,12 +118,12 @@ export class AttestationService {
     return principal.iAddress;
   }
 
-  /** Eigen attestaties, nieuwste eerst. Geen waarden van anderen, geen zouten. */
+  /** Eigen attestaties van alle games, nieuwste eerst. Geen waarden van anderen, geen zouten. */
   listOwn({ principal }) {
     const player = this.#own(principal);
     return {
       fields: ATTESTATION_FIELDS,
-      attestations: this.repository.listPlayerAttestations({ ...WORD_GRID, playerIAddress: player }).reverse().map((a) => ({
+      attestations: this.repository.listPlayerAttestationsAllGames({ chainId: CHAIN_ID, playerIAddress: player }).reverse().map((a) => ({
         roundRecordId: a.roundRecordId,
         attemptId: a.attemptId,
         // Staat de verzegelde attestatie al in de ID van de speler? (fase 2b, kind 'attestation')

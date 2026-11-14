@@ -128,6 +128,52 @@ test('attestaties: keten over rondes, gemiste ronde breekt de streak, volgorde v
   database.close();
 });
 
+test('attestaties in de app: eigen lijst toont alle games (fase 8), nieuwste eerst', async () => {
+  const { repository, signer, database } = setup();
+  round(repository, 0); play(repository, 0, A); close(repository, 0);
+  await createRoundAttestations({ repository, signer, roundRecordId: 'round-0', now: T0 + DAY });
+
+  // Number Target op dag 1, getekend en afgesloten.
+  const ntRoundId = 'number-target:1.0.0:2026-11-09';
+  const opensAt = T0 + DAY;
+  const closesAt = T0 + 2 * DAY;
+  repository.createRound({
+    id: 'nt-1', chainId: 'vrsctest', gameId: 'number-target', gameVersion: '1.0.0', roundId: ntRoundId,
+    commitmentHash: 'nt-commitment',
+    privateDefinition: {
+      schemaVersion: 2, roundId: ntRoundId, chainId: 'vrsctest', gameId: 'number-target', gameVersion: '1.0.0', date: '2026-11-09',
+      opensAt: new Date(opensAt).toISOString(), closesAt: new Date(closesAt).toISOString(),
+      puzzle: { numbers: [100, 25, 3, 7, 7, 1], target: 728, solution: '(100+3)*7+7' }, salt: 'ab'.repeat(32),
+    },
+    opensAt, closesAt, now: opensAt - 1,
+  });
+  repository.openRound({ id: 'nt-1', commitmentTxid: 'e'.repeat(64) });
+  const daily = new DailyService({ repository, clock: () => opensAt + 1000, createId: () => 'attempt-nt-1' });
+  const { attempt } = daily.reserveAttempt({ principal: principal(A), roundId: 'nt-1' });
+  daily.submitAction({
+    principal: principal(A), attemptId: attempt.id,
+    action: { type: 'action', actionId: 'nt-action-1xxxxxxxx', sequence: 1, gameVersion: '1.0.0', payload: { value: '(100+3)*7+7' } },
+  });
+  repository.createAttemptSignature({
+    attemptId: attempt.id, requestIdHex: 'f'.repeat(40), requestHex: 'aa', requestHashHex: 'cc'.repeat(32),
+    message: 'm', walletUri: 'verus://x', responseMode: 'redirect', createdHeight: 1, expiresHeight: 61, now: opensAt + 2000,
+  });
+  repository.markAttemptSignatureSigned({ attemptId: attempt.id, signerIAddress: A, signingHeight: 2, nativeSignature: Buffer.alloc(73, 9).toString('base64'), now: opensAt + 3000 });
+  repository.finalizeRoundResults({ roundRecordId: 'nt-1', now: closesAt });
+  repository.confirmRoundResults({ roundRecordId: 'nt-1', resultsTxid: 'f'.repeat(64) });
+  await createRoundAttestations({ repository, signer, roundRecordId: 'nt-1', now: closesAt });
+
+  const service = new AttestationService({ repository, verusRequests: { serviceId: SERVICE } });
+  const list = service.listOwn({ principal: principal(A) });
+  assert.deepEqual(list.attestations.map((a) => [a.round, a.streak, a.attemptId]), [
+    [ntRoundId, 1, 'attempt-nt-1'],
+    [roundId(0), 1, 'attempt-0-i46DSx'],
+  ]);
+  // Elke game heeft zijn eigen keten: Number Target begint opnieuw.
+  assert.equal(list.attestations[0].prevRoot, null);
+  database.close();
+});
+
 test('attestaties: een handtekening over iets anders wordt geweigerd en niets opgeslagen', async () => {
   const { repository, database } = setup();
   round(repository, 0); play(repository, 0, A); close(repository, 0);

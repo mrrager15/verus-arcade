@@ -5,6 +5,7 @@ import test from 'node:test';
 
 import { createChainReader, VRSCTEST_CHAIN_ID } from './chain-reader.mjs';
 import { ARCADE_OPERATOR_ID, parseRoundId, ROUND_KEYS, VERDICT, verifyRoundIndependently } from './independent-round.mjs';
+import { roundKeyFromSalt } from './round-key.mjs';
 import { RESULT_ALGORITHM } from './round-proof.mjs';
 
 const vectors = JSON.parse(fs.readFileSync(new URL('./fixtures/round-reveal-vectors.json', import.meta.url), 'utf8'));
@@ -94,6 +95,33 @@ test('onafhankelijke ronde: alles op de chain en kloppend → verified', async (
   assert.equal(r.source.tip, heightOn('2026-11-14T22:00:00Z'));
   assert.ok(r.source.calls <= 20, `${r.source.calls} aanroepen`);
   assert.equal(chain.calls.filter((m) => m === 'getidentityhistory').length, 1, 'één history-aanroep volstaat');
+});
+
+test('onafhankelijke ronde: commitment-schema 2 met versleuteladres (fase 5)', async () => {
+  const salt = real.reveal.hiddenDefinition.salt;
+  const withAddress = (address) => ({ ...real.commitment, schemaVersion: 2, roundEncryptionAddress: address });
+
+  // Het adres dat uit de salt van de ronde volgt → verified, en het adres is af te lezen.
+  const good = await verify(fakeChain({ steps: normalSteps({ commitment: withAddress(roundKeyFromSalt(salt).address) }) }));
+  assert.equal(good.verdict, VERDICT.VERIFIED, good.problems.join('; '));
+  assert.equal(good.parts.commitment.value.roundEncryptionAddress, roundKeyFromSalt(salt).address);
+
+  // Vóór de reveal is er nog niets na te rekenen: incomplete, de commitment zelf is in orde.
+  const before = await verify(fakeChain({ steps: normalSteps({ commitment: withAddress(roundKeyFromSalt(salt).address), reveal: null }) }));
+  assert.equal(before.verdict, VERDICT.INCOMPLETE);
+  assert.equal(before.parts.commitment.status, 'confirmed');
+
+  // Een geldig adres dat niet bij de onthulde salt hoort → de reveal klopt niet met de commitment.
+  const wrong = await verify(fakeChain({ steps: normalSteps({ commitment: withAddress(roundKeyFromSalt('ab'.repeat(32)).address) }) }));
+  assert.equal(wrong.verdict, VERDICT.INVALID);
+  assert.equal(wrong.parts.reveal.status, 'invalid');
+  assert.match(wrong.parts.reveal.problem, /encryption-address/);
+
+  // Schema 2 zonder (bruikbaar) adres → de commitment zelf is ongeldig.
+  const broken = await verify(fakeChain({ steps: normalSteps({ commitment: withAddress('zs1abc') }) }));
+  assert.equal(broken.verdict, VERDICT.INVALID);
+  assert.equal(broken.parts.commitment.status, 'invalid');
+  assert.match(broken.parts.commitment.problem, /schema version 2/);
 });
 
 test('onafhankelijke ronde: nog geen reveal → incomplete (geen fout)', async () => {

@@ -12,6 +12,7 @@
  */
 import { canonicalJson } from './canonical-json.mjs';
 import { gameRules } from './games/index.mjs';
+import { addressMatchesSalt, parseSaplingAddress } from './round-key.mjs';
 
 export const HIDDEN_DEFINITION_KEYS = Object.freeze([
   'schemaVersion', 'roundId', 'chainId', 'gameId', 'gameVersion', 'date', 'opensAt', 'closesAt', 'puzzleSeed', 'answer', 'salt',
@@ -25,6 +26,13 @@ export const HIDDEN_DEFINITION_KEYS_V2 = Object.freeze([
 export const COMMITMENT_KEYS = Object.freeze([
   'schemaVersion', 'roundId', 'chainId', 'gameId', 'gameVersion', 'date', 'opensAt', 'closesAt', 'hiddenDefinitionSha256',
 ]);
+
+/**
+ * Schema 2 (fase 5): met het adres waarnaar spelers hun actie-bundel versleutelen.
+ * Het adres volgt uit de salt van de definitie (shared/round-key.mjs); dat rekent
+ * `verifyRoundReveal` na zodra de salt onthuld is.
+ */
+export const COMMITMENT_KEYS_V2 = Object.freeze([...COMMITMENT_KEYS, 'roundEncryptionAddress']);
 
 export const RESULT_DESCRIPTOR_KEYS = Object.freeze([
   'schemaVersion', 'algorithm', 'roundId', 'chainId', 'gameId', 'gameVersion', 'leafCount', 'rootSha256', 'bundleSha256',
@@ -119,18 +127,30 @@ export function hiddenDefinitionText(definition) {
 }
 
 /**
- * Vorm van een publieke commitment (schema 1); gooit bij een fout.
+ * Is dit een bruikbaar Sapling-adres (vorm én controlesom)?
+ * @param {unknown} address
+ */
+function usableEncryptionAddress(address) {
+  if (typeof address !== 'string') return false;
+  try { parseSaplingAddress(address); return true; } catch { return false; }
+}
+
+/**
+ * Vorm van een publieke commitment (schema 1, of schema 2 met het
+ * versleuteladres van de ronde); gooit bij een fout.
  * @param {any} commitment
  */
 export function validateCommitment(commitment) {
+  const version = commitment?.schemaVersion === 2 ? 2 : 1;
   if (
-    commitment?.schemaVersion !== 1 ||
-    !exactKeys(commitment, COMMITMENT_KEYS) ||
+    commitment?.schemaVersion !== version ||
+    !exactKeys(commitment, version === 2 ? COMMITMENT_KEYS_V2 : COMMITMENT_KEYS) ||
     !usableChainId(commitment.chainId) ||
     ['roundId', 'gameId', 'gameVersion', 'date', 'opensAt', 'closesAt'].some((key) => typeof commitment[key] !== 'string') ||
-    !HEX64.test(commitment.hiddenDefinitionSha256)
+    !HEX64.test(commitment.hiddenDefinitionSha256) ||
+    (version === 2 && !usableEncryptionAddress(commitment.roundEncryptionAddress))
   ) {
-    throw new Error('Commitment does not match schema version 1');
+    throw new Error(`Commitment does not match schema version ${version}`);
   }
   validTimes(commitment);
 }
@@ -161,8 +181,13 @@ export function validateResultDescriptor(descriptor, commitment) {
 /**
  * Alles behalve de hash: hoort deze reveal bij deze commitment? Geeft de tekst
  * om te hashen, of de reden waarom het niet klopt.
+ *
+ * Commitment-schema 2 (fase 5): `addressOk` zegt of het versleuteladres uit de
+ * nu onthulde salt volgt. Een operator die een ander adres publiceerde, kan de
+ * bundels van de spelers niet laten lezen: de ronde is dan niet geldig
+ * (reden `encryption-address`).
  * @param {{ commitment: any, reveal: any }} input
- * @returns {{ text: string, display: string } | { reason: string, display: string | null }}
+ * @returns {{ text: string, display: string, addressOk: boolean } | { reason: string, display: string | null }}
  */
 function revealPrecheck({ commitment, reveal }) {
   const definition = reveal?.hiddenDefinition;
@@ -170,16 +195,33 @@ function revealPrecheck({ commitment, reveal }) {
   let display = null;
   // Voor de pagina: ook bij een ongeldige definitie de hash tonen als dat kan.
   try { if (definition) display = canonicalJson(definition); } catch { display = null; }
-  if (commitment?.schemaVersion !== 1 || !HEX64.test(commitment?.hiddenDefinitionSha256)) return { reason: 'commitment', display };
+  const withAddress = commitment?.schemaVersion === 2;
+  if (
+    (commitment?.schemaVersion !== 1 && !withAddress) || !HEX64.test(commitment?.hiddenDefinitionSha256) ||
+    (withAddress && !usableEncryptionAddress(commitment.roundEncryptionAddress))
+  ) return { reason: 'commitment', display };
   if (reveal?.schemaVersion !== 1 || !HEX64.test(reveal?.commitmentTxid) || !definition) return { reason: 'reveal', display };
   const sameMetadata = ['roundId', 'chainId', 'gameId', 'gameVersion', 'date', 'opensAt', 'closesAt']
     .every((key) => commitment[key] === definition[key]);
   if (!sameMetadata) return { reason: 'metadata', display };
   try {
-    return { text: hiddenDefinitionText(definition), display: /** @type {string} */ (display) };
+    const text = hiddenDefinitionText(definition);
+    const addressOk = !withAddress || addressMatchesSalt(commitment.roundEncryptionAddress, definition.salt);
+    return { text, display: /** @type {string} */ (display), addressOk };
   } catch {
     return { reason: 'definition', display };
   }
+}
+
+/**
+ * Het oordeel uit de voorcontrole en de nagerekende hash. De hash gaat voor:
+ * klopt die niet, dan zegt het adres niets meer.
+ * @param {{ addressOk: boolean }} pre @param {boolean} hashOk
+ */
+function revealOutcome(pre, hashOk) {
+  if (!hashOk) return { valid: false, reason: 'hash' };
+  if (!pre.addressOk) return { valid: false, reason: 'encryption-address' };
+  return { valid: true, reason: null };
 }
 
 /**
@@ -196,8 +238,8 @@ export function verifyRoundRevealSync(input, sha256Hex) {
   const pre = revealPrecheck(input);
   const recomputedSha256 = pre.display === null ? null : sha256Hex(pre.display);
   if ('reason' in pre) return { valid: false, recomputedSha256, reason: pre.reason };
-  const valid = recomputedSha256 === input.commitment.hiddenDefinitionSha256;
-  return { valid, recomputedSha256, reason: valid ? null : 'hash' };
+  const { valid, reason } = revealOutcome(pre, recomputedSha256 === input.commitment.hiddenDefinitionSha256);
+  return { valid, recomputedSha256, reason };
 }
 
 /**
@@ -210,6 +252,6 @@ export async function verifyRoundReveal(input, sha256Hex) {
   const pre = revealPrecheck(input);
   const recomputedSha256 = pre.display === null ? null : await sha256Hex(pre.display);
   if ('reason' in pre) return { valid: false, recomputedSha256, reason: pre.reason };
-  const valid = recomputedSha256 === input.commitment.hiddenDefinitionSha256;
-  return { valid, recomputedSha256, reason: valid ? null : 'hash' };
+  const { valid, reason } = revealOutcome(pre, recomputedSha256 === input.commitment.hiddenDefinitionSha256);
+  return { valid, recomputedSha256, reason };
 }

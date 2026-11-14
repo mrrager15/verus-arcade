@@ -6,6 +6,7 @@ import test from 'node:test';
 import { canonicalJson } from './canonical-json.mjs';
 import { canonicalJson as serverCanonicalJson } from '../server/canonical-json.mjs';
 import { verifyRoundReveal as serverVerifyRoundReveal } from '../server/round-proof.mjs';
+import { roundKeyFromSalt } from './round-key.mjs';
 import {
   RESULT_ALGORITHM, validateCommitment, validateResultDescriptor, verifyRoundReveal, verifyRoundRevealSync,
 } from './round-proof.mjs';
@@ -56,7 +57,9 @@ test('rondebewijs: de vier gevallen waarin de oude browserversie soepeler was, z
 
 test('rondebewijs: commitment- en result-descriptor-vorm', () => {
   const commitment = real[0].commitment;
-  assert.throws(() => validateCommitment({ ...commitment, schemaVersion: 2 }), /schema version 1/);
+  // Sinds fase 5 bestaat schema 2, maar alleen mét het versleuteladres (zie de test hieronder).
+  assert.throws(() => validateCommitment({ ...commitment, schemaVersion: 2 }), /schema version 2/);
+  assert.throws(() => validateCommitment({ ...commitment, schemaVersion: 3 }), /schema version 1/);
   assert.throws(() => validateCommitment({ ...commitment, extra: 1 }), /schema version 1/);
   assert.throws(() => validateCommitment({ ...commitment, hiddenDefinitionSha256: 'ab' }), /schema version 1/);
   assert.throws(() => validateCommitment({ ...commitment, closesAt: commitment.opensAt }), /timestamps/);
@@ -72,6 +75,50 @@ test('rondebewijs: commitment- en result-descriptor-vorm', () => {
   assert.throws(() => validateResultDescriptor({ ...descriptor, leafCount: -1 }), /schema version 1/);
   assert.throws(() => validateResultDescriptor({ ...descriptor, leafCount: 1.5 }), /schema version 1/);
   assert.throws(() => validateResultDescriptor({ ...descriptor, extra: true }), /schema version 1/);
+});
+
+test('rondebewijs: commitment-schema 2 (fase 5) met het versleuteladres uit de salt', async () => {
+  // Elke echte ronde opnieuw, nu met schema 2: het adres dat bij haar eigen salt hoort.
+  for (const c of real) {
+    const salt = c.reveal.hiddenDefinition.salt;
+    const { address } = roundKeyFromSalt(salt);
+    const commitment = { ...c.commitment, schemaVersion: 2, roundEncryptionAddress: address };
+    validateCommitment(commitment);
+    const input = { commitment, reveal: c.reveal };
+    const sync = verifyRoundRevealSync(structuredClone(input), sha256Hex);
+    // De definitie en dus de hash veranderen niet: alleen de commitment kreeg een veld erbij.
+    assert.deepEqual(sync, { valid: true, recomputedSha256: c.commitment.hiddenDefinitionSha256, reason: null }, c.name);
+    assert.deepEqual(await verifyRoundReveal(structuredClone(input), async (text) => sha256Hex(text)), sync, c.name);
+    assert.equal(serverVerifyRoundReveal(structuredClone(input)), true, c.name);
+  }
+
+  const c = real[0];
+  const right = roundKeyFromSalt(c.reveal.hiddenDefinition.salt).address;
+  const other = roundKeyFromSalt('ab'.repeat(32)).address;
+  const v2 = { ...c.commitment, schemaVersion: 2, roundEncryptionAddress: right };
+  const check = (commitment, reveal = c.reveal) => verifyRoundRevealSync({ commitment, reveal }, sha256Hex);
+
+  // Een geldig adres dat NIET uit de salt volgt: de operator kan de bundels niet laten lezen.
+  validateCommitment({ ...v2, roundEncryptionAddress: other });
+  assert.deepEqual(check({ ...v2, roundEncryptionAddress: other }), { valid: false, recomputedSha256: c.commitment.hiddenDefinitionSha256, reason: 'encryption-address' });
+  assert.equal(serverVerifyRoundReveal({ commitment: { ...v2, roundEncryptionAddress: other }, reveal: c.reveal }), false);
+  // De hash gaat voor: een andere definitie is 'hash', wat het adres ook is.
+  const tampered = { ...c.reveal, hiddenDefinition: { ...c.reveal.hiddenDefinition, salt: 'cd'.repeat(32) } };
+  assert.equal(check(v2, tampered).reason, 'hash');
+  assert.equal(check({ ...v2, roundEncryptionAddress: roundKeyFromSalt('cd'.repeat(32)).address }, tampered).reason, 'hash');
+
+  // Vorm: schema 2 zonder adres, met een kapot adres, of schema 1 mét adres.
+  const badChecksum = right.slice(0, -1) + (right.endsWith('q') ? 'p' : 'q');
+  for (const bad of [undefined, '', 42, 'zs1abc', badChecksum, right.toUpperCase()]) {
+    const commitment = { ...v2, roundEncryptionAddress: bad };
+    if (bad === undefined) delete commitment.roundEncryptionAddress;
+    assert.throws(() => validateCommitment(commitment), /schema version 2/, String(bad));
+    assert.equal(check(commitment).reason, 'commitment', String(bad));
+  }
+  assert.throws(() => validateCommitment({ ...v2, extra: 1 }), /schema version 2/);
+  assert.throws(() => validateCommitment({ ...c.commitment, roundEncryptionAddress: right }), /schema version 1/, 'schema 1 kent het veld niet');
+  // Schema 1 blijft precies wat het was: geen adres, geen adrescontrole.
+  assert.deepEqual(check(c.commitment), { valid: true, recomputedSha256: c.commitment.hiddenDefinitionSha256, reason: null });
 });
 
 test('canonieke JSON: één versie, server verwijst ernaar', () => {

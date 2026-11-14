@@ -56,6 +56,12 @@
 <main>
 	<p class="eyebrow">Independent browser verification</p>
 	<h1>Round proof</h1>
+	{#if page.params.round}
+		<p class="independent">
+			This page uses proof material from the Arcade server.
+			<a href={`/verify/${encodeURIComponent(page.params.round)}/independent`}>Check it on chain only, without our server →</a>
+		</p>
+	{/if}
 
 	{#if error}
 		<p class="error">{error}</p>
@@ -132,5 +138,7 @@
 	.ok { background: #dff4e3; color: #155c2b; }
 	.bad, .error { background: #ffe1df; color: #8d2019; padding: .8rem; border-radius: .6rem; }
 	code { overflow-wrap: anywhere; }
+	.independent { background: #eef5f0; border-radius: .7rem; padding: .8rem 1rem; margin: -1rem 0 1.5rem; }
+	.independent a { color: #1d5a32; font-weight: 700; }
 	@media (max-width: 600px) { dl { grid-template-columns: 1fr; } }
 </style>

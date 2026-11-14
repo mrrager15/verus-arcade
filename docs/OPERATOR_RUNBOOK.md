@@ -301,6 +301,21 @@ hours covers both winter time (close at 01:00) and summer time (close at 02:00).
 See [`SDK.md`](./SDK.md#4-the-manifest). Publishing a manifest is one identity update on the
 operator ID; never run it while the nightly cycle is busy (the cycle holds `server/data/daily-cycle.lock`).
 
+## 9. Independent check after a round (phase 4)
+
+After the nightly cycle, check the published round the way any outsider would:
+from the chain only, through the public RPC, without the server or `.env`.
+
+```bash
+node scripts/agent/round-check.mjs word-grid:1.0.0:2026-11-13 number-target:1.0.0:2026-11-13
+node scripts/agent/profile-check.mjs <player i-address>
+```
+
+Expected for a closed round: `verified` (commitment, results and reveal confirmed,
+reveal matches the commitment). `incomplete` is normal until the reveal is
+confirmed; `unavailable` means the RPC could not be read and proves nothing. See
+[`INDEPENDENT_VERIFIER.md`](./INDEPENDENT_VERIFIER.md).
+
 ## Recovery
 
 - Preparation is journaled and can be inspected before submission.

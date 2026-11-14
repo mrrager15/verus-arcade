@@ -180,8 +180,18 @@ submission, and reconciliation are separate by design. Never automate
 consecutive identity updates without waiting for the preceding transaction to
 confirm.
 
+## Verify without the Arcade server
+
+Rounds, player profiles and shared attestations can be checked in the browser
+from the chain alone: the [standalone verifier](https://mrrager15.github.io/verus-arcade/)
+(one self-contained HTML file, also `npm run build:verifier`) reads VRSCTEST
+through a public Verus node and recomputes every hash, Merkle proof, signature
+and decryption itself. See [Independent verifier](docs/INDEPENDENT_VERIFIER.md).
+
 ## Documentation
 
+- [Independent verifier](docs/INDEPENDENT_VERIFIER.md)
+- [Game SDK](docs/SDK.md)
 - [Strategy](docs/VERUS_ARCADE_STRATEGY.md)
 - [Execution plan](docs/EXECUTION_PLAN.md)
 - [MVP specification](docs/MVP_SPEC.md)

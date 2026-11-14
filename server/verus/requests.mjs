@@ -175,6 +175,8 @@ export function parseStoredSignRequest(hex, expectedMessage, expectedId) {
 const IDENTITY_UPDATE_REQUEST_FLAGS = 1 | 2 | 4 | 8;
 /** PartialIdentity.contains voor "alleen naam en ouder": nooit adressen of autoriteiten. */
 const IDENTITY_CONTAINS_NAME_AND_PARENT_ONLY = 3;
+/** Vorm van een Sapling-adres (fase 5); de controlesom rekent de SDK na. */
+const SAPLING_ADDRESS = /^zs1[02-9ac-hj-np-z]{75}$/;
 
 /**
  * Controleert dat een IdentityUpdateRequestDetails ALLEEN content toevoegt aan
@@ -182,8 +184,12 @@ const IDENTITY_CONTAINS_NAME_AND_PARENT_ONLY = 3;
  * primaire adressen, geen revocation- of recovery-autoriteit, geen
  * contentmultimap-waarden buiten signdata. Mobile toont de speler wat er
  * verandert, maar wij dwingen het zelf af.
+ *
+ * Fase 5: `encryptToAddress` is het zs-adres waarnaar de data versleuteld moet
+ * worden. Zonder die parameter mag het verzoek er geen bevatten (fase 2: publiek
+ * leesbaar record); mét moet het precies dat adres zijn.
  */
-export function assertContentOnlyIdentityUpdate(detail, { playerId, keyId, recordBytes, expiryHeight }) {
+export function assertContentOnlyIdentityUpdate(detail, { playerId, keyId, recordBytes, expiryHeight, encryptToAddress }) {
   check(detail instanceof P.IdentityUpdateRequestDetails, 'Unsupported identity update details.');
   check(detail.flags.toNumber() === IDENTITY_UPDATE_REQUEST_FLAGS, 'Unsupported identity update flags.');
   check(detail.identity?.contains?.toNumber() === IDENTITY_CONTAINS_NAME_AND_PARENT_ONLY, 'Identity update may only carry name and parent.');
@@ -194,6 +200,8 @@ export function assertContentOnlyIdentityUpdate(detail, { playerId, keyId, recor
   const [[compactKey, partial]] = [...detail.signDataMap.entries()];
   check(compactKey.toAddress() === keyId, 'Identity update writes to an unexpected key.');
   check(partial.createMMR === true && partial.hashType?.eqn(5) && Buffer.isBuffer(partial.data) && partial.data.equals(recordBytes), 'Identity update data differs from the record.');
+  const encryptsTo = partial.containsEncrypttoAddress?.() ? partial.encryptToAddress?.toAddressString?.() : undefined;
+  check(encryptsTo === encryptToAddress, 'Identity update encrypts to an unexpected address.');
   check(detail.containsSystem() && detail.systemID?.toAddress?.() === TESTNET_SYSTEM_ID, 'Identity update is not for VRSCTEST.');
   if (expiryHeight !== undefined) check(detail.expiryHeight?.eqn(expiryHeight), 'Identity update expiry mismatch.');
   return { expiryHeight: detail.expiryHeight.toNumber(), keyName: detail.getContentMultiMapKeys()[0] };
@@ -221,7 +229,7 @@ export function walletCompatibleIdentity({ identityId, contentFqn }) {
  * Parseert een eerder opgeslagen, getekend IdentityUpdate-verzoek en controleert
  * dat het exact bij het verwachte record, de key en de speler hoort.
  */
-export function parseStoredPublishRequest(hex, { expectedId, playerId, keyId, recordBytes }) {
+export function parseStoredPublishRequest(hex, { expectedId, playerId, keyId, recordBytes, encryptToAddress }) {
   check(typeof hex === 'string' && /^(?:[0-9a-f]{2})+$/.test(hex), 'Invalid stored request.');
   const req = exactParse(new P.GenericRequest(), Buffer.from(hex, 'hex'));
   check(req.version.eqn(1) && req.flags.toNumber() === (1 | 2 | 4 | 16 | 128 | 512), 'Unsupported request envelope.');
@@ -230,7 +238,7 @@ export function parseStoredPublishRequest(hex, { expectedId, playerId, keyId, re
   const ordinal = req.details[0];
   check(ordinal instanceof P.IdentityUpdateRequestOrdinalVDXFObject && ordinal.version.eqn(1), 'Unsupported request details.');
   check(compactId(ordinal.data.requestID) === expectedId, 'Stored request identifier mismatch.');
-  const { expiryHeight } = assertContentOnlyIdentityUpdate(ordinal.data, { playerId, keyId, recordBytes });
+  const { expiryHeight } = assertContentOnlyIdentityUpdate(ordinal.data, { playerId, keyId, recordBytes, encryptToAddress });
   return { request: req, expiryHeight };
 }
 
@@ -550,12 +558,18 @@ export class VerusRequests {
    * eigen VerusID onder de Arcade-key". De speler keurt goed en betaalt de fee;
    * Mobile maakt de transactie en antwoordt met de txid.
    *
+   * Fase 5: met `encryptToAddress` (een zs-adres) wordt het record naar dat adres
+   * versleuteld (`encrypttoaddress`); er komt dan geen viewing key in de ID, dus
+   * alleen wie de sleutel van dat adres heeft kan het lezen.
+   *
    * @param {{ playerId: string, playerName: string, playerParent: string, keyFqn: string, keyId: string,
-   *           recordJson: string, callbackUrl: string, requestIdHex: string, responseMode?: 'redirect'|'post', ttlBlocks?: number }} input
+   *           recordJson: string, callbackUrl: string, requestIdHex: string, responseMode?: 'redirect'|'post', ttlBlocks?: number,
+   *           encryptToAddress?: string }} input
    * @returns {Promise<{ requestHex: string, requestHashHex: string, walletUri: string, height: number, expiryHeight: number }>}
    */
   async createPlayerResultRequest({
     playerId, playerName, playerParent, keyFqn, keyId, recordJson, callbackUrl, requestIdHex, responseMode = 'post', ttlBlocks = 60,
+    encryptToAddress,
   }) {
     rawId(playerId);
     check(typeof playerName === 'string' && /^[^@.:\s]{1,64}$/.test(playerName), 'Invalid player identity name.');
@@ -564,6 +578,7 @@ export class VerusRequests {
     rawId(keyId);
     check(typeof recordJson === 'string' && recordJson.length > 0 && Buffer.byteLength(recordJson, 'utf8') <= 2048, 'Invalid record payload.');
     check(Number.isSafeInteger(ttlBlocks) && ttlBlocks >= 1 && ttlBlocks <= 10_000, 'Invalid request lifetime.');
+    check(encryptToAddress === undefined || (typeof encryptToAddress === 'string' && SAPLING_ADDRESS.test(encryptToAddress)), 'Invalid encryption address.');
     let url;
     try { url = new URL(callbackUrl); } catch { check(false, 'Invalid callback URL.'); }
     check(responseMode === 'redirect' || responseMode === 'post', 'Unsupported wallet response mode.');
@@ -577,13 +592,20 @@ export class VerusRequests {
     const expiryHeight = height + ttlBlocks;
     const recordBytes = Buffer.from(recordJson, 'utf8');
 
-    const detail = P.IdentityUpdateRequestDetails.fromCLIJson({
-      name: playerName,
-      parent: playerParent,
-      contentmultimap: { [keyFqn]: { data: { message: recordJson, createmmr: true, hashtype: 'sha256' } } },
-    }, { requestid: id.toJson(), systemid: TESTNET_SYSTEM_ID, expiryheight: String(expiryHeight) });
+    const data = { message: recordJson, createmmr: true, hashtype: 'sha256', ...(encryptToAddress ? { encrypttoaddress: encryptToAddress } : {}) };
+    let detail;
+    try {
+      detail = P.IdentityUpdateRequestDetails.fromCLIJson({
+        name: playerName,
+        parent: playerParent,
+        contentmultimap: { [keyFqn]: { data } },
+      }, { requestid: id.toJson(), systemid: TESTNET_SYSTEM_ID, expiryheight: String(expiryHeight) });
+    } catch {
+      // De SDK rekent de controlesom van het zs-adres na.
+      check(false, encryptToAddress ? 'Invalid encryption address.' : 'Invalid identity update request.');
+    }
     // Fail closed: wat we naar de wallet sturen, voldoet aan dezelfde eisen als wat we later terugparsen.
-    assertContentOnlyIdentityUpdate(detail, { playerId, keyId, recordBytes, expiryHeight });
+    assertContentOnlyIdentityUpdate(detail, { playerId, keyId, recordBytes, expiryHeight, encryptToAddress });
 
     const req = new P.GenericRequest({
       version: P.GenericRequest.VERSION_CURRENT,
@@ -609,7 +631,7 @@ export class VerusRequests {
       throw new VerusRequestError('SERVICE_UNAVAILABLE', 'The service identity signature could not be verified.');
     }
     const requestHex = signed.toBuffer().toString('hex');
-    parseStoredPublishRequest(requestHex, { expectedId: id.toIAddress(), playerId, keyId, recordBytes });
+    parseStoredPublishRequest(requestHex, { expectedId: id.toIAddress(), playerId, keyId, recordBytes, encryptToAddress });
     return {
       requestHex,
       requestHashHex: signed.getRawDataSha256().toString('hex'),
@@ -624,23 +646,23 @@ export class VerusRequests {
    * De txid is een ONTVANGSTBEWIJS: publicatie wordt apart bewezen door de
    * chain terug te lezen (reconcile).
    *
-   * @param {{ body: Buffer, requestHex: string, requestIdHex: string, playerId: string, keyId: string, recordJson: string }} input
+   * @param {{ body: Buffer, requestHex: string, requestIdHex: string, playerId: string, keyId: string, recordJson: string, encryptToAddress?: string }} input
    * @returns {Promise<{ identityId: string, txid: string, signingHeight: number, expiryHeight: number }>}
    */
-  async verifyPlayerResultResponse({ body, requestHex, requestIdHex, playerId, keyId, recordJson }) {
+  async verifyPlayerResultResponse({ body, requestHex, requestIdHex, playerId, keyId, recordJson, encryptToAddress }) {
     try {
-      return await this.#verifyParsedPublishResponse({ body, requestHex, requestIdHex, playerId, keyId, recordJson });
+      return await this.#verifyParsedPublishResponse({ body, requestHex, requestIdHex, playerId, keyId, recordJson, encryptToAddress });
     } catch (error) {
       if (error instanceof VerusRequestError) throw error;
       throw new VerusRequestError('INVALID_SIGNATURE', 'Malformed or invalid wallet response.');
     }
   }
 
-  async #verifyParsedPublishResponse({ body, requestHex, requestIdHex, playerId, keyId, recordJson }) {
+  async #verifyParsedPublishResponse({ body, requestHex, requestIdHex, playerId, keyId, recordJson, encryptToAddress }) {
     const expectedId = requestId(requestIdHex).toIAddress();
     const recordBytes = Buffer.from(recordJson, 'utf8');
     // 1. Opgeslagen verzoek klopt en is alleen-content voor deze speler, key en record.
-    const { request, expiryHeight } = parseStoredPublishRequest(requestHex, { expectedId, playerId, keyId, recordBytes });
+    const { request, expiryHeight } = parseStoredPublishRequest(requestHex, { expectedId, playerId, keyId, recordBytes, encryptToAddress });
     // 2. Antwoord byte-exact, versie 1, testnet, bekende flags, tijdstip.
     const response = exactParse(new P.GenericResponse(), body);
     check(response.version.eqn(1), 'Unsupported response version.');

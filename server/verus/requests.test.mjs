@@ -396,6 +396,47 @@ test('createPlayerResultRequest weigert verkeerde invoer en POST zonder HTTPS', 
   await assert.rejects(makePublishRequest(undefined, { keyFqn: 'Arcade::x' }), /content key name/, 'zonder expliciete punt geen namespace-zekerheid');
 });
 
+// Fase 5: adres uit shared/round-key.mjs (salt 00…00); zie shared/round-key.test.mjs.
+const ROUND_ADDRESS = 'zs120ujf424959xls0usdcz47xmu2gtf5n8a2r7rge30q6ydftlwvrxspf904ptj74u6kqxwugam6h';
+const OTHER_ADDRESS = 'zs15t5hghfgga0dyhe07fe4jxeh6pllejgyff0x2lj8443v2pmddqlysmg70227wwklshya2vr9uku';
+
+test('createPlayerResultRequest met encryptToAddress: het verzoek versleutelt naar precies dat adres', async () => {
+  const { vr, built, request } = await makePublishRequest(undefined, { encryptToAddress: ROUND_ADDRESS });
+  const detail = request.details[0].data;
+  const [[signKey, signData]] = [...detail.signDataMap.entries()];
+  assert.equal(signKey.toAddress(), KEY_ID);
+  assert.equal(signData.encryptToAddress.toAddressString(), ROUND_ADDRESS);
+  assert.equal(signData.data.toString('utf8'), RECORD_JSON);
+  // Wat de wallet naar de node stuurt (updateidentity met returntx) bevat het adres.
+  const cli = detail.toCLIJson();
+  assert.deepEqual(Object.keys(cli.contentmultimap), [KEY_ID]);
+  assert.equal(cli.contentmultimap[KEY_ID].data.encrypttoaddress, ROUND_ADDRESS);
+  assert.equal(cli.contentmultimap[KEY_ID].data.message, RECORD_JSON);
+
+  const expected = { expectedId: requestId(PUBLISH_ID_HEX).toIAddress(), playerId: PLAYER, keyId: KEY_ID, recordBytes: Buffer.from(RECORD_JSON) };
+  assert.doesNotThrow(() => parseStoredPublishRequest(built.requestHex, { ...expected, encryptToAddress: ROUND_ADDRESS }));
+  // Een opgeslagen verzoek moet bij het verwachte adres horen: geen, een ander, of onverwacht wel een.
+  assert.throws(() => parseStoredPublishRequest(built.requestHex, expected), /unexpected address/);
+  assert.throws(() => parseStoredPublishRequest(built.requestHex, { ...expected, encryptToAddress: OTHER_ADDRESS }), /unexpected address/);
+  const plain = await makePublishRequest();
+  assert.throws(() => parseStoredPublishRequest(plain.built.requestHex, { ...expected, encryptToAddress: ROUND_ADDRESS }), /unexpected address/);
+
+  // Het antwoord van de wallet wordt tegen hetzelfde adres nagekeken.
+  const body = publishResponse(request).toBuffer();
+  const input = { body, requestHex: built.requestHex, requestIdHex: PUBLISH_ID_HEX, playerId: PLAYER, keyId: KEY_ID, recordJson: RECORD_JSON };
+  const verified = await vr.verifyPlayerResultResponse({ ...input, encryptToAddress: ROUND_ADDRESS });
+  assert.equal(verified.identityId, PLAYER);
+  await assert.rejects(vr.verifyPlayerResultResponse(input), /unexpected address/);
+
+  // Ongeldig adres: vorm, controlesom, geen zs-adres.
+  const badChecksum = ROUND_ADDRESS.slice(0, -1) + (ROUND_ADDRESS.endsWith('q') ? 'p' : 'q');
+  for (const bad of ['', 'zs1abc', badChecksum, PLAYER, 42]) {
+    await assert.rejects(makePublishRequest(undefined, { encryptToAddress: bad }), /Invalid encryption address/, String(bad));
+  }
+  // Het langere verzoek blijft ruim onder de grens van Verus Mobile.
+  assert.ok(built.walletUri.length < plain.built.walletUri.length + 120 && built.walletUri.length < 2045, `deeplink ${built.walletUri.length}`);
+});
+
 test('assertContentOnlyIdentityUpdate weigert adressen, autoriteiten en platte content', () => {
   const base = { name: 'arcade-storage-poc', parent: TESTNET_SYSTEM_ID, contentmultimap: { [KEY_FQN]: { data: { message: RECORD_JSON, createmmr: true, hashtype: 'sha256' } } } };
   const opts = { requestid: requestId(PUBLISH_ID_HEX).toJson(), systemid: TESTNET_SYSTEM_ID, expiryheight: '2060' };

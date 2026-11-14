@@ -11,6 +11,10 @@
  *     vdxfd, data) → DataDescriptor met flags 5 (versleuteld + eigen epk).
  *     Ontsleuteld: de gezouten DataDescriptor met het record zelf.
  *
+ * Fase 5: is de data naar een eigen adres versleuteld (`encrypttoaddress`), dan
+ * staat er GEEN ivk in de verwijzing (flags 5) en geeft de lezer de sleutel zelf
+ * mee (`ivk`, bij ons uit de ronde-salt: shared/round-key.mjs). Verder identiek.
+ *
  * Per laag (daemon v1.2.18: `CVDXFEncryptor::Decrypt`, `KDF_Sapling`):
  *   geheim = [ivk]([8]·epk) op Jubjub · sleutel = BLAKE2b-256(geheim ‖ epk, "Zcash_SaplingKDF")
  *   klare tekst = ChaCha20-Poly1305-IETF(sleutel, nonce 0, geen AAD)
@@ -223,18 +227,24 @@ function unwrapEncrypted(descriptor, ivk) {
 
 /**
  * Laag 1: een waarde uit de contentmultimap (JSON van de daemon) openen tot de verwijzing.
- * @param {any} value  `{ <DataDescriptorKey>: { version, flags, objectdata, epk, ivk } }` of de descriptor zelf
+ * Staat de viewing key in de verwijzing (flags 13, publiek leesbaar), dan wordt die
+ * gebruikt. Staat ze er niet (flags 5, versleuteld naar een eigen adres), dan is
+ * `options.ivk` nodig. `ivkPublished` zegt welke van de twee het was.
+ * @param {any} value  `{ <DataDescriptorKey>: { version, flags, objectdata, epk, ivk? } }` of de descriptor zelf
+ * @param {{ ivk?: Uint8Array }} [options]
  */
-export function openReference(value) {
+export function openReference(value, options = {}) {
   const json = value && typeof value === 'object' && DATA_DESCRIPTOR_KEY in value ? value[DATA_DESCRIPTOR_KEY] : value;
   const flags = Number(json?.flags);
-  if (!(flags & FLAG_ENCRYPTED) || !(flags & FLAG_EPK) || !(flags & FLAG_IVK)) fail('Not an encrypted reference with a viewing key');
-  if (typeof json.objectdata !== 'string' || typeof json.epk !== 'string' || typeof json.ivk !== 'string') fail('Incomplete reference');
-  const ivk = hexToBytes(json.ivk);
+  if (!(flags & FLAG_ENCRYPTED) || !(flags & FLAG_EPK)) fail('Not an encrypted reference');
+  const ivkPublished = (flags & FLAG_IVK) !== 0;
+  if (!ivkPublished && !options.ivk) fail('Not an encrypted reference with a viewing key');
+  if (typeof json.objectdata !== 'string' || typeof json.epk !== 'string' || (ivkPublished && typeof json.ivk !== 'string')) fail('Incomplete reference');
+  const ivk = ivkPublished ? hexToBytes(json.ivk) : /** @type {Uint8Array} */ (options.ivk);
   const inner = unwrapEncrypted({ objectdata: hexToBytes(json.objectdata), epk: hexToBytes(json.epk) }, ivk);
   const wrapped = unwrapVdxf(inner.objectdata);
   if (wrapped.key !== CROSS_CHAIN_DATA_REF_KEY_HEX) fail('Reference does not point to chain data');
-  return { ivk, ref: parseCrossChainDataRef(wrapped.data) };
+  return { ivk, ivkPublished, ref: parseCrossChainDataRef(wrapped.data) };
 }
 
 /**
@@ -259,16 +269,18 @@ export function openEvidence(evidenceHex, ivk) {
  *   value: any,
  *   updateTxid: string,
  *   getTransaction: (txid: string) => Promise<any>,
+ *   ivk?: Uint8Array,
  * }} input  `value`: de waarde uit de contentmultimap; `updateTxid`: de tx waarin ze verscheen
- *           (uit `getidentityhistory`); `getTransaction`: `getrawtransaction <txid> 1`.
+ *           (uit `getidentityhistory`); `getTransaction`: `getrawtransaction <txid> 1`;
+ *           `ivk`: alleen voor een verwijzing zonder eigen viewing key (fase 5).
  */
-export async function readMobileRecord({ value, updateTxid, getTransaction }) {
+export async function readMobileRecord({ value, updateTxid, getTransaction, ivk: givenIvk }) {
   if (typeof updateTxid !== 'string' || !/^[0-9a-f]{64}$/.test(updateTxid)) fail('Invalid update transaction');
-  const { ivk, ref } = openReference(value);
+  const { ivk, ivkPublished, ref } = openReference(value, { ivk: givenIvk });
   const txid = ref.sameTransaction ? updateTxid : ref.txid;
   const tx = await getTransaction(txid);
   const chainObject = tx?.vout?.[ref.vout]?.scriptPubKey?.notaryevidence?.evidence?.chainobjects?.[ref.objectNum];
   const hex = chainObject?.value?.hex;
   if (typeof hex !== 'string') fail('Referenced evidence not found in the transaction');
-  return { ...openEvidence(hex, ivk), txid, vout: ref.vout, objectNum: ref.objectNum };
+  return { ...openEvidence(hex, ivk), txid, vout: ref.vout, objectNum: ref.objectNum, ivkPublished };
 }

@@ -1,0 +1,23 @@
+{
+  "note": "Fase 5 stap 1: door een echte VRSCTEST-daemon (publieke RPC, updateidentity met returntx, niet uitgezonden) versleuteld naar het adres uit deze test-salt. Testgegevens, geen spelers.",
+  "daemonVersion": 2000753,
+  "salt": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "address": "zs1vethn3grh4k9kh0p3j85pkvfsq5pjp3arg0v36kwdvuhmh7ls6369y4n57s086yrj7gkxw6w0am",
+  "ivk": "6436f5e2ab090f84b2323ba23a8c87e6ef82d07e58f5ad46581bf2857a315402",
+  "message": "{\"schema\":\"arcade-smoketest-bundle\",\"version\":1,\"note\":\"round-key fixture\"}",
+  "value": {
+    "i4GC1YGEVD21afWudGoFJVdnfjJ5XWnCQv": {
+      "epk": "8e30b0594d45a1e8700e3d42984a42de6fc9a62891070b7142082c1c5a44580d",
+      "flags": 5,
+      "objectdata": "f9eaf8967480e364f56066621cb4d6fc5f6c3f1ebedb5257222e4440e8a1b0e99d613f948c3eb33cfa1f1cc09cede64acbca52e60024d70d1deca9d2803423079311bc33444e7df5432312db99600fc1ec4e891d61a27fe554177c48699ed23328bb0165f38f13e4",
+      "version": 1
+    }
+  },
+  "vout": 0,
+  "objectNum": 0,
+  "evidenceHex": "01010108a2ebb2c55f83a8e2a426a53320ed4d42124f4dcf08a2ebb2c55f83a8e2a426a53320ed4d42124f4d01b9010595e68836bb78828b3972f9709eb81dec64dafa676e48b82081518b64323aff253ae44e506c787dcc52bcef305f635c14006d364b01d582aef1b5c0ec7475023de8aff3a06813569ccc4419f61db9df348f81506fb17a8815cdedd5cb9752994ac9431c33298d342cb84f89a68ad6a87dad5aa4634f8b61ae7407aff8e63fc35e9c6c203c11cf99ba323f497e5498174e57599d9670ec20298373824754be4a006b1dc5d4fe0635573b5d5dcc26906094ec0d42ff585a0e",
+  "expected": {
+    "objectdata": "7b22736368656d61223a226172636164652d736d6f6b65746573742d62756e646c65222c2276657273696f6e223a312c226e6f7465223a22726f756e642d6b65792066697874757265227d",
+    "salt": "01121bb817b22dccd87ea2674595fc2b0fe77879189fc10e60235fd48247e5ed"
+  }
+}

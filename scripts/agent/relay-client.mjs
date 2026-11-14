@@ -20,8 +20,12 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');
+// Sinds de verhuizing naar C:\dev (nov 2026) staan de notities in `werkmap/` in de repo
+// (git negeert die map); daarvoor in de map `Arcade v2` naast de repo.
 const RELAY_DIR = process.env.ARCADE_RELAY_DIR
-  ?? path.resolve(REPO_ROOT, '..', 'Arcade v2', '.relay');
+  ?? (fs.existsSync(path.resolve(REPO_ROOT, 'werkmap'))
+    ? path.resolve(REPO_ROOT, 'werkmap', '.relay')
+    : path.resolve(REPO_ROOT, '..', 'Arcade v2', '.relay'));
 const WAIT_MS = Number(process.env.ARCADE_RELAY_WAIT_MS ?? 11 * 60 * 1000);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

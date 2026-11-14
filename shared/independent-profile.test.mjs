@@ -2,10 +2,6 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
 
-import { chacha20poly1305 } from '@noble/ciphers/chacha';
-import { jubjub } from '@noble/curves/jubjub';
-import { blake2b } from '@noble/hashes/blake2b';
-
 import { buildResultSet, createInclusionProof } from '../server/result-set.mjs';
 import { buildCompactPlayerResultRecord } from '../server/verus/player-result.mjs';
 import { canonicalJson } from './canonical-json.mjs';
@@ -14,45 +10,14 @@ import { ROUND_KEYS } from './independent-round.mjs';
 import { verifyProfileIndependently } from './independent-profile.mjs';
 import { playerResultKeyId } from './player-result.mjs';
 import { RESULT_ALGORITHM } from './result-set.mjs';
-import { CROSS_CHAIN_DATA_REF_KEY_HEX, DATA_DESCRIPTOR_KEY, DATA_DESCRIPTOR_KEY_HEX } from './verus-decrypt.mjs';
+import { mobileRecord, transactionWithEvidence } from './testing/mobile-record.mjs';
 
 const ARCADE = 'i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp';
 const PLAYER = 'i9ARtCeKDBH84LvevYPoMxtZNxfts3c5SN';
 const OTHER = 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq';
 const ROUND = 'number-target:1.0.0:2026-11-13';
 const sha256Hex = async (text) => crypto.createHash('sha256').update(text, 'utf8').digest('hex');
-const hexOf = (b) => Buffer.from(b).toString('hex');
 const txid = (n) => n.toString(16).padStart(64, '0');
-
-// ---- versleutelen zoals Verus Mobile (omgekeerde van shared/verus-decrypt.mjs) -------------
-const N = jubjub.CURVE.n;
-const random = () => (BigInt(`0x${crypto.randomBytes(40).toString('hex')}`) % (N - 1n)) + 1n;
-const le32 = (x) => { const b = new Uint8Array(32); for (let i = 0; i < 32; i++) { b[i] = Number(x & 0xffn); x >>= 8n; } return b; };
-const concat = (...parts) => Buffer.concat(parts.map((p) => Buffer.from(p)));
-const cs = (n) => (n < 0xfd ? Buffer.from([n]) : Buffer.from([0xfd, n & 0xff, n >> 8]));
-const vdxf = (keyHex, data) => concat(Buffer.from(keyHex, 'hex'), [1], cs(data.length), data);
-const descriptor = ({ flags, objectdata, salt, epk }) => concat([1, flags], cs(objectdata.length), objectdata,
-  ...(salt ? [cs(salt.length), salt] : []), ...(epk ? [cs(epk.length), epk] : []));
-function keys() { const ivk = random(); const gd = jubjub.ExtendedPoint.BASE.multiply(random()); return { ivk, gd, pkd: gd.multiply(ivk) }; }
-function seal(plain, { gd, pkd }) {
-  const esk = random();
-  const epk = gd.multiply(esk).toRawBytes();
-  const shared = pkd.multiply(8n).multiply(esk).toRawBytes();
-  const key = blake2b(concat(shared, epk), { dkLen: 32, personalization: Buffer.from('Zcash_SaplingKDF') });
-  return { epk, sealed: chacha20poly1305(key, new Uint8Array(12)).encrypt(plain) };
-}
-/** Waarde in de contentmultimap + bewijs-hex, zoals Mobile een record publiceert. */
-function mobileRecord(recordJson) {
-  const k = keys();
-  const ccdr = concat([0, 1, 1], Buffer.alloc(32), [0, 0, 0, 0], [0, 0]);
-  const reference = seal(vdxf(DATA_DESCRIPTOR_KEY_HEX, descriptor({ flags: 0, objectdata: vdxf(CROSS_CHAIN_DATA_REF_KEY_HEX, ccdr) })), k);
-  const inner = seal(vdxf(DATA_DESCRIPTOR_KEY_HEX, descriptor({ flags: 2, objectdata: Buffer.from(recordJson), salt: crypto.randomBytes(32) })), k);
-  const evidenceDescriptor = vdxf(DATA_DESCRIPTOR_KEY_HEX, descriptor({ flags: 5, objectdata: inner.sealed, epk: inner.epk }));
-  return {
-    value: { [DATA_DESCRIPTOR_KEY]: { version: 1, flags: 13, objectdata: hexOf(reference.sealed), epk: hexOf(reference.epk), ivk: hexOf(le32(k.ivk)) } },
-    evidenceHex: hexOf(concat([1, 1, 1], Buffer.from(DATA_DESCRIPTOR_KEY_HEX, 'hex'), cs(evidenceDescriptor.length), evidenceDescriptor)),
-  };
-}
 
 // ---- een Number Target-ronde met resultaten, zoals de server ze maakt ---------------------
 const definition = {
@@ -99,9 +64,8 @@ async function scenario({ rootOverride = null, recordKey = null, down = false, f
     }),
     getrawtransaction: ([t]) => {
       if (!heights.has(t)) throw Object.assign(new Error('No information'), { rpcCode: -5 });
-      const tx = { txid: t, confirmations: tip - heights.get(t) + 1, height: heights.get(t) };
-      if (t === txid(21)) tx.vout = [{ scriptPubKey: { notaryevidence: { evidence: { version: 1, chainobjects: [{ value: { version: 1, hex: published.evidenceHex } }] } } } }];
-      return tx;
+      const status = { confirmations: tip - heights.get(t) + 1, height: heights.get(t) };
+      return t === txid(21) ? transactionWithEvidence(t, published.evidenceHex, status) : { txid: t, ...status };
     },
   };
   const fetch = async (url, init) => {

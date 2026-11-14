@@ -8,16 +8,20 @@
  *  3. De handtekening over de wortel in de browser zelf controleren
  *     (`shared/verus-signature.mjs`), dus zonder de RPC te moeten geloven op dat punt.
  *
- * Of de speler deze attestatie ook in zijn eigen VerusID zette, kan zo niet:
- * Verus Mobile slaat ze daar versleuteld op en de publieke RPC blokkeert
- * `decryptdata` (fase 4 stap 5).
+ *  4. Ter informatie: staat precies dit verzegelde record in de VerusID van de
+ *     speler? Verus Mobile slaat het daar versleuteld op en de publieke RPC
+ *     blokkeert `decryptdata`; we ontsleutelen het zelf (`shared/verus-decrypt.mjs`).
  *
  * Oordeel: verified · invalid (link klopt niet of handtekening niet van Arcade@)
  * · unavailable (chain niet te lezen: géén oordeel) · wrong-chain.
  */
 import { AttestationError, decodeDisclosureLink, readDisclosurePayload } from './attestation.mjs';
-import { ChainReadError, isUnavailable, VRSCTEST_CHAIN_ID } from './chain-reader.mjs';
+import { canonicalJson } from './canonical-json.mjs';
+import { ChainReadError, firstUpdateWithValue, isUnavailable, VRSCTEST_CHAIN_ID } from './chain-reader.mjs';
 import { ARCADE_OPERATOR_ID } from './independent-round.mjs';
+import { attestationKeyName } from './player-result.mjs';
+import { vdxfDataKey } from './vdxf-key.mjs';
+import { DecryptError, readMobileRecord } from './verus-decrypt.mjs';
 import { SignatureCheckError, verifyIdentitySignature } from './verus-signature.mjs';
 
 /**
@@ -46,6 +50,11 @@ export async function verifyAttestationLinkIndependently({ link, reader, service
     signatureHeight: null,
     /** @type {{ status: string, reason: string | null, primaryAddresses: string[] }} */
     signature: { status: 'unavailable', reason: null, primaryAddresses: [] },
+    /**
+     * Staat precies dit verzegelde record in de VerusID van de speler? Informatief, geen oordeel.
+     * @type {{ status: 'found' | 'absent' | 'unavailable' | 'not-checked', txid: string | null, height: number | null }}
+     */
+    inPlayerIdentity: { status: 'not-checked', txid: null, height: null },
     /** @type {{ url: string, tip: number | null, version: string | null, calls: number, elapsedMs: number }} */
     source: { url: reader.url, tip: null, version: null, calls: 0, elapsedMs: 0 },
   };
@@ -94,13 +103,50 @@ export async function verifyAttestationLinkIndependently({ link, reader, service
     const check = verifyIdentitySignature({ signaturedata: read.signaturedata, signatureheight: read.signatureheight, identityAtHeight });
     result.signature.status = check.valid ? 'valid' : 'invalid';
     result.signature.reason = check.reason;
-    if (!check.valid) result.problem = `signature: ${check.reason}`;
-    return finish(check.valid ? 'verified' : 'invalid');
+    if (!check.valid) {
+      result.problem = `signature: ${check.reason}`;
+      return finish('invalid');
+    }
   } catch (error) {
     if (!(error instanceof SignatureCheckError)) throw error;
     result.signature.status = 'invalid';
     result.signature.reason = error.message;
     result.problem = `signature: ${error.message}`;
     return finish('invalid');
+  }
+
+  // 4. Informatief: staat precies dit verzegelde record in de ID van de speler? Verus Mobile
+  //    zet het daar versleuteld; we ontsleutelen het zelf (de publieke RPC kent geen decryptdata).
+  result.inPlayerIdentity = await findInPlayerIdentity({ reader, player, round, record: read.record, serviceId, tip: /** @type {number} */ (result.source.tip) });
+  return finish('verified');
+}
+
+/**
+ * @param {{ reader: ReturnType<typeof import('./chain-reader.mjs').createChainReader>, player: string, round: string, record: any, serviceId: string, tip: number }} input
+ * @returns {Promise<{ status: 'found' | 'absent' | 'unavailable' | 'not-checked', txid: string | null, height: number | null }>}
+ */
+async function findInPlayerIdentity({ reader, player, round, record, serviceId, tip }) {
+  const none = { txid: null, height: null };
+  try {
+    const keyId = vdxfDataKey(attestationKeyName(round), serviceId);
+    const { values } = await reader.identityContent({ identityId: player, keyId, fromHeight: 0, toHeight: tip });
+    if (values.length === 0) return { status: 'absent', ...none };
+    const history = await reader.identityHistory({ identityId: player, fromHeight: 0, toHeight: tip });
+    const expected = canonicalJson(record);
+    const getTransaction = (/** @type {string} */ txid) => reader.call('getrawtransaction', [txid, 1]);
+    for (const value of values) {
+      const entry = firstUpdateWithValue(history, keyId, value);
+      if (!entry) continue;
+      try {
+        const opened = await readMobileRecord({ value, updateTxid: entry.txid, getTransaction });
+        if (new TextDecoder().decode(opened.bytes) === expected) return { status: 'found', txid: entry.txid, height: entry.height };
+      } catch (error) {
+        if (!(error instanceof DecryptError)) throw error;
+      }
+    }
+    return { status: 'absent', ...none };
+  } catch (error) {
+    if (isUnavailable(error)) return { status: 'unavailable', ...none };
+    throw error;
   }
 }

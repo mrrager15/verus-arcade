@@ -18,7 +18,9 @@
 		"server": "node --env-file-if-exists=.env server/auth.mjs",
 		"server:test": "node --env-file-if-exists=.env server/test-server.mjs",
 		"server:watch": "node server/dev-watch.mjs",
-		"server:prod": "node --env-file-if-exists=.env server/prod.mjs"
+		"server:prod": "node --env-file-if-exists=.env server/prod.mjs",
+		"build:verifier": "vite build --config vite.verifier.config.ts && node scripts/build-verifier-inline.mjs",
+		"preview:verifier": "vite preview --config vite.verifier.config.ts --port 4174 --strictPort"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.1",

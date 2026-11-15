@@ -86,6 +86,29 @@ export function testRoundSchedule({ minutes, now = Date.now(), game = DEFAULT_GA
 const LEGACY_DEFINITION_GAMES = new Set(['word-grid@1.0.0']);
 
 /**
+ * Fase 5 stap 9: games waarvan de echte Daily commitment-schema 2 publiceert, met
+ * het versleuteladres (uit de salt) waarnaar spelers hun zetten verzegelen. Per
+ * slug, dus ook voor een latere versie van de game. Standaard uit: een game die
+ * hier niet staat (nu Word Grid) blijft schema 1, byte voor byte zoals altijd.
+ * Word Grid pas toevoegen na een nacht waarin een echte Number Target-ronde
+ * met adres `verified` werd.
+ */
+export const SEALED_DAILY_GAMES = Object.freeze(new Set(['number-target']));
+
+/**
+ * Krijgt een nieuwe ronde van deze game een versleuteladres (commitment-schema 2)?
+ * Testrondes altijd (zo bewezen in fase 5); de echte Daily alleen voor de games
+ * in `SEALED_DAILY_GAMES`. Bestaande rondes veranderen hier nooit door: alleen
+ * `round-create` van een nieuwe ronde vraagt dit.
+ * @param {{ game: { gameId: string }, testMode: boolean }} options
+ */
+export function withEncryptionAddressFor({ game, testMode }) {
+  if (testMode === true) return true;
+  if (testMode !== false) throw new Error('testMode moet true of false zijn');
+  return SEALED_DAILY_GAMES.has(game.gameId);
+}
+
+/**
  * Bouwt de geheime rondedefinitie voor een Daily van een game: de puzzel komt
  * van de generator van die game, plus een salt. Alleen de sha256 hiervan komt
  * op de chain. Schema 2 (fase 8) voor elke game; Word Grid 1.0.0 voorlopig nog

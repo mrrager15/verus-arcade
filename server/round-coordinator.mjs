@@ -44,9 +44,9 @@ export class RoundCoordinator {
   /**
    * `withEncryptionAddress` (fase 5, standaard uit): publiceer commitment-schema 2,
    * met het adres waarnaar spelers hun actie-bundel versleutelen. Het adres volgt
-   * uit de salt van de definitie; na de reveal rekent iedereen dat na. Voorlopig
-   * alleen aan voor testrondes: de echte Daily blijft schema 1 tot de lezers
-   * (publieke verifier) gemerged zijn.
+   * uit de salt van de definitie; na de reveal rekent iedereen dat na. Wie het
+   * aanzet, beslist `withEncryptionAddressFor` (server/daily-round-schedule.mjs):
+   * testrondes en de echte Daily van de games in `SEALED_DAILY_GAMES`.
    */
   async prepare({ hiddenDefinition, withEncryptionAddress = false }) {
     const { opensAt, closesAt } = validateHiddenDefinition(hiddenDefinition);

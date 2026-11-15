@@ -256,8 +256,12 @@ round's address, with a receipt signed by `Arcade@`. Unlike a result or an
 attestation it may be requested as soon as the attempt is complete, while the
 round is still open, and no longer after the reveal. It is only available in a
 round whose commitment carries `roundEncryptionAddress` (commitment schema 2).
-Today only test rounds publish that (`round-create` in test mode); the real Daily
-stays on schema 1 until the readers are released everywhere.
+`round-create` chooses the schema of a new round with `withEncryptionAddressFor`
+(`server/daily-round-schedule.mjs`): test rounds always get schema 2; a real Daily
+only for the games listed in `SEALED_DAILY_GAMES` (today: Number Target, from the
+round of 17 Nov 2026). Word Grid stays on schema 1. Existing rounds never change
+schema. Adding a game to the list is a code change; do it only after a real round
+of a listed game was revealed and checked `verified`.
 
 Normally the player uses the button "Seal my moves" under a finished attempt.
 The same through the scripts:

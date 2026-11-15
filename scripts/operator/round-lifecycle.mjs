@@ -30,6 +30,7 @@ import {
   dailyRoundSchedule,
   parseRoundCreateOptions,
   testRoundSchedule,
+  withEncryptionAddressFor,
 } from '../../server/daily-round-schedule.mjs';
 import { DEFAULT_GAME } from '../../server/games/generators.mjs';
 import { applyTestRoundEnvironment, assertRoundMatchesMode, REAL_OPERATOR } from '../../server/test-rounds.mjs';
@@ -172,9 +173,11 @@ try {
       };
     } else {
       const hiddenDefinition = createDailyHiddenDefinition({ schedule: { ...schedule, recordId }, game });
-      // Fase 5: testrondes publiceren commitment-schema 2 (met het versleuteladres voor
-      // actie-bundels); de echte Daily blijft schema 1 tot de lezers gemerged zijn.
-      const prepared = await coordinator.prepare({ hiddenDefinition, withEncryptionAddress: mode.testMode });
+      // Fase 5: testrondes en de echte Daily van de games in SEALED_DAILY_GAMES (nu
+      // Number Target) publiceren commitment-schema 2, met het versleuteladres voor
+      // actie-bundels; de andere games (Word Grid) blijven schema 1.
+      const withEncryptionAddress = withEncryptionAddressFor({ game, testMode: mode.testMode });
+      const prepared = await coordinator.prepare({ hiddenDefinition, withEncryptionAddress });
       outcome = { created: true, commitment: prepared.commitment };
     }
     const round = repository.getRound(recordId);

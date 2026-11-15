@@ -340,6 +340,20 @@ export class VerusRequests {
     }));
   }
 
+  /**
+   * Een transactie zoals `getrawtransaction <txid> 1` haar geeft (met de uitvoeren,
+   * dus ook het bewijs van een versleuteld record). Fase 5: om een actie-bundel
+   * zelf te ontsleutelen (shared/verus-decrypt.mjs) in plaats van via `decryptdata`.
+   */
+  async transaction(txid) {
+    check(typeof txid === 'string' && /^[0-9a-f]{64}$/.test(txid), 'Invalid transaction ID.');
+    const result = await this.chain(() => this.client.interface.getRawTransaction(txid, 1));
+    if (!result || typeof result !== 'object' || (result.txid !== undefined && result.txid !== txid)) {
+      throw new VerusRequestError('CHAIN_UNAVAILABLE', 'The chain service returned no such transaction.');
+    }
+    return result;
+  }
+
   /** Bevestigingen van een transactie, of null als de daemon ze (nog) niet kent. */
   async transactionStatus(txid) {
     check(typeof txid === 'string' && /^[0-9a-f]{64}$/.test(txid), 'Invalid transaction ID.');

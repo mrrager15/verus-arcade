@@ -18,6 +18,13 @@
  * Wachten op bevestiging leest de chain zelf terug (hooguit om de 15 s), zodat de
  * speler niet op de operator-reconcile hoeft te wachten.
  *
+ * Fase 5: een derde soort, de actie-bundel (`kind: 'bundle'`). Anders dan de
+ * andere twee mag die al TIJDENS de ronde, zodra de poging klaar is: de zetten
+ * staan dan op de chain vóór de operator de ronde afsluit. De bundel draagt een
+ * ontvangstbewijs van Arcade@ en wordt versleuteld naar het adres van de ronde
+ * (commitment-schema 2), zodat niemand hem leest vóór de reveal. Teruglezen doet
+ * de server zelf met de sleutel uit de salt (shared/verus-decrypt.mjs).
+ *
  * Geen HTTP hier; de router vertaalt. Fouten zijn DailyServiceError.
  */
 import crypto from 'node:crypto';
@@ -38,15 +45,20 @@ import { sealedAttestationRecord } from './attestation-service.mjs';
 import { AttestationError } from './attestation.mjs';
 import { canonicalJson } from './canonical-json.mjs';
 import { attestationKeyName, serviceContentKey } from './verus/player-result.mjs';
+import { roundKeyFromSalt } from '../shared/round-key.mjs';
+import { DATA_DESCRIPTOR_KEY, readMobileRecord } from '../shared/verus-decrypt.mjs';
+import { recordActions } from './attempt-actions.mjs';
+import { ActionBundleError, actionBundleContentKey, buildSignedActionBundle, bundleActionValues, roundEncryptionAddress } from './verus/action-bundle.mjs';
+import { firstAppearance } from './verus/player-result-reader.mjs';
 import { rawId } from './verus/requests.mjs';
 import { VerusRequestError, walletCompatibleIdentity } from './verus/requests.mjs';
 
 const REQUEST_ID_HEX = /^[0-9a-f]{40}$/;
-const KINDS = ['result', 'attestation'];
+const KINDS = ['result', 'attestation', 'bundle'];
 const RECHECK_MS = 15_000;
 
 function checkKind(kind) {
-  if (!KINDS.includes(kind)) throw new DailyServiceError('INVALID_PUBLICATION_KIND', 'kind must be result or attestation', 400);
+  if (!KINDS.includes(kind)) throw new DailyServiceError('INVALID_PUBLICATION_KIND', 'kind must be result, attestation or bundle', 400);
   return kind;
 }
 
@@ -61,6 +73,7 @@ export function publicPublication(publication, { tip } = {}) {
     contentKeyName: publication.contentKeyFqn,
     recordSha256: publication.recordSha256,
     record: JSON.parse(publication.recordJson),
+    encryptToAddress: publication.encryptToAddress ?? null,
     walletUri: publication.status === 'pending' && !expired ? publication.walletUri : null,
     responseMode: publication.responseMode,
     createdHeight: publication.createdHeight,
@@ -127,6 +140,7 @@ export class PlayerPublicationService {
     }
     if (error instanceof PlayerResultError) return new DailyServiceError(error.code, error.message, 409);
     if (error instanceof AttestationError) return new DailyServiceError(error.code, error.message, 409);
+    if (error instanceof ActionBundleError) return new DailyServiceError(error.code, error.message, 409);
     if (error instanceof RepositoryConflictError) return new DailyServiceError(error.code, error.message, 409);
     return error;
   }
@@ -172,7 +186,9 @@ export class PlayerPublicationService {
       const attempt = this.#ownedCompletedAttempt(principal, attemptId);
       const round = this.repository.getRoundForAttempt(attempt);
       const resultSet = round ? this.repository.getRoundResultSet(round.id) : null;
-      if (!resultSet?.resultsTxid) {
+      if (kind === 'bundle') {
+        this.#requireBundleRound(round);
+      } else if (!resultSet?.resultsTxid) {
         throw new DailyServiceError('RESULT_ROOT_UNPUBLISHED', 'The result root of this round is not confirmed on chain yet', 409);
       }
       const existing = this.repository.getPlayerPublication(attempt.id, kind);
@@ -193,9 +209,11 @@ export class PlayerPublicationService {
         );
       }
 
-      const { serialized, key } = kind === 'attestation'
-        ? this.#attestationRecord({ attempt, round, serviceId, serviceFqn })
-        : this.#resultRecord({ attempt, round, resultSet, serviceId, serviceFqn });
+      const { serialized, key, encryptToAddress = null } = kind === 'bundle'
+        ? await this.#bundleRecord({ attempt, round, serviceId, serviceFqn })
+        : kind === 'attestation'
+          ? this.#attestationRecord({ attempt, round, serviceId, serviceFqn })
+          : this.#resultRecord({ attempt, round, resultSet, serviceId, serviceFqn });
       const player = await this.#playerIdentity(attempt.player_i_address, tip);
       // Vooraf de bekende Mobile-beperking herkennen in plaats van een QR te geven die faalt.
       const contentFqn = await this.verus.identityContentName({ identityId: attempt.player_i_address, keyId: key.keyId });
@@ -212,11 +230,12 @@ export class PlayerPublicationService {
         playerId: attempt.player_i_address, playerName: player.name, playerParent: player.parent,
         keyFqn: key.fqn, keyId: key.keyId, recordJson: serialized.json,
         callbackUrl: this.callbackUrl(requestIdHex), requestIdHex, responseMode: this.responseMode, ttlBlocks: this.ttlBlocks,
+        ...(encryptToAddress ? { encryptToAddress } : {}),
       });
       const publication = this.repository.createPlayerPublication({
         attemptId: attempt.id, kind, contentKey: key.keyId, contentKeyFqn: key.fqn, recordJson: serialized.json, recordSha256: serialized.sha256,
         requestIdHex, requestHex: built.requestHex, walletUri: built.walletUri, responseMode: this.responseMode,
-        createdHeight: built.height, expiresHeight: built.expiryHeight, now: this.clock(),
+        createdHeight: built.height, expiresHeight: built.expiryHeight, now: this.clock(), encryptToAddress,
       });
       return { created: true, publication: publicPublication(publication, { tip }) };
     } catch (error) {
@@ -238,6 +257,71 @@ export class PlayerPublicationService {
       serialized: serializePlayerResultRecord(record, { player: attempt.player_i_address }),
       key: playerResultContentKey({ roundId: round.round_id, serviceId, serviceFqn }),
     };
+  }
+
+  /**
+   * Fase 5: mag deze ronde bundels krijgen? Alleen een ronde die haar versleuteladres
+   * publiceerde (commitment-schema 2), en niet meer na de reveal: dan kan iedereen de
+   * sleutel afleiden en bewijst de bundel geen tijdstip meer.
+   */
+  #requireBundleRound(round) {
+    if (!round || Number(round.commitment_schema) !== 2) {
+      throw new DailyServiceError('BUNDLE_NOT_AVAILABLE', 'This round did not publish an encryption address for action bundles', 409);
+    }
+    if (round.status === 'revealed') {
+      throw new DailyServiceError('ROUND_ALREADY_REVEALED', 'This round is already revealed; sealing your moves no longer proves anything', 409);
+    }
+  }
+
+  /** Fase 5: de bundel van deze poging, met ontvangstbewijs van Arcade@, en het adres van de ronde. */
+  async #bundleRecord({ attempt, round, serviceId, serviceFqn }) {
+    const definition = this.repository.getRoundPrivateDefinition(round.id);
+    if (!definition?.salt) throw new DailyServiceError('BUNDLE_NOT_AVAILABLE', 'The round definition is not available', 409);
+    const actions = bundleActionValues(recordActions(this.repository.listAttemptActions(attempt.id), definition));
+    const built = await buildSignedActionBundle({
+      roundId: round.round_id, playerId: attempt.player_i_address, actions, serviceId,
+      signHash: (hash) => this.verus.signMmrRoot(hash),
+    });
+    return {
+      serialized: { json: built.json, sha256: built.sha256 },
+      key: actionBundleContentKey({ roundId: round.round_id, serviceId, serviceFqn }),
+      encryptToAddress: roundEncryptionAddress(definition),
+    };
+  }
+
+  /**
+   * Fase 5: een bundel terugvinden in de ID van de speler. De verwijzing draagt geen
+   * viewing key; de server opent ze met de sleutel uit de salt van de ronde. Alleen een
+   * waarde die verzegeld is (geen sleutel in de ID) en exact ons record bevat, telt.
+   * Zelfde uitkomstvorm als locatePublishedRecord.
+   */
+  async #locateBundle({ content, history, publication, attempt }) {
+    const values = content?.identity?.contentmultimap?.[publication.contentKey] ?? [];
+    if (!Array.isArray(values)) throw new Error('CHAIN_UNAVAILABLE: unexpected contentmultimap shape');
+    const round = this.repository.getRoundForAttempt(attempt);
+    const definition = round ? this.repository.getRoundPrivateDefinition(round.id) : null;
+    if (!definition?.salt) throw new Error('CHAIN_UNAVAILABLE: round definition is not available');
+    const { ivk } = roundKeyFromSalt(definition.salt);
+    const kinds = [];
+    for (const value of values.slice(0, 32)) {
+      const seen = firstAppearance({ history, keyId: publication.contentKey, value });
+      const updateTxid = seen?.txid ?? publication.receiptTxid;
+      if (!value?.[DATA_DESCRIPTOR_KEY] || !updateTxid) { kinds.push('undecodable'); continue; }
+      let record;
+      try {
+        record = await readMobileRecord({ value, updateTxid, getTransaction: (txid) => this.verus.transaction(txid), ivk });
+      } catch (error) {
+        if (error instanceof VerusRequestError) throw error; // chain niet leesbaar: later opnieuw
+        kinds.push('unreadable');
+        continue;
+      }
+      const same = crypto.createHash('sha256').update(record.bytes).digest('hex') === publication.recordSha256;
+      kinds.push(record.ivkPublished ? 'public' : same ? 'sealed' : 'sealed-other');
+      if (same && !record.ivkPublished) {
+        return { found: true, valueCount: values.length, txid: seen?.txid ?? null, height: seen?.height ?? null, kinds };
+      }
+    }
+    return { found: false, valueCount: values.length, txid: null, height: null, kinds };
   }
 
   /** Fase 2b: de verzegelde attestatie van deze poging (compact, zonder waarden en zouten). */
@@ -308,11 +392,14 @@ export class PlayerPublicationService {
         const { tip, content, history } = await this.verus.readIdentityContent({ identityId: attempt.player_i_address, keyId: publication.contentKey });
         let located;
         try {
-          located = await locatePublishedRecord({
-            content, history, keyId: publication.contentKey, recordSha256: publication.recordSha256,
-            fallbackTxid: publication.receiptTxid, decrypt: this.#decrypt,
-          });
+          located = kind === 'bundle'
+            ? await this.#locateBundle({ content, history, publication, attempt })
+            : await locatePublishedRecord({
+              content, history, keyId: publication.contentKey, recordSha256: publication.recordSha256,
+              fallbackTxid: publication.receiptTxid, decrypt: this.#decrypt,
+            });
         } catch (error) {
+          if (error instanceof VerusRequestError) throw error;
           throw new DailyServiceError('CHAIN_UNAVAILABLE', error.message, 503);
         }
         summary.valueCount = located.valueCount;
@@ -407,6 +494,7 @@ export class PlayerPublicationService {
       const verified = await this.verus.verifyPlayerResultResponse({
         body, requestHex: publication.requestHex, requestIdHex,
         playerId: attempt.player_i_address, keyId: publication.contentKey, recordJson: publication.recordJson,
+        ...(publication.encryptToAddress ? { encryptToAddress: publication.encryptToAddress } : {}),
       });
       const stored = this.repository.markPlayerPublicationReceipt({
         attemptId: publication.attemptId, kind: publication.kind ?? 'result', receiptTxid: verified.txid, now: this.clock(),

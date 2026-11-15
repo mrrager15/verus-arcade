@@ -39,7 +39,8 @@ const JOURNAL_TRANSITIONS = Object.freeze({
   failed: new Set(),
 });
 
-const PUBLICATION_KINDS = new Set(['result', 'attestation']);
+// 'bundle' (fase 5): de actie-bundel, versleuteld naar het adres van de ronde (migratie 011).
+const PUBLICATION_KINDS = new Set(['result', 'attestation', 'bundle']);
 function checkKind(kind) {
   if (!PUBLICATION_KINDS.has(kind)) throw new Error(`Unknown publication kind: ${kind}`);
   return kind;
@@ -1051,9 +1052,13 @@ export class ArcadeRepository {
    */
   createPlayerPublication({
     attemptId, kind = 'result', contentKey, contentKeyFqn, recordJson, recordSha256, requestIdHex, requestHex,
-    walletUri, responseMode, createdHeight, expiresHeight, now,
+    walletUri, responseMode, createdHeight, expiresHeight, now, encryptToAddress = null,
   }) {
     checkKind(kind);
+    // Een bundel is altijd versleuteld naar een adres; resultaat en attestatie nooit.
+    if ((kind === 'bundle') !== (typeof encryptToAddress === 'string' && encryptToAddress.length > 0)) {
+      throw new Error('Only a bundle publication carries an encryption address');
+    }
     return inImmediateTransaction(this.database, () => {
       const existing = this.getPlayerPublication(attemptId, kind);
       if (existing && !['expired', 'mismatch'].includes(existing.status)) {
@@ -1069,12 +1074,13 @@ export class ArcadeRepository {
         .prepare(`
           INSERT INTO player_publications (
             attempt_id, kind, content_key, content_key_fqn, record_json, record_sha256, request_id_hex,
-            request_hex, wallet_uri, response_mode, status, created_height, expires_height, created_at_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+            request_hex, wallet_uri, response_mode, status, created_height, expires_height, created_at_ms,
+            encrypt_to_address
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
         `)
         .run(
           attemptId, kind, contentKey, contentKeyFqn, recordJson, recordSha256, requestIdHex,
-          requestHex, walletUri, responseMode, createdHeight, expiresHeight, now,
+          requestHex, walletUri, responseMode, createdHeight, expiresHeight, now, encryptToAddress,
         );
       return this.getPlayerPublication(attemptId, kind);
     });
@@ -1345,6 +1351,7 @@ function mapPlayerPublication(row) {
     publishedHeight: row.published_height == null ? null : Number(row.published_height),
     publishedAtMs: row.published_at_ms == null ? null : Number(row.published_at_ms),
     lastCheckedAtMs: row.last_checked_at_ms == null ? null : Number(row.last_checked_at_ms),
+    encryptToAddress: row.encrypt_to_address ?? null,
   };
 }
 

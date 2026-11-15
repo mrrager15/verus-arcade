@@ -192,6 +192,145 @@ test('bundel: antwoord van de wallet wordt tegen het adres nagekeken; teruglezen
   ctx.database.close();
 });
 
+const status = (ctx, attemptId) => ctx.service.getPublishRequest({ principal: PRINCIPAL, attemptId, kind: 'bundle' });
+
+test('bundel: antwoord van de wallet kwam nooit aan, maar de bundel staat op de chain → published (stap 5)', async () => {
+  const ctx = setup();
+  const attemptId = play(ctx.daily);
+  const { publication } = await bundle(ctx, attemptId);
+  const recordJson = ctx.verus.state.created[0].recordJson;
+
+  // Nog niets op de chain: blijft wachten, de QR blijft geldig. Binnen 15 s leest de server niet opnieuw.
+  assert.equal((await status(ctx, attemptId)).publication.status, 'pending');
+  publishOnChain(ctx.verus, sealedRecord(recordJson, ADDRESS));
+  assert.equal((await status(ctx, attemptId)).publication.status, 'pending', 'hooguit om de 15 s per publicatie');
+
+  ctx.time.now += 15_000;
+  const found = (await status(ctx, attemptId)).publication;
+  assert.deepEqual(
+    [found.status, found.receiptTxid, found.publishedTxid, found.publishedHeight, found.walletUri],
+    ['published', UPDATE_TXID, UPDATE_TXID, 1010, null],
+  );
+  assert.equal(ctx.verus.state.verified.length, 0, 'zonder wallet-antwoord: de chain is het bewijs');
+
+  // Komt het antwoord daarna toch nog binnen (hier van een tweede goedkeuring, andere txid), dan verandert er niets.
+  const late = await ctx.service.acceptResponse({ requestIdHex: publication.requestId, body: Buffer.from('01', 'hex') });
+  assert.deepEqual([late.accepted, late.replayed, late.publication.status, late.publication.publishedTxid], [true, true, 'published', UPDATE_TXID]);
+  // En er komt geen nieuw verzoek meer.
+  const again = await bundle(ctx, attemptId);
+  assert.deepEqual([again.created, again.publication.status, ctx.verus.state.created.length], [false, 'published', 1]);
+  ctx.database.close();
+});
+
+test('bundel: een verlopen verzoek wordt eerst op de chain nagekeken, ook vóór er een nieuw komt', async () => {
+  // Verloopt terwijl de bundel er staat: published, niet expired (ook binnen de 15 s).
+  const ctx = setup();
+  const attemptId = play(ctx.daily);
+  await bundle(ctx, attemptId);
+  await status(ctx, attemptId);
+  publishOnChain(ctx.verus, sealedRecord(ctx.verus.state.created[0].recordJson, ADDRESS));
+  ctx.verus.state.tip = 1061;
+  assert.equal((await status(ctx, attemptId)).publication.status, 'published');
+  ctx.database.close();
+
+  // Verlopen zonder iets op de chain: expired. Staat de bundel er later toch, dan geen tweede verzoek.
+  const gone = setup();
+  const second = play(gone.daily);
+  await bundle(gone, second);
+  gone.verus.state.tip = 1061;
+  assert.equal((await status(gone, second)).publication.status, 'expired');
+  publishOnChain(gone.verus, sealedRecord(gone.verus.state.created[0].recordJson, ADDRESS), { height: 1055 });
+  const again = await bundle(gone, second);
+  assert.deepEqual(
+    [again.created, again.publication.status, again.publication.publishedHeight, gone.verus.state.created.length, gone.verus.state.signed],
+    [false, 'published', 1055, 1, 1],
+  );
+  gone.database.close();
+
+  // Verlopen en echt niets op de chain: een nieuw verzoek, met een nieuw ontvangstbewijs.
+  const fresh = setup();
+  const third = play(fresh.daily);
+  await bundle(fresh, third);
+  fresh.verus.state.tip = 1061;
+  const renewed = await bundle(fresh, third);
+  assert.deepEqual([renewed.created, renewed.publication.status, fresh.verus.state.created.length], [true, 'pending', 2]);
+  fresh.database.close();
+});
+
+test('bundel: zonder wallet-antwoord telt alleen een verzegelde waarde met exact ons record; reconcile kijkt ook wachtende bundels na', async () => {
+  for (const [name, make] of [
+    ['publiek leesbaar', (json) => mobileRecord(json)],
+    ['andere inhoud', () => sealedRecord('{"iets":"anders"}', ADDRESS)],
+    ['ander adres', (json) => sealedRecord(json, roundKeyFromSalt('cd'.repeat(32)).address)],
+  ]) {
+    const ctx = setup();
+    const attemptId = play(ctx.daily);
+    await bundle(ctx, attemptId);
+    publishOnChain(ctx.verus, make(ctx.verus.state.created[0].recordJson));
+    ctx.time.now += 15_000;
+    const seen = (await status(ctx, attemptId)).publication;
+    assert.deepEqual([seen.status, Boolean(seen.walletUri)], ['pending', true], name);
+    ctx.database.close();
+  }
+
+  // Chain niet leesbaar: geen oordeel, de QR blijft staan.
+  const down = setup();
+  const downAttempt = play(down.daily);
+  await bundle(down, downAttempt);
+  down.verus.state.chainDown = true;
+  down.time.now += 15_000;
+  assert.equal((await status(down, downAttempt)).publication.status, 'pending');
+  down.database.close();
+
+  // De operator-reconcile vindt een bundel waarvan de speler de app al sloot.
+  const ctx = setup();
+  const attemptId = play(ctx.daily);
+  await bundle(ctx, attemptId);
+  assert.deepEqual((await ctx.service.reconcile()).map((r) => [r.kind, r.before, r.after]), [['bundle', 'pending', 'pending']]);
+  publishOnChain(ctx.verus, sealedRecord(ctx.verus.state.created[0].recordJson, ADDRESS));
+  assert.deepEqual((await ctx.service.reconcile()).map((r) => [r.kind, r.before, r.after]), [['bundle', 'pending', 'published']]);
+  assert.deepEqual(await ctx.service.reconcile(), []);
+  ctx.database.close();
+});
+
+test('app: de ronde toont haar versleuteladres en het klassement het label "sealed" (alleen schema 2)', async () => {
+  const ctx = setup();
+  assert.equal(ctx.daily.getCurrentRound().commitment.roundEncryptionAddress, ADDRESS);
+  const attemptId = play(ctx.daily);
+  const sealedOf = () => ctx.daily.getLeaderboard({ roundId: 'round-1' }).entries.map((e) => [e.playerIAddress, e.sealed]);
+  assert.deepEqual(sealedOf(), [[PLAYER, false]]);
+  await bundle(ctx, attemptId);
+  assert.deepEqual(sealedOf(), [[PLAYER, false]], 'een verzoek is nog geen bundel op de chain');
+  publishOnChain(ctx.verus, sealedRecord(ctx.verus.state.created[0].recordJson, ADDRESS));
+  ctx.time.now += 15_000;
+  await status(ctx, attemptId);
+  assert.deepEqual(sealedOf(), [[PLAYER, true]]);
+  // De reveal komt later dan het teruglezen: het label blijft.
+  const reveal = ctx.database.prepare('INSERT INTO round_reveals (round_record_id, definition_json, definition_sha256, commitment_txid, reveal_txid, confirmed_at_ms) VALUES (?, ?, ?, ?, ?, ?)');
+  reveal.run('round-1', '{}', 'c'.repeat(64), 'a'.repeat(64), 'f'.repeat(64), ctx.time.now + 1);
+  assert.deepEqual(sealedOf(), [[PLAYER, true]]);
+  ctx.database.close();
+
+  // Pas ná de reveal teruggelezen: geen label van de server (de chain beslist, zie de onafhankelijke controle).
+  const late = setup();
+  const lateAttempt = play(late.daily);
+  await bundle(late, lateAttempt);
+  late.database.prepare('INSERT INTO round_reveals (round_record_id, definition_json, definition_sha256, commitment_txid, reveal_txid, confirmed_at_ms) VALUES (?, ?, ?, ?, ?, ?)')
+    .run('round-1', '{}', 'c'.repeat(64), 'a'.repeat(64), 'f'.repeat(64), late.time.now + 1);
+  publishOnChain(late.verus, sealedRecord(late.verus.state.created[0].recordJson, ADDRESS));
+  late.time.now += 15_000;
+  assert.equal((await status(late, lateAttempt)).publication.status, 'published');
+  assert.deepEqual(late.daily.getLeaderboard({ roundId: 'round-1' }).entries.map((e) => e.sealed), [false]);
+  late.database.close();
+
+  // Een ronde zonder adres (schema 1) houdt haar oude vorm: geen adres, geen veld `sealed`.
+  const old = setup({ commitmentSchema: 1 });
+  play(old.daily);
+  assert.equal('roundEncryptionAddress' in old.daily.getCurrentRound().commitment, false);
+  assert.equal(old.daily.getLeaderboard({ roundId: 'round-1' }).entries.some((e) => 'sealed' in e), false);
+  old.database.close();
+});
+
 test('bundel: publiek leesbaar, andere inhoud of ander adres telt niet → mismatch (nooit stil published)', async () => {
   const cases = [
     ['met de viewing key in de ID (publiek leesbaar)', (json) => mobileRecord(json), 'public'],

@@ -191,8 +191,13 @@ export class PlayerPublicationService {
       } else if (!resultSet?.resultsTxid) {
         throw new DailyServiceError('RESULT_ROOT_UNPUBLISHED', 'The result root of this round is not confirmed on chain yet', 409);
       }
-      const existing = this.repository.getPlayerPublication(attempt.id, kind);
+      let existing = this.repository.getPlayerPublication(attempt.id, kind);
       const { tip, serviceId, serviceFqn } = await this.#service();
+      // Fase 5: een bundel die al op de chain staat (het antwoord van de wallet kwam nooit aan)
+      // niet opnieuw vragen. Zeker nakijken vóór een verlopen verzoek vervangen wordt.
+      if (existing && await this.#recoverBundle(existing, { force: existing.status === 'expired' || tip > existing.expiresHeight })) {
+        existing = this.repository.getPlayerPublication(attempt.id, kind);
+      }
       if (existing && ['published', 'receipt'].includes(existing.status)) {
         return { created: false, publication: publicPublication(existing) };
       }
@@ -324,6 +329,35 @@ export class PlayerPublicationService {
     return { found: false, valueCount: values.length, txid: null, height: null, kinds };
   }
 
+  /**
+   * Fase 5: staat de bundel al in de ID van de speler terwijl het antwoord van de wallet
+   * de server nooit bereikte (gsm zonder verbinding, browser gesloten)? Dan is de chain
+   * het bewijs: een verzegelde waarde met exact ons record maakt de publicatie meteen
+   * 'published', met de transactie van de chain als ontvangstbewijs. Hooguit om de 15 s
+   * per publicatie, tenzij `force`. Gooit niet: bij een fout blijft alles zoals het was.
+   * @returns {Promise<boolean>} of de publicatie nu 'published' is
+   */
+  async #recoverBundle(publication, { force = false } = {}) {
+    if (publication.kind !== 'bundle' || !['pending', 'expired'].includes(publication.status)) return false;
+    if (!force && publication.lastCheckedAtMs !== null && this.clock() - publication.lastCheckedAtMs < RECHECK_MS) return false;
+    try {
+      const attempt = this.repository.getAttemptById(publication.attemptId);
+      if (!attempt) return false;
+      const { tip, content, history } = await this.verus.readIdentityContent({ identityId: attempt.player_i_address, keyId: publication.contentKey });
+      const located = await this.#locateBundle({ content, history, publication, attempt });
+      if (located.found && located.txid) {
+        this.repository.markPlayerPublicationFoundOnChain({
+          attemptId: publication.attemptId, kind: 'bundle', txid: located.txid, height: located.height ?? tip, now: this.clock(),
+        });
+        return true;
+      }
+      this.repository.touchPlayerPublicationChecked({ attemptId: publication.attemptId, kind: 'bundle', now: this.clock() });
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
   /** Fase 2b: de verzegelde attestatie van deze poging (compact, zonder waarden en zouten). */
   #attestationRecord({ attempt, round, serviceId, serviceFqn }) {
     const attestation = this.repository.getAttestation({ playerIAddress: attempt.player_i_address, roundRecordId: round.id });
@@ -350,7 +384,10 @@ export class PlayerPublicationService {
       let tip;
       if (existing.status === 'pending') {
         tip = await this.verus.tip();
-        if (tip > existing.expiresHeight) this.repository.markPlayerPublicationExpired(attempt.id, kind);
+        const expired = tip > existing.expiresHeight;
+        // Fase 5: de bundel kan al op de chain staan zonder dat het antwoord van de wallet aankwam.
+        const recovered = await this.#recoverBundle(existing, { force: expired });
+        if (expired && !recovered) this.repository.markPlayerPublicationExpired(attempt.id, kind);
       } else if (existing.status === 'receipt' && (existing.lastCheckedAtMs === null || this.clock() - existing.lastCheckedAtMs >= RECHECK_MS)) {
         await this.#reconcileOne(existing);
       }
@@ -377,6 +414,14 @@ export class PlayerPublicationService {
     const results = [];
     for (const publication of this.repository.listPlayerPublicationsAwaitingConfirmation({ limit })) {
       results.push(await this.#reconcileOne(publication));
+    }
+    // Fase 5: bundels zonder antwoord van de wallet kunnen toch al op de chain staan.
+    for (const publication of this.repository.listPendingBundlePublications({ limit })) {
+      const recovered = await this.#recoverBundle(publication, { force: true });
+      results.push({
+        attemptId: publication.attemptId, kind: 'bundle', requestId: publication.requestIdHex,
+        before: 'pending', after: recovered ? 'published' : 'pending',
+      });
     }
     return results;
   }
@@ -496,6 +541,11 @@ export class PlayerPublicationService {
         playerId: attempt.player_i_address, keyId: publication.contentKey, recordJson: publication.recordJson,
         ...(publication.encryptToAddress ? { encryptToAddress: publication.encryptToAddress } : {}),
       });
+      // Fase 5: de bundel is al van de chain teruggelezen (zie #recoverBundle). Een geldig
+      // antwoord dat daarna nog binnenkomt (ook van een tweede goedkeuring) verandert niets.
+      if (publication.kind === 'bundle' && publication.status === 'published') {
+        return { accepted: true, replayed: true, publication: publicPublication(publication) };
+      }
       const stored = this.repository.markPlayerPublicationReceipt({
         attemptId: publication.attemptId, kind: publication.kind ?? 'result', receiptTxid: verified.txid, now: this.clock(),
       });

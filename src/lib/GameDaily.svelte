@@ -29,7 +29,7 @@
 		opensAt: number;
 		closesAt: number;
 		puzzle?: any;
-		commitment: { sha256: string; transaction: { status: string; txid: string | null } };
+		commitment: { sha256: string; roundEncryptionAddress?: string; transaction: { status: string; txid: string | null } };
 	};
 	type Leaderboard = {
 		state: 'live' | 'finalized' | 'chain-verified';
@@ -39,6 +39,7 @@
 			friendlyName: string | null;
 			status: 'solved' | 'unsolved' | 'abandoned' | 'in_progress';
 			guessesUsed: number;
+			sealed?: boolean;
 		}>;
 	};
 
@@ -222,6 +223,9 @@
 			<a class="verify" href={`/verify/${encodeURIComponent(round.id)}`}>Open round verifier →</a>
 			{#if attempt.status === 'completed'}
 				<SignAttempt {token} attemptId={attempt.id} playerName={friendlyName} />
+				{#if round.commitment.roundEncryptionAddress}
+					<PublishResult {token} attemptId={attempt.id} playerName={friendlyName} kind="bundle" onpublished={loadLeaderboard} />
+				{/if}
 				<PublishResult {token} attemptId={attempt.id} playerName={friendlyName} />
 			{/if}
 		{/if}
@@ -248,6 +252,9 @@
 							<span class="identity-name">
 								<strong>{entry.friendlyName ?? 'VerusID'}</strong>
 								<code>{entry.playerIAddress.slice(0, 9)}…{entry.playerIAddress.slice(-5)}</code>
+								{#if entry.sealed}
+									<span class="sealed" title="This player put their encrypted moves on chain before the reveal">sealed by player</span>
+								{/if}
 							</span>
 							<span class="score">{entry.status === 'solved' ? `${entry.guessesUsed}/${game.maxActions}` : entry.status.replace('_', ' ')}</span>
 						</li>
@@ -286,6 +293,7 @@
 	.rank { font-family:Georgia,serif; font-size:1.2rem; color:#41604a; }
 	.identity-name { display:grid; gap:.15rem; min-width:0; }
 	.identity-name code { color:#78847b; font-size:.65rem; }
+	.sealed { justify-self:start; padding:.1rem .4rem; border-radius:999px; background:#dfeadf; color:#2f6e43; font-size:.6rem; font-weight:800; letter-spacing:.04em; text-transform:uppercase; }
 	.score { color:#4e6053; font-size:.75rem; font-weight:800; text-transform:capitalize; }
 	.empty { color:#738078; font-size:.8rem; }
 </style>

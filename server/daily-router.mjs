@@ -55,7 +55,8 @@ export function createDailyRouter({
         const query = new URL(request.originalUrl, 'http://callback.invalid').searchParams;
         const body = parseGenericResponseQuery(query, GENERIC_RESPONSE_QUERY_KEY);
         const result = await service.acceptResponse({ requestIdHex: requestId, body });
-        destination.set('signed', statusOf(result) === 'signed' || statusOf(result) === 'receipt' ? '1' : '0');
+        // 'published': het antwoord kwam (opnieuw) binnen nadat de chain al was teruggelezen.
+        destination.set('signed', ['signed', 'receipt', 'published'].includes(statusOf(result)) ? '1' : '0');
       } catch (error) {
         destination.set(
           'returnError',

@@ -104,7 +104,23 @@ export class DailyService {
     if (!round) return null;
     const view = publicRound(round, now);
     if (view.availability === 'open') view.puzzle = this.#publicPuzzle(round);
+    // Fase 5: een ronde met commitment-schema 2 publiceerde haar versleuteladres; de app
+    // toont dan de knop om de zetten te verzegelen. Het adres verraadt niets over de salt.
+    const address = round.commitment_txid ? this.#encryptionAddress(round) : null;
+    if (address) view.commitment.roundEncryptionAddress = address;
     return view;
+  }
+
+  /** Het versleuteladres van een ronde met commitment-schema 2, anders null. */
+  #encryptionAddress(round) {
+    if (Number(round.commitment_schema) !== 2) return null;
+    const definition = this.repository.getRoundPrivateDefinition(round.id);
+    if (!definition?.salt) return null;
+    try {
+      return roundKeyFromSalt(definition.salt).address;
+    } catch {
+      return null;
+    }
   }
 
   #publicPuzzle(round) {
@@ -194,6 +210,13 @@ export class DailyService {
                 : 'in_progress',
           guessesUsed: Number(attempt.guesses_used),
         }));
+    // Fase 5: in een ronde met versleuteladres krijgt elke regel `sealed`: verzegelde de
+    // speler zijn zetten zelf op de chain (teruggelezen vóór de reveal)? Rondes zonder
+    // adres houden hun oude vorm.
+    if (Number(round.commitment_schema) === 2) {
+      const sealed = this.repository.listSealedPlayers(round);
+      for (const entry of source) entry.sealed = sealed.has(entry.playerIAddress);
+    }
     return {
       roundId: round.round_id,
       state: resultSet

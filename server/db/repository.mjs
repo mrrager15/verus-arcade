@@ -1145,6 +1145,65 @@ export class ArcadeRepository {
     return this.getPlayerPublication(attemptId, kind);
   }
 
+  /**
+   * Fase 5: de bundel staat in de ID van de speler, maar het antwoord van de wallet
+   * bereikte de server nooit (of te laat). De txid van de chain is dan meteen het
+   * ontvangstbewijs én de bevestiging. Alleen vanuit 'pending' of 'expired'.
+   */
+  markPlayerPublicationFoundOnChain({ attemptId, kind = 'bundle', txid, height, now }) {
+    if (!/^[0-9a-f]{64}$/.test(txid) || !Number.isSafeInteger(height) || height < 1) {
+      throw new Error('Published transaction ID and height are required');
+    }
+    const updated = this.database
+      .prepare(`
+        UPDATE player_publications
+        SET status = 'published', receipt_txid = ?, receipt_at_ms = ?,
+            published_txid = ?, published_height = ?, published_at_ms = ?, last_checked_at_ms = ?
+        WHERE attempt_id = ? AND kind = ? AND status IN ('pending', 'expired')
+      `)
+      .run(txid, now, txid, height, now, now, attemptId, checkKind(kind));
+    if (updated.changes !== 1) {
+      throw new RepositoryConflictError('PLAYER_PUBLICATION_CONFLICT', 'Publication is missing or not waiting for the wallet');
+    }
+    return this.getPlayerPublication(attemptId, kind);
+  }
+
+  /** Fase 5: bundels waarvoor nog geen antwoord van de wallet kwam, oudste controle eerst. */
+  listPendingBundlePublications({ limit = 50 } = {}) {
+    return this.database
+      .prepare(`
+        SELECT * FROM player_publications
+        WHERE status = 'pending' AND kind = 'bundle'
+        ORDER BY COALESCE(last_checked_at_ms, 0) ASC, created_at_ms ASC
+        LIMIT ?
+      `)
+      .all(limit)
+      .map(mapPlayerPublication);
+  }
+
+  /**
+   * Fase 5: de spelers van een ronde van wie de server de verzegelde bundel van de chain
+   * teruglas ('published') vóór hij de reveal bevestigd zag, met transactie en blokhoogte.
+   * Voor het label in het klassement. Een bundel die pas na de reveal is teruggelezen,
+   * krijgt hier geen label: of hij op tijd was, zegt alleen de chain (blokhoogtes), en
+   * dat rekent de onafhankelijke controle na (shared/independent-bundle.mjs).
+   * @returns {Map<string, { txid: string, height: number }>}
+   */
+  listSealedPlayers(round) {
+    const rows = this.database
+      .prepare(`
+        SELECT a.player_i_address, p.published_txid, p.published_height
+        FROM player_publications p
+        JOIN attempts a ON a.id = p.attempt_id
+        LEFT JOIN round_reveals rr ON rr.round_record_id = ?
+        WHERE p.kind = 'bundle' AND p.status = 'published'
+          AND (rr.confirmed_at_ms IS NULL OR p.published_at_ms < rr.confirmed_at_ms)
+          AND a.chain_id = ? AND a.game_id = ? AND a.game_version = ? AND a.round_id = ? AND a.mode = 'daily'
+      `)
+      .all(round.id, round.chain_id, round.game_id, round.game_version, round.round_id);
+    return new Map(rows.map((row) => [row.player_i_address, { txid: row.published_txid, height: Number(row.published_height) }]));
+  }
+
   touchPlayerPublicationChecked({ attemptId, kind = 'result', now }) {
     this.database
       .prepare('UPDATE player_publications SET last_checked_at_ms = ? WHERE attempt_id = ? AND kind = ?')

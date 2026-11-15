@@ -8,6 +8,10 @@
 	 *
 	 * Fase 2b: met `kind="attestation"` dezelfde flow voor de verzegelde attestatie
 	 * van Arcade@ (zonder waarden of zouten; jij kiest later wat je toont).
+	 *
+	 * Fase 5: met `kind="bundle"` verzegelt de speler zijn zetten: versleuteld naar het
+	 * adres van de ronde, al tijdens de ronde. Alleen tonen bij een ronde die zo'n adres
+	 * publiceerde. Optioneel: het telt nergens voor mee, het klassement toont een label.
 	 */
 	import { onMount } from 'svelte';
 	import QRCode from 'qrcode';
@@ -16,11 +20,19 @@
 		token,
 		attemptId,
 		playerName,
-		kind = 'result'
-	}: { token: string; attemptId: string; playerName: string; kind?: 'result' | 'attestation' } = $props();
+		kind = 'result',
+		onpublished
+	}: {
+		token: string;
+		attemptId: string;
+		playerName: string;
+		kind?: 'result' | 'attestation' | 'bundle';
+		onpublished?: () => void;
+	} = $props();
 	const attestation = $derived(kind === 'attestation');
+	const bundle = $derived(kind === 'bundle');
 	const endpoint = $derived(
-		`/api/v1/attempts/${encodeURIComponent(attemptId)}/publish-request${kind === 'attestation' ? '?kind=attestation' : ''}`
+		`/api/v1/attempts/${encodeURIComponent(attemptId)}/publish-request${kind === 'result' ? '' : `?kind=${kind}`}`
 	);
 
 	type Publication = {
@@ -31,6 +43,7 @@
 		contentKeyName: string;
 		recordSha256: string;
 		record: { round: string; status?: string; guesses?: number; resultRoot?: string; resultRootTxid?: string };
+		encryptToAddress?: string | null;
 		walletUri: string | null;
 		expiresHeight: number;
 		receiptTxid: string | null;
@@ -61,7 +74,9 @@
 	}
 
 	async function apply(value: Publication | null) {
+		const justPublished = value?.status === 'published' && publication !== null && publication.status !== 'published';
 		publication = value;
+		if (justPublished) onpublished?.();
 		if (value?.status === 'pending' && value.walletUri) {
 			// Het verzoek bevat het volledige record (~2000 tekens): lage foutcorrectie en groot genoeg om te scannen.
 			qr = await QRCode.toDataURL(value.walletUri, { margin: 2, width: 720, errorCorrectionLevel: 'L' });
@@ -86,6 +101,10 @@
 					notAvailable = 'Your previous update of this identity is not confirmed yet. Wait about a minute and try again.';
 				} else if (body.error?.code === 'ATTESTATION_NOT_FOUND') {
 					notAvailable = 'Arcade@ has not attested this round yet. That happens shortly after the round closes.';
+				} else if (body.error?.code === 'ROUND_ALREADY_REVEALED') {
+					notAvailable = 'This round is already revealed. Sealing your moves now would no longer prove when you made them.';
+				} else if (body.error?.code === 'BUNDLE_NOT_AVAILABLE') {
+					notAvailable = 'This round did not publish an encryption address, so moves cannot be sealed.';
 				} else if (body.error?.code === 'RESULT_ROOT_UNPUBLISHED') {
 					notAvailable = 'The operator has not published this round’s result root on chain yet. Come back after the round is finalized.';
 				} else {
@@ -126,13 +145,22 @@
 {#if !unavailable}
 	<section class="publish">
 		<header>
-			<p class="eyebrow">{attestation ? 'Own your attestation' : 'Own your result'}</p>
+			<p class="eyebrow">{bundle ? 'Seal your moves' : attestation ? 'Own your attestation' : 'Own your result'}</p>
 			<h3>
-				{#if publication?.status === 'published'}Stored in your VerusID{:else}Put this {attestation ? 'attestation' : 'result'} in your VerusID{/if}
+				{#if bundle}
+					{#if publication?.status === 'published'}Sealed in your VerusID{:else}Seal your moves on-chain{/if}
+				{:else if publication?.status === 'published'}Stored in your VerusID{:else}Put this {attestation ? 'attestation' : 'result'} in your VerusID{/if}
 			</h3>
 		</header>
 
-		{#if publication?.status === 'published' && attestation}
+		{#if publication?.status === 'published' && bundle}
+			<p class="explain">
+				Your moves for round <code>{publication.record.round}</code> are sealed in your identity, in transaction
+				<code>{publication.publishedTxid}</code> (block <strong>{publication.publishedHeight}</strong>). They are
+				encrypted to this round's address, so nobody can read them yet. Once the round is revealed, anyone can
+				open them, replay your game and see that they were on chain before the answer was known.
+			</p>
+		{:else if publication?.status === 'published' && attestation}
 			<p class="explain">
 				The sealed attestation for round <code>{publication.record.round}</code> is stored in your identity, in
 				transaction <code>{publication.publishedTxid}</code> (block <strong>{publication.publishedHeight}</strong>). It
@@ -155,9 +183,15 @@
 		{:else if publication?.status === 'pending' && publication.walletUri}
 			<p class="explain">
 				Scan with Verus Mobile. You approve an update of <strong>your own</strong> identity that only adds one
-				record under the Arcade key; nothing else in your identity changes. Your wallet pays the small
+				{bundle ? 'encrypted ' : ''}record under the Arcade key; nothing else in your identity changes. Your wallet pays the small
 				update fee (free test coins on VRSCTEST).
 			</p>
+			{#if bundle}
+				<p class="signer">
+					Verus Mobile shows this as an <strong>encrypted upload</strong>. Approve it once: every extra approval adds
+					another copy and costs another fee.
+				</p>
+			{/if}
 			{#if publication.waitForPrevious}
 				<p class="wait">
 					Wait a moment before scanning: your previous update of this identity is not confirmed yet. Scanning now
@@ -175,13 +209,24 @@
 					<details>
 						<summary>What exactly goes into my identity?</summary>
 						<p class="hint">Key <code>{publication.contentKeyName}</code></p>
+						{#if bundle && publication.encryptToAddress}
+							<p class="hint">
+								Encrypted to this round's address <code>{publication.encryptToAddress}</code>. The key to open it
+								follows from the round's secret, which Arcade@ only publishes at the reveal. The Verus node your
+								wallet uses builds the encrypted record, so that node does see your moves.
+							</p>
+						{/if}
 						<pre>{JSON.stringify(publication.record, null, 1)}</pre>
 					</details>
 				</div>
 			</div>
 		{:else}
 			<p class="explain">
-				{#if attestation}
+				{#if bundle}
+					Optional. Put your moves on chain now, encrypted, in your own VerusID. After the reveal anyone can open
+					them and check, without trusting this server, that they existed before the answer was known. It costs one
+					identity update (about 0.005 VRSCTEST) and does not change your score or streak.
+				{:else if attestation}
 					Store Arcade@'s signed attestation in your own VerusID. Only the sealed form goes on chain (salted hashes
 					and the signature), so nobody can read your stats from it; you still decide what to share.
 				{:else}
@@ -191,11 +236,15 @@
 			</p>
 			{#if publication?.status === 'expired'}<p class="hint">The previous request expired. Create a new one.</p>{/if}
 			{#if publication?.status === 'mismatch'}
-				<p class="error">The record found in your identity does not match what was requested. You can publish again.</p>
+				<p class="error">
+					{bundle
+						? 'What was found in your identity is not the sealed record that was requested. You can seal again.'
+						: 'The record found in your identity does not match what was requested. You can publish again.'}
+				</p>
 			{/if}
 			{#if notAvailable}<p class="hint">{notAvailable}</p>{/if}
 			<button disabled={busy} onclick={requestPublication}>
-				{busy ? 'Preparing…' : 'Put in my VerusID'}
+				{busy ? 'Preparing…' : bundle ? 'Seal my moves' : 'Put in my VerusID'}
 			</button>
 		{/if}
 

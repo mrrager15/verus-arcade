@@ -4,7 +4,12 @@ import { DatabaseSync } from 'node:sqlite';
 
 import { migrate } from './db/migrate.mjs';
 import { ArcadeRepository } from './db/repository.mjs';
-import { RoundCoordinator } from './round-coordinator.mjs';
+import { createHash } from 'node:crypto';
+
+import { roundKeyFromSalt } from '../shared/round-key.mjs';
+import { validateCommitment, verifyRoundRevealSync } from '../shared/round-proof.mjs';
+import { DailyService } from './daily-service.mjs';
+import { publicCommitment, RoundCoordinator } from './round-coordinator.mjs';
 
 const COMMITMENT_KEY = 'iBd1Kqg2cqUeJbSkhgmqkYR2HMdg3U3BT7';
 const TXID = 'a'.repeat(64);
@@ -90,6 +95,64 @@ test('prepare stores hidden definition and sends only canonical commitment', asy
     prepared.commitment.hiddenDefinitionSha256,
   );
   context.database.close();
+});
+
+test('prepare publiceert schema 1 byte voor byte zoals altijd (standaard)', async () => {
+  const context = setup();
+  const prepared = await context.coordinator.prepare({ hiddenDefinition: DEFINITION });
+  const [encoded] = context.calls[0].input.changes[COMMITMENT_KEY];
+  // Met de hand uitgeschreven: canonieke JSON, sleutels gesorteerd, geen adres.
+  assert.equal(
+    Buffer.from(encoded, 'hex').toString('utf8'),
+    '{"chainId":"vrsctest","closesAt":"2026-07-27T00:00:00.000Z","date":"2026-07-26","gameId":"word-grid","gameVersion":"1.0.0",'
+      + '"hiddenDefinitionSha256":"cf4115c05d4b7ae456c94db1aa62a80eccf8bf60eb43753a09698dea949c454f","opensAt":"2026-07-26T00:00:00.000Z",'
+      + '"roundId":"word-grid:1.0.0:2026-07-26","schemaVersion":1}',
+  );
+  assert.equal(prepared.commitment.schemaVersion, 1);
+  assert.equal('roundEncryptionAddress' in prepared.commitment, false);
+  assert.equal(context.repository.getRound(DEFINITION.roundId).commitment_schema, 1);
+  context.database.close();
+});
+
+test('prepare met versleuteladres (fase 5): commitment-schema 2, adres uit de salt', async () => {
+  const context = setup();
+  const prepared = await context.coordinator.prepare({ hiddenDefinition: DEFINITION, withEncryptionAddress: true });
+  const [encoded] = context.calls[0].input.changes[COMMITMENT_KEY];
+  const published = JSON.parse(Buffer.from(encoded, 'hex').toString('utf8'));
+  assert.deepEqual(published, prepared.commitment);
+  assert.equal(published.schemaVersion, 2);
+  assert.equal(published.roundEncryptionAddress, roundKeyFromSalt(DEFINITION.salt).address);
+  assert.equal(published.hiddenDefinitionSha256, 'cf4115c05d4b7ae456c94db1aa62a80eccf8bf60eb43753a09698dea949c454f', 'de definitie en haar hash veranderen niet');
+  assert.equal(published.salt, undefined);
+  validateCommitment(published);
+  assert.equal(context.repository.getRound(DEFINITION.roundId).commitment_schema, 2);
+  // Na de reveal klopt het geheel: zelfde hash, en het adres hoort bij de onthulde salt.
+  const reveal = { schemaVersion: 1, hiddenDefinition: DEFINITION, commitmentTxid: TXID };
+  assert.deepEqual(verifyRoundRevealSync({ commitment: published, reveal }, (text) => createHash('sha256').update(text, 'utf8').digest('hex')), {
+    valid: true, recomputedSha256: published.hiddenDefinitionSha256, reason: null,
+  });
+  // Dezelfde ronde nog eens voorbereiden met een ander schema is een conflict, geen stille wissel.
+  await assert.rejects(context.coordinator.prepare({ hiddenDefinition: DEFINITION }), (error) => error.code === 'ROUND_DEFINITION_CONFLICT');
+  assert.deepEqual(publicCommitment({ definition: DEFINITION, hiddenDefinitionSha256: published.hiddenDefinitionSha256, schema: 2 }), published);
+  assert.throws(() => publicCommitment({ definition: DEFINITION, hiddenDefinitionSha256: published.hiddenDefinitionSha256, schema: 3 }), /schema/);
+  context.database.close();
+});
+
+test('bewijs-API toont de commitment zoals ze gepubliceerd is (schema 1 of 2)', async () => {
+  const plain = setup();
+  await plain.coordinator.prepare({ hiddenDefinition: DEFINITION });
+  const proof1 = new DailyService({ repository: plain.repository }).getRoundProof({ roundId: DEFINITION.roundId });
+  assert.equal(proof1.commitment.schemaVersion, 1);
+  assert.equal('roundEncryptionAddress' in proof1.commitment, false);
+  plain.database.close();
+
+  const sealed = setup();
+  const prepared = await sealed.coordinator.prepare({ hiddenDefinition: DEFINITION, withEncryptionAddress: true });
+  const proof2 = new DailyService({ repository: sealed.repository }).getRoundProof({ roundId: DEFINITION.roundId });
+  const { transaction, ...commitment } = proof2.commitment;
+  assert.deepEqual(commitment, prepared.commitment, 'zelfde velden als wat op de chain staat');
+  assert.deepEqual(transaction, { status: 'pending', txid: null });
+  sealed.database.close();
 });
 
 test('round opens only after journaled transaction confirmation', async () => {

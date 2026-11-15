@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { WORD_GRID_GAME_ID, WORD_GRID_VERSION } from './games/word-grid/engine.mjs';
 import { gameRules, registeredGames } from '../shared/games/index.mjs';
+import { roundKeyFromSalt } from '../shared/round-key.mjs';
 import { storedActionValue, usesGenericRecords } from './attempt-actions.mjs';
 import { definitionPuzzle } from './round-proof.mjs';
 import { RepositoryConflictError } from './db/repository.mjs';
@@ -213,8 +214,10 @@ export class DailyService {
     const definition = this.repository.getRoundPrivateDefinition(round.id);
     const reveal = this.repository.getRoundReveal(round.id);
     const resultSet = this.repository.getRoundResultSet(round.id);
+    // Fase 5: een ronde met commitment-schema 2 publiceerde ook het versleuteladres (uit de salt).
+    const withAddress = Number(round.commitment_schema) === 2 && Boolean(definition?.salt);
     const commitment = {
-      schemaVersion: 1,
+      schemaVersion: withAddress ? 2 : 1,
       roundId: round.round_id,
       chainId: round.chain_id,
       gameId: round.game_id,
@@ -224,6 +227,7 @@ export class DailyService {
       closesAt:
         definition?.closesAt ?? new Date(Number(round.closes_at_ms)).toISOString(),
       hiddenDefinitionSha256: round.commitment_hash,
+      ...(withAddress ? { roundEncryptionAddress: roundKeyFromSalt(definition.salt).address } : {}),
       transaction: round.commitment_txid
         ? { status: 'confirmed', txid: round.commitment_txid }
         : { status: 'pending', txid: null },

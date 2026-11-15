@@ -114,7 +114,10 @@ export class ArcadeRepository {
     opensAt,
     closesAt,
     now,
+    // Fase 5: 2 = commitment met het versleuteladres van de ronde (migratie 011).
+    commitmentSchema = 1,
   }) {
+    if (commitmentSchema !== 1 && commitmentSchema !== 2) throw new Error('Commitment schema must be 1 or 2');
     return inImmediateTransaction(this.database, () => {
       const existing = this.database
         .prepare('SELECT * FROM rounds WHERE id = ?')
@@ -127,6 +130,7 @@ export class ArcadeRepository {
           existing.game_version === gameVersion &&
           existing.round_id === roundId &&
           existing.commitment_hash === commitmentHash &&
+          Number(existing.commitment_schema) === commitmentSchema &&
           Number(existing.opens_at_ms) === opensAt &&
           Number(existing.closes_at_ms) === closesAt &&
           JSON.stringify(storedDefinition) === JSON.stringify(privateDefinition ?? null);
@@ -142,8 +146,8 @@ export class ArcadeRepository {
         .prepare(`
           INSERT INTO rounds (
             id, chain_id, game_id, game_version, round_id, mode, status,
-            commitment_hash, opens_at_ms, closes_at_ms, created_at_ms
-          ) VALUES (?, ?, ?, ?, ?, 'daily', 'commit_pending', ?, ?, ?, ?)
+            commitment_hash, opens_at_ms, closes_at_ms, created_at_ms, commitment_schema
+          ) VALUES (?, ?, ?, ?, ?, 'daily', 'commit_pending', ?, ?, ?, ?, ?)
         `)
         .run(
           id,
@@ -155,6 +159,7 @@ export class ArcadeRepository {
           opensAt,
           closesAt,
           now,
+          commitmentSchema,
         );
       if (privateDefinition) {
         this.database

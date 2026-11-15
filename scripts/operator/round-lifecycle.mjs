@@ -172,7 +172,9 @@ try {
       };
     } else {
       const hiddenDefinition = createDailyHiddenDefinition({ schedule: { ...schedule, recordId }, game });
-      const prepared = await coordinator.prepare({ hiddenDefinition });
+      // Fase 5: testrondes publiceren commitment-schema 2 (met het versleuteladres voor
+      // actie-bundels); de echte Daily blijft schema 1 tot de lezers gemerged zijn.
+      const prepared = await coordinator.prepare({ hiddenDefinition, withEncryptionAddress: mode.testMode });
       outcome = { created: true, commitment: prepared.commitment };
     }
     const round = repository.getRound(recordId);

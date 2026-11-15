@@ -4,14 +4,18 @@
  * draaiende webserver, rechtstreeks op dezelfde database en met dezelfde
  * PlayerPublicationService (zelfde controles als de endpoints).
  *
- *   create <attempt-id> [--ttl-blocks <n>]
+ *   create <attempt-id> [--kind result|attestation|bundle] [--ttl-blocks <n>] [--qr <png>]
  *                           → nieuw (of bestaand) publicatieverzoek; toont de wallet-link.
+ *                             --kind: wat er gepubliceerd wordt (standaard result). `bundle`
+ *                             (fase 5): de zetten van de speler, versleuteld naar het adres
+ *                             van de ronde; mag al tijdens de ronde, zodra de poging klaar is.
+ *                             --qr: schrijft de wallet-link ook als QR-afbeelding.
  *                             --ttl-blocks: geldigheid in blokken (standaard REQUEST_TTL_BLOCKS
  *                             of 60 ≈ 1 uur; max 10000). Voor een test op afstand waarbij de
  *                             speler pas uren later scant, bv. 1000 ≈ 16 uur.
  *   accept  <callback-url>  → de volledige URL die de telefoon na goedkeuren opende
  *                             (…/api/v1/publish-jobs/<id>/response?<key>=<base64url>)
- *   status  <attempt-id>    → alleen lezen
+ *   status  <attempt-id> [--kind …]  → alleen lezen (leest zo nodig de chain terug)
  *
  * Veilig: het verzoek doet niets zolang de speler het niet zelf in Verus Mobile
  * goedkeurt; `accept` aanvaardt alleen een antwoord dat door de speler getekend is.
@@ -28,12 +32,15 @@ const { parseGenericResponseQuery } = await import('../../server/wallet-return.m
 const { GENERIC_RESPONSE_QUERY_KEY } = await import('../../server/verus/requests.mjs');
 
 const args = process.argv.slice(2);
-const ttlFlag = args.indexOf('--ttl-blocks');
-const ttlBlocks = ttlFlag === -1 ? null : args.splice(ttlFlag, 2)[1];
+const takeOption = (name) => { const at = args.indexOf(name); return at === -1 ? null : args.splice(at, 2)[1]; };
+const ttlBlocks = takeOption('--ttl-blocks');
+const kind = takeOption('--kind') ?? 'result';
+const qrPath = takeOption('--qr');
+if (!['result', 'attestation', 'bundle'].includes(kind)) throw new Error('--kind moet result, attestation of bundle zijn');
 const [action, argument] = args;
 const acks = { create: 'CREATE_VRSCTEST_PUBLISH_REQUEST', accept: 'ACCEPT_VRSCTEST_PUBLISH_RESPONSE' };
 if (!['create', 'accept', 'status'].includes(action) || !argument) {
-  throw new Error('Gebruik: node scripts/operator/publish-request.mjs create <attempt-id> [--ttl-blocks <n>] | status <attempt-id> | accept <callback-url>');
+  throw new Error('Gebruik: node scripts/operator/publish-request.mjs create <attempt-id> [--kind result|attestation|bundle] [--ttl-blocks <n>] [--qr <png>] | status <attempt-id> [--kind …] | accept <callback-url>');
 }
 if (ttlBlocks !== null) {
   const n = Number(ttlBlocks);
@@ -42,6 +49,7 @@ if (ttlBlocks !== null) {
   // Na het laden van .env gezet, dus wint van een waarde daar; createRuntimeServices leest process.env.
   process.env.REQUEST_TTL_BLOCKS = String(n);
 }
+if (qrPath !== null && action !== 'create') throw new Error('--qr hoort alleen bij create');
 if (acks[action] && process.env.VERUS_OPERATOR_ACK !== acks[action]) {
   throw new Error(`Zet VERUS_OPERATOR_ACK=${acks[action]} voor ${action}`);
 }
@@ -51,6 +59,7 @@ if (runtime.network !== 'vrsctest') throw new Error('Alleen VRSCTEST');
 const services = createRuntimeServices({ runtime });
 const summary = (publication) => publication && ({
   attemptId: publication.attemptId,
+  kind: publication.kind,
   requestId: publication.requestId,
   status: publication.status,
   contentKeyName: publication.contentKeyName,
@@ -59,6 +68,9 @@ const summary = (publication) => publication && ({
   recordBytes: Buffer.byteLength(JSON.stringify(publication.record)),
   round: publication.record?.round,
   guesses: publication.record?.guesses,
+  actions: publication.record?.actions,
+  encryptToAddress: publication.encryptToAddress ?? undefined,
+  walletUriLength: publication.walletUri?.length,
   expiresHeight: publication.expiresHeight,
   walletUri: publication.walletUri,
   receiptTxid: publication.receiptTxid,
@@ -81,10 +93,16 @@ try {
     if (!attempt) throw new Error('Poging bestaat niet');
     const principal = { chain: attempt.chain_id, iAddress: attempt.player_i_address };
     if (action === 'create') {
-      const result = await service.createPublishRequest({ principal, attemptId: attempt.id });
+      const result = await service.createPublishRequest({ principal, attemptId: attempt.id, kind });
       output = { operation: 'publish-create', created: result.created, publication: summary(result.publication) };
+      if (qrPath !== null && result.publication.walletUri) {
+        const QRCode = (await import('qrcode')).default;
+        // Foutcorrectie L en groot: een lange deeplink moet scanbaar blijven.
+        await QRCode.toFile(qrPath, result.publication.walletUri, { errorCorrectionLevel: 'L', width: 900, margin: 4 });
+        output.qrPath = qrPath;
+      }
     } else {
-      const result = await service.getPublishRequest({ principal, attemptId: attempt.id });
+      const result = await service.getPublishRequest({ principal, attemptId: attempt.id, kind });
       output = { operation: 'publish-status', publication: summary(result.publication) };
     }
   }

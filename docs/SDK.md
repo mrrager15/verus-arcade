@@ -62,13 +62,19 @@ solvable.
    `{ type: 'action', payload: { value } }`. The server normalizes, replays earlier
    moves and applies the new one with your rules.
 3. **Sign**: the player signs `actions:sha256` of `[{ sequence, value }]` with their VerusID (Verus Mobile).
+   **Seal** (optional, rounds with an encryption address): the player stores the plain list of
+   action values in their own VerusID during the round, encrypted to the round's address, with a
+   receipt signed by `Arcade@`. Keep action values short: a bundle holds at most 32 actions of
+   120 characters and 1024 bytes in total (wallet deeplink limit).
 4. **Results**: after the round closes, every attempt becomes a result record
    (schema 3, `actions` + `score: { solved, actionsUsed }`) in a Merkle tree; the root goes on chain.
 5. **Reveal**: the definition (with the puzzle) is published; anyone can check it against the commitment.
 6. **Player's ID**: the player can store a compact record (v3) of their result and a signed
    streak attestation in their own VerusID.
 7. **Verify**: anyone can replay a record with your rules (`server/replay.mjs`) and the revealed
-   puzzle, after checking the rules hash against the manifest on chain.
+   puzzle, after checking the rules hash against the manifest on chain. A sealed bundle is replayed
+   the same way (`newState`, `applyAction`, `score`, `isTerminal`) and compared with the official
+   record; see [`INDEPENDENT_VERIFIER.md`](./INDEPENDENT_VERIFIER.md#sealed-action-bundles-phase-5).
 
 ## 4. The manifest
 

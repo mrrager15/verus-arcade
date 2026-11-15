@@ -21,7 +21,7 @@ Stack: SvelteKit (adapter-node) + Express + SQLite (`node:sqlite`) + verusd JSON
 | `shared/games/<game>/<versie>/` | `rules.mjs`, `generator.mjs`, `answers.mjs`, `vectors.json`; register in `shared/games/index.mjs` |
 | `scripts/operator/` | Operator-commando's (rondes, nachtcyclus, attestaties, manifesten, publicaties), elk met een ACK |
 | `scripts/integration/` | Tests tegen een echte VRSCTEST-daemon |
-| `scripts/agent/` | Hulpscripts voor Claude: RPC-relay (+ `relay-policy.mjs`), `http-check`, `net-check`, `replay-check` |
+| `scripts/agent/` | Hulpscripts voor Claude: RPC-relay (+ `relay-policy.mjs`), `http-check`, `net-check`, `replay-check`; onafhankelijke controles via de publieke RPC: `round-check`, `profile-check`, `bundle-check`, `round-replay-check` |
 | `scripts/storage-poc/` | Experimenten met Verus-opslag |
 | `vendor/verus-connect/` | Gevendorde login-bibliotheek. **Niet wijzigen**; uitbreiden met een router ervoor |
 | `docs/` | `OPERATOR_RUNBOOK.md`, `SDK.md`, `INDEPENDENT_VERIFIER.md`, `TECHNICAL_FOUNDATION.md`, ADR's in `docs/adr/` |
@@ -41,7 +41,9 @@ npm run dev               # Vite op 5173 (alleen localhost)
 npm run build:verifier    # losse verifier: build-verifier/index.html (één zelfstandig bestand)
 npm run preview:verifier  # die bekijken op http://localhost:4174 (herstarten na een nieuwe build)
 node scripts/agent/round-check.mjs <ronde-id>       # ronde nagaan via de publieke RPC (geen server, geen .env)
-node scripts/agent/profile-check.mjs <i-adres>      # profiel idem
+node scripts/agent/profile-check.mjs <i-adres>      # profiel idem (ook verzegelde bundels)
+node scripts/agent/bundle-check.mjs <i-adres> <ronde-id>   # één verzegelde bundel idem
+node scripts/agent/round-replay-check.mjs <ronde-id>       # hele ronde naspelen (lijst van de server, tegen de wortel op de chain)
 ```
 
 Operator-voorbeelden staan in `docs/OPERATOR_RUNBOOK.md` (rondes: sectie 0–5, publicaties: 6, nachtcyclus: 7, manifesten: 8, onafhankelijke controle: 9).

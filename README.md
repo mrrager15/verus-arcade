@@ -24,6 +24,9 @@ for normal development, and a PBaaS deployment is a later architectural option.
 - A public browser verifier for commitment, reveal, and publication receipts.
 - A live leaderboard that becomes `chain-verified` after result confirmation.
 - A guarded operator CLI with separate prepare, submit, and reconcile steps.
+- Sealed moves (VRSCTEST test rounds): a player can put their moves on chain during
+  the round, encrypted to a round address whose key only follows from the reveal;
+  afterwards anyone can open, replay and compare them with the official result.
 
 The first complete accelerated Daily Seed lifecycle was successfully executed on
 VRSCTEST on 2026-07-25:
@@ -186,7 +189,9 @@ Rounds, player profiles and shared attestations can be checked in the browser
 from the chain alone: the [standalone verifier](https://mrrager15.github.io/verus-arcade/)
 (one self-contained HTML file, also `npm run build:verifier`) reads VRSCTEST
 through a public Verus node and recomputes every hash, Merkle proof, signature
-and decryption itself. See [Independent verifier](docs/INDEPENDENT_VERIFIER.md).
+and decryption itself. That includes the moves a player sealed on chain during a
+round: after the reveal the verifier derives the round key, opens them and replays
+the game. See [Independent verifier](docs/INDEPENDENT_VERIFIER.md).
 
 ## Documentation
 

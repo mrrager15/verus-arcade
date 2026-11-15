@@ -36,6 +36,8 @@
 	let listNote = $state('');
 
 	const verdict = $derived(check ? VERDICTS[check.verdict] : null);
+	// Een testronde staat op de test-operator-ID; het ontvangstbewijs in een bundel blijft van Arcade@.
+	const operatorName = $derived(isTestRound(roundId) ? 'the test operator' : 'Arcade@');
 	const sealedCount = $derived(check ? check.players.filter((p) => p.bundle && p.bundle.verdict !== 'not-found').length : 0);
 
 	/** De resultatenlijst van de Arcade-server, of null (nog niet onthuld, of niet bereikbaar). */
@@ -122,7 +124,7 @@
 						<dt>Root of this list</dt>
 						<dd>
 							<code>{check.set.computedRoot}</code> ({check.set.count} {check.set.count === 1 ? 'player' : 'players'})
-							<br />{check.set.status === 'ok' ? '✓ identical: this is the list Arcade@ committed to' : '✗ different: this is not the list Arcade@ committed to'}
+							<br />{check.set.status === 'ok' ? `✓ identical: this is the list ${operatorName} committed to` : `✗ different: this is not the list ${operatorName} committed to`}
 						</dd>
 					{:else if check.set.status === 'mismatch'}
 						<dt>This list</dt><dd>✗ not a valid result list</dd>

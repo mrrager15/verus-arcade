@@ -249,6 +249,38 @@ testnet sub-identities of a namespace (e.g. `name.Verus Arcade@`) with
 up front with `WALLET_UNSUPPORTED_IDENTITY`. Top-level testnet identities
 (`name.VRSCTEST@`) work.
 
+### Sealed action bundles (phase 5)
+
+A third kind of publication, `bundle`: the player's moves, encrypted to the
+round's address, with a receipt signed by `Arcade@`. Unlike a result or an
+attestation it may be requested as soon as the attempt is complete, while the
+round is still open, and no longer after the reveal. It is only available in a
+round whose commitment carries `roundEncryptionAddress` (commitment schema 2).
+Today only test rounds publish that (`round-create` in test mode); the real Daily
+stays on schema 1 until the readers are released everywhere.
+
+Normally the player uses the button "Seal my moves" under a finished attempt.
+The same through the scripts:
+
+```powershell
+$env:VERUS_OPERATOR_ACK = 'CREATE_VRSCTEST_PUBLISH_REQUEST'
+node scripts/operator/publish-request.mjs create <attempt-id> --kind bundle --qr <file.png>
+node scripts/operator/publish-request.mjs status <attempt-id> --kind bundle
+Remove-Item Env:VERUS_OPERATOR_ACK
+```
+
+Reading back uses the key derived from the round's salt; only a sealed value (no
+viewing key in the identity) with exactly the requested record becomes
+`published`. If the wallet's response never reaches the server, the bundle is
+still found: the status endpoint (at most every 15 s per publication), a new
+request for an expired one, and `publications-reconcile.mjs` read the player's
+identity and accept the transaction on chain as the receipt. After a receipt no
+new request is issued (a request can be approved more than once).
+
+`scripts/operator/bundle-smoketest.mjs` (`create`, `check`, `accept`) tests only
+the wallet path: it asks Verus Mobile to store a tiny record encrypted to an
+address derived from a fixed test salt.
+
 To test the wallet path without a finished round, use the smoke test, which
 writes a tiny record under `Arcade.VRSCTEST.::arcade.test.ping`:
 
@@ -309,7 +341,14 @@ from the chain only, through the public RPC, without the server or `.env`.
 ```bash
 node scripts/agent/round-check.mjs word-grid:1.0.0:2026-11-13 number-target:1.0.0:2026-11-13
 node scripts/agent/profile-check.mjs <player i-address>
+# Phase 5: replay every player of a round (the result list comes from the server and is
+# checked against the root on chain), and one player's sealed bundle.
+node scripts/agent/round-replay-check.mjs number-target:1.0.0:2026-11-13 --server http://127.0.0.1:8100
+node scripts/agent/bundle-check.mjs <player i-address> <round-id>
 ```
+
+A test round (round ID with a time slot) is read from the test operator identity
+automatically.
 
 Expected for a closed round: `verified` (commitment, results and reveal confirmed,
 reveal matches the commitment). `incomplete` is normal until the reveal is

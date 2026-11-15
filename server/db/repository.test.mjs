@@ -30,6 +30,7 @@ test('migrations are ordered and idempotent', () => {
       { version: 8, filename: '008_attestations.sql' },
       { version: 9, filename: '009_publication_kind.sql' },
       { version: 10, filename: '010_game_manifests.sql' },
+      { version: 11, filename: '011_action_bundles.sql' },
     ],
   );
   assert.equal(database.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);

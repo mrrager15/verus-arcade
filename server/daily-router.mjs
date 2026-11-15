@@ -91,6 +91,17 @@ export function createDailyRouter({
     }
   });
 
+  // Fase 5, publiek: de resultatenlijst van een onthulde ronde (de browser rekent de wortel na).
+  router.get('/rounds/:roundId/results', (request, response, next) => {
+    try {
+      const results = dailyService.getRoundResults({ roundId: request.params.roundId });
+      response.set('Cache-Control', 'public, max-age=300');
+      response.json(results);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   if (playerPublicationService) {
     // Publiek, zonder sessie: leest alleen van de chain.
     router.get('/profile/:iAddress', async (request, response, next) => {

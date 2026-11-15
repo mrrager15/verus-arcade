@@ -77,7 +77,7 @@
 		</form>
 		<ul class="what">
 			<li><strong>A round</strong>: the puzzle was fixed on chain before the game, the results were published, and the reveal matches.</li>
-			<li><strong>A player</strong>: every result in their own VerusID belongs to the official results and replays to its outcome.</li>
+			<li><strong>A player</strong>: every result in their own VerusID belongs to the official results and replays to its outcome. Moves they sealed on chain during a round open with the round key and were there before the reveal.</li>
 			<li><strong>A share link</strong>: the shared fields belong to an attestation signed by Arcade@.</li>
 		</ul>
 	</main>

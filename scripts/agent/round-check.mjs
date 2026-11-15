@@ -11,7 +11,7 @@
 import crypto from 'node:crypto';
 
 import { createChainReader } from '../../shared/chain-reader.mjs';
-import { verifyRoundIndependently } from '../../shared/independent-round.mjs';
+import { operatorForRound, verifyRoundIndependently } from '../../shared/independent-round.mjs';
 
 const args = process.argv.slice(2);
 const urlIndex = args.indexOf('--url');
@@ -23,7 +23,8 @@ const sha256Hex = async (text) => crypto.createHash('sha256').update(text, 'utf8
 let allVerified = true;
 for (const roundId of rounds) {
   // Eén lezer per ronde: elk zijn eigen tijdsbudget.
-  const r = await verifyRoundIndependently({ roundId, reader: createChainReader({ url }), sha256Hex });
+  // Een testronde (ronde-ID met tijdslot) staat op de test-operator-ID.
+  const r = await verifyRoundIndependently({ roundId, reader: createChainReader({ url }), sha256Hex, operatorId: operatorForRound(roundId) });
   if (r.verdict !== 'verified') allVerified = false;
   console.log(JSON.stringify({
     roundId: r.roundId,

@@ -195,6 +195,39 @@ export function inclusionRoot(proof) {
   }
 }
 
+/**
+ * De Merkle-wortel van een volledige lijst resultaatrecords, opgebouwd zoals de
+ * server dat doet (server/result-set.mjs): records gesorteerd op
+ * `chainId\0playerIAddress` (bytes), elk blad over de canonieke JSON. Hiermee
+ * controleert een buitenstaander dat een lijst die de server geeft precies de
+ * lijst is waarvan `Arcade@` de wortel publiceerde (fase 5, naspeelpagina).
+ * Gooit bij een ongeldig of dubbel record.
+ * @param {any[]} records
+ * @returns {{ rootSha256: string, leafCount: number, records: any[] }}  records in de volgorde van de bladen
+ */
+export function resultSetRoot(records) {
+  if (!Array.isArray(records)) throw new Error('Result records must be an array');
+  const entries = records.map((record) => {
+    validateResultRecord(record);
+    return { record, sortKey: encoder.encode(`${record.chainId}\0${record.playerIAddress}`), leaf: leafHash(canonicalJson(record)) };
+  });
+  const compare = (/** @type {Uint8Array} */ a, /** @type {Uint8Array} */ b) => {
+    for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
+    return a.length - b.length;
+  };
+  entries.sort((left, right) => compare(left.sortKey, right.sortKey));
+  for (let index = 1; index < entries.length; index++) {
+    if (compare(entries[index - 1].sortKey, entries[index].sortKey) === 0) throw new Error('Duplicate result identity key');
+  }
+  let level = entries.map((entry) => entry.leaf);
+  while (level.length > 1) {
+    const next = [];
+    for (let index = 0; index < level.length; index += 2) next.push(nodeHash(level[index], level[index + 1] ?? level[index]));
+    level = next;
+  }
+  return { rootSha256: toHex(entries.length === 0 ? emptyRoot() : level[0]), leafCount: entries.length, records: entries.map((entry) => entry.record) };
+}
+
 /** @param {any} proof */
 export function verifyInclusionProof(proof) {
   if (!/^[0-9a-f]{64}$/.test(proof?.rootSha256 ?? '')) return false;

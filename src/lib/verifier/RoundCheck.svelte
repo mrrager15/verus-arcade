@@ -7,7 +7,7 @@
 	 */
 	import { onMount } from 'svelte';
 	import { createChainReader } from '../../../shared/chain-reader.mjs';
-	import { verifyRoundIndependently } from '../../../shared/independent-round.mjs';
+	import { isTestRound, operatorForRound, verifyRoundIndependently } from '../../../shared/independent-round.mjs';
 	import { sha256Text } from '../proof-verifier';
 	import { DEFAULT_RPC_URL, rememberedRpcUrl, rememberRpcUrl, rpcHost } from '../verifier-rpc';
 	import type { VerifierLinks } from './links';
@@ -71,7 +71,8 @@
 		check = null;
 		try {
 			const reader = createChainReader({ url: rpcUrl.trim() });
-			check = await verifyRoundIndependently({ roundId, reader, sha256Hex: sha256Text });
+			// Een testronde (ronde-ID met tijdslot) staat op de aparte test-operator-ID, niet op Arcade@.
+			check = await verifyRoundIndependently({ roundId, reader, sha256Hex: sha256Text, operatorId: operatorForRound(roundId) });
 			rememberRpcUrl(rpcUrl.trim(), check.verdict);
 		} catch (caught) {
 			const code = (caught as { code?: string })?.code;
@@ -113,6 +114,9 @@
 	<p class="lead">
 		This page does not use any data from the Arcade server. Your browser reads <code>Arcade@</code>
 		directly from a Verus node and checks every step itself. Round <code>{roundId}</code>.
+		{#if isTestRound(roundId)}
+			<br />This is a <strong>test round</strong>: its proof is read from the separate test operator identity, not from Arcade@.
+		{/if}
 	</p>
 
 	<form
@@ -182,6 +186,13 @@
 					<dd>{check.parts.commitment.value.hiddenDefinitionSha256}</dd>
 					<dt>Opens – closes</dt>
 					<dd>{check.parts.commitment.value.opensAt} – {check.parts.commitment.value.closesAt}</dd>
+					{#if check.parts.commitment.value.roundEncryptionAddress}
+						<dt>Sealing address</dt>
+						<dd>
+							{check.parts.commitment.value.roundEncryptionAddress}
+							<span class="note">Players can seal their moves to this address during the round. Its key follows from the secret in the reveal, and this page checked that it does.</span>
+						</dd>
+					{/if}
 				{/if}
 				{@render txRows(check.parts.commitment)}
 			</dl>
@@ -241,6 +252,11 @@
 		{/if}
 	{/if}
 
+	{#if links.replay && check?.verdict === 'verified'}
+		<p class="more">
+			<a href={links.replay(roundId)}>Replay every player’s moves for this round →</a>
+		</p>
+	{/if}
 	{#if links.arcadeRound}
 		<p class="more">
 			<a href={links.arcadeRound(roundId)}>Arcade’s own proof page for this round</a>
@@ -278,6 +294,7 @@
 	.status.pending, .status.missing { background: #fff4d6; color: #6b4a00; }
 	.status.invalid { background: #ffe1df; color: #8d2019; }
 	.problem { color: #8d2019; font-family: system-ui, sans-serif; }
+	.note { display: block; margin-top: .25rem; color: #4d5f52; font-family: system-ui, sans-serif; }
 	.timing ul { margin: .4rem 0; padding-left: 1.2rem; line-height: 1.6; }
 	.more { margin-top: 2rem; }
 	@media (max-width: 600px) { dl { grid-template-columns: 1fr; } main { margin-top: 2rem; } }

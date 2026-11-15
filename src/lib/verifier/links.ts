@@ -7,6 +7,8 @@ export type VerifierLinks = {
 	home: string;
 	round: (roundId: string) => string;
 	profile: (playerId: string) => string;
+	/** Fase 5: de naspeelpagina van een ronde. Ze heeft de resultatenlijst van de server nodig, dus null in de losse verifier. */
+	replay: ((roundId: string) => string) | null;
 	/** Pagina van de Arcade-server zelf, of null in de losse verifier. */
 	arcadeRound: ((roundId: string) => string) | null;
 	arcadeProfile: ((playerId: string) => string) | null;
@@ -18,6 +20,7 @@ export const appLinks: VerifierLinks = {
 	home: '/',
 	round: (id) => `/verify/${enc(id)}/independent`,
 	profile: (id) => `/profile/${enc(id)}/independent`,
+	replay: (id) => `/verify/${enc(id)}/replay`,
 	arcadeRound: (id) => `/verify/${enc(id)}`,
 	arcadeProfile: (id) => `/profile/${enc(id)}`
 };
@@ -26,6 +29,7 @@ export const standaloneLinks: VerifierLinks = {
 	home: '#/',
 	round: (id) => `#/round/${enc(id)}`,
 	profile: (id) => `#/profile/${enc(id)}`,
+	replay: null,
 	arcadeRound: null,
 	arcadeProfile: null
 };

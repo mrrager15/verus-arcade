@@ -24,6 +24,19 @@ import { ChainReadError, decodeHexJson, isUnavailable, STATUS } from './chain-re
 import { validateCommitment, validateResultDescriptor, verifyRoundReveal } from './round-proof.mjs';
 
 export const ARCADE_OPERATOR_ID = 'i4hktkkrvYoUfLZpXWQU5hagpnJuFSaNLp';
+/**
+ * `arcade-storage-poc@`: de aparte operator-ID van testrondes (server/test-rounds.mjs).
+ * Een testronde herken je aan het tijdslot in haar ronde-ID (`…:2026-11-15T0141`). Ze
+ * staat nooit op Arcade@; records en bundels van spelers gebruiken wel de keys van Arcade@.
+ */
+export const TEST_OPERATOR_ID = 'i9ARtCeKDBH84LvevYPoMxtZNxfts3c5SN';
+const TEST_ROUND_ID = /:\d{4}-\d{2}-\d{2}T\d{4}$/;
+
+/** Is dit de ronde-ID van een testronde (met tijdslot)? @param {unknown} roundId */
+export const isTestRound = (roundId) => typeof roundId === 'string' && TEST_ROUND_ID.test(roundId);
+
+/** De operator-ID waarop de bewijsstukken van deze ronde horen te staan. @param {string} roundId */
+export const operatorForRound = (roundId) => (isTestRound(roundId) ? TEST_OPERATOR_ID : ARCADE_OPERATOR_ID);
 /** VDXF-keys `Arcade::round.commitment.v1`, `…results.v1`, `…reveal.v1`. */
 export const ROUND_KEYS = Object.freeze({
   commitment: 'i5m7tdxizT2PWqLakjjdwsnMAoUqFQXEj7',

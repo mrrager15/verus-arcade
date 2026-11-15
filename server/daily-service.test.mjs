@@ -6,6 +6,7 @@ import { DailyService } from './daily-service.mjs';
 import { migrate } from './db/migrate.mjs';
 import { ArcadeRepository } from './db/repository.mjs';
 import { verifyInclusionProof } from './result-set.mjs';
+import { resultSetRoot } from '../shared/result-set.mjs';
 
 const PRINCIPAL = Object.freeze({
   chain: 'vrsctest',
@@ -354,6 +355,16 @@ test('leaderboard moves from live to finalized and chain-verified with tied rank
   const verified = service.getLeaderboard({ roundId: 'round-record-1' });
   assert.equal(verified.state, 'chain-verified');
   assert.equal(verified.resultRoot.length, 64);
+
+  // Fase 5: de volledige resultatenlijst (voor de naspeelpagina) pas na de bevestigde reveal.
+  assert.throws(() => service.getRoundResults({ roundId: 'round-record-1' }), (e) => e.code === 'ROUND_NOT_REVEALED' && e.httpStatus === 409);
+  assert.throws(() => service.getRoundResults({ roundId: 'bestaat-niet' }), (e) => e.code === 'ROUND_NOT_FOUND' && e.httpStatus === 404);
+  database.prepare('INSERT INTO round_reveals (round_record_id, definition_json, definition_sha256, commitment_txid, reveal_txid, confirmed_at_ms) VALUES (?, ?, ?, ?, ?, ?)')
+    .run('round-record-1', '{}', 'd'.repeat(64), 'a'.repeat(64), 'e'.repeat(64), 11_000);
+  const list = service.getRoundResults({ roundId: 'round-record-1' });
+  assert.deepEqual([list.leafCount, list.records.length, list.rootSha256], [2, 2, verified.resultRoot]);
+  // Wie de lijst krijgt, rekent zelf dezelfde wortel uit (gedeelde code, zoals de browser).
+  assert.equal(resultSetRoot(list.records).rootSha256, verified.resultRoot);
   database.close();
 });
 

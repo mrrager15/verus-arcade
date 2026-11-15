@@ -285,6 +285,30 @@ export class DailyService {
     };
   }
 
+  /**
+   * Fase 5: de volledige lijst resultaatrecords van een ronde, voor de naspeelpagina.
+   * De lijst staat niet op de chain (alleen haar wortel); de browser rekent de wortel
+   * na en vergelijkt hem met die op de chain. Pas na de bevestigde reveal: een record
+   * van een opgeloste poging bevat de oplossing.
+   */
+  getRoundResults({ roundId }) {
+    const round = this.repository.getRound(roundId);
+    if (!round) {
+      throw new DailyServiceError('ROUND_NOT_FOUND', 'Round does not exist', 404);
+    }
+    const resultSet = this.repository.getRoundResultSet(round.id);
+    if (!this.repository.getRoundReveal(round.id) || !resultSet?.resultsTxid) {
+      throw new DailyServiceError('ROUND_NOT_REVEALED', 'The result list becomes public once the reveal is confirmed on chain', 409);
+    }
+    return {
+      roundId: round.round_id,
+      algorithm: resultSet.algorithm,
+      rootSha256: resultSet.rootSha256,
+      leafCount: resultSet.leafCount,
+      records: resultSet.bundle,
+    };
+  }
+
   getAttempt({ principal, attemptId }) {
     if (!principal?.chain || !principal?.iAddress) {
       throw new DailyServiceError('NOT_AUTHENTICATED', 'Authentication required', 401);

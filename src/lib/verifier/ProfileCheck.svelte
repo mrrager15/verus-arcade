@@ -5,12 +5,16 @@
 	 * een (publieke) VRSCTEST-RPC, ontsleutelt de records zelf (de publieke RPC
 	 * kent geen decryptdata), vergelijkt de wortel met die van Arcade@ en speelt de
 	 * zetten na (shared/independent-profile.mjs).
+	 *
+	 * Fase 5: ook de verzegelde actie-bundels van de speler, bij het resultaat van hun
+	 * ronde of apart als er van die ronde geen resultaat in de ID staat.
 	 */
 	import { onMount } from 'svelte';
 	import { createChainReader } from '../../../shared/chain-reader.mjs';
 	import { verifyProfileIndependently } from '../../../shared/independent-profile.mjs';
 	import { sha256Text } from '../proof-verifier';
 	import { DEFAULT_RPC_URL, rememberedRpcUrl, rememberRpcUrl, rpcHost } from '../verifier-rpc';
+	import BundleSummary from './BundleSummary.svelte';
 	import type { VerifierLinks } from './links';
 
 	let { playerId, links }: { playerId: string; links: VerifierLinks } = $props();
@@ -18,10 +22,10 @@
 	type Check = Awaited<ReturnType<typeof verifyProfileIndependently>>;
 
 	const VERDICTS: Record<string, { tone: string; title: string; text: string }> = {
-		verified: { tone: 'ok', title: 'Every result checks out', text: 'Each result below is in the player’s own VerusID, belongs to the official result root that Arcade@ published, and replays to the same outcome with the game rules.' },
-		partial: { tone: 'wait', title: 'Checked as far as possible', text: 'Some results cannot be fully checked yet (for example: not revealed yet). Nothing found is wrong.' },
-		invalid: { tone: 'bad', title: 'Something does not match', text: 'At least one result does not match what Arcade@ published, or does not replay to its outcome. Details below.' },
-		empty: { tone: 'neutral', title: 'No Arcade results', text: 'This identity holds no Arcade result records.' },
+		verified: { tone: 'ok', title: 'Everything checks out', text: 'Each result below is in the player’s own VerusID, belongs to the official result root that Arcade@ published, and replays to the same outcome with the game rules. Sealed moves, where present, open with the round key and carry Arcade@’s receipt.' },
+		partial: { tone: 'wait', title: 'Checked as far as possible', text: 'Some items cannot be fully checked yet (for example: not revealed yet), or only test rounds were found. Nothing found is wrong.' },
+		invalid: { tone: 'bad', title: 'Something does not match', text: 'At least one result or sealed bundle does not match what Arcade@ published, or does not replay to its outcome. Details below.' },
+		empty: { tone: 'neutral', title: 'No Arcade results', text: 'This identity holds no Arcade result records and no sealed moves.' },
 		unavailable: { tone: 'neutral', title: 'Could not read the chain', text: 'The RPC did not answer in time or within its limits. This is not evidence of anything: try again, or use another RPC.' },
 		'wrong-chain': { tone: 'bad', title: 'Wrong chain', text: 'This RPC does not serve VRSCTEST. Use a VRSCTEST node.' }
 	};
@@ -62,8 +66,10 @@
 		void run();
 	});
 
-	const rootText = (root: string) =>
-		root === 'ok' ? '✓ matches the result root Arcade@ published' : root === 'mismatch' ? '✗ does not match the root Arcade@ published' : 'no official root found';
+	const rootText = (root: string, testRound: boolean) => {
+		const operator = testRound ? 'the test operator' : 'Arcade@';
+		return root === 'ok' ? `✓ matches the result root ${operator} published` : root === 'mismatch' ? `✗ does not match the root ${operator} published` : 'no official root found';
+	};
 	const replayText = (replay: string, reason: string | null) =>
 		replay === 'ok' ? '✓ the moves give this result (game rules, revealed puzzle)' : replay === 'failed' ? `✗ the moves do not give this result${reason ? ` (${reason})` : ''}` : 'after the reveal';
 </script>
@@ -93,30 +99,51 @@
 		{#if check.results.length > 0}
 			<ul class="results">
 				{#each check.results as result (result.keyId + result.round)}
-					<li class:bad={result.root === 'mismatch' || result.replay === 'failed'}>
+					<li class:bad={result.root === 'mismatch' || result.replay === 'failed' || result.bundle?.verdict === 'invalid'}>
 						<div class="head">
 							<span class="round">{result.round}</span>
 							<span class="status" class:solved={result.status === 'solved'}>{result.status}</span>
 						</div>
 						<p>
 							{result.game} {result.gameVersion} · {result.actionsUsed} {result.actionsUsed === 1 ? 'move' : 'moves'} · record v{result.recordVersion}
-							{#if result.testRound}· <em>test round (separate test operator, not Arcade@)</em>{/if}
+							{#if result.testRound}· <em>test round (checked against the separate test operator, does not count for the verdict)</em>{/if}
 						</p>
 						<dl>
-							<dt>Result root</dt><dd>{rootText(result.root)}<br /><code>{result.resultRoot}</code></dd>
+							<dt>Result root</dt><dd>{rootText(result.root, result.testRound)}<br /><code>{result.resultRoot}</code></dd>
 							<dt>Replay</dt><dd>{replayText(result.replay, result.replayReason)}</dd>
 							<dt>Stored in identity</dt>
 							<dd>{#if result.txid}<code>{result.txid}</code> (block {result.height?.toLocaleString('en')}){:else}transaction not found in history{/if}</dd>
+							{#if result.bundle}<BundleSummary check={result.bundle} />{/if}
 						</dl>
-						{#if !result.testRound}
-							<a href={links.round(result.round)}>Check this round on chain →</a>
-						{/if}
+						<a href={links.round(result.round)}>Check this round on chain →</a>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+		{#if check.sealedOnly.length > 0}
+			<h2>Sealed moves</h2>
+			<p class="hint">
+				Rounds where this player put their encrypted moves on chain during the round, without a result record in this
+				identity. The round follows from the key the moves are stored under.
+			</p>
+			<ul class="results">
+				{#each check.sealedOnly as sealed (sealed.keyId)}
+					<li class:bad={sealed.check.verdict === 'invalid'}>
+						<div class="head">
+							<span class="round">{sealed.round}</span>
+							{#if sealed.check.replay}<span class="status" class:solved={sealed.check.replay.status === 'solved'}>{sealed.check.replay.status}</span>{/if}
+						</div>
+						{#if sealed.testRound}<p><em>test round (checked against the separate test operator, does not count for the verdict)</em></p>{/if}
+						<dl>
+							<BundleSummary check={sealed.check} />
+						</dl>
+						<a href={links.round(sealed.round)}>Check this round on chain →</a>
 					</li>
 				{/each}
 			</ul>
 		{/if}
 		{#if check.ignored > 0}
-			<p class="hint">{check.ignored} value(s) in this identity were ignored: not Arcade results for this player (for example attestations).</p>
+			<p class="hint">{check.ignored} value(s) in this identity were ignored: not Arcade results or sealed moves of this player (for example attestations).</p>
 		{/if}
 		{#if check.problems.length > 0}
 			<p class="hint">Could not read: {check.problems.join('; ')}</p>
@@ -148,6 +175,7 @@
 	.profile { max-width: 56rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; display: grid; gap: 0.8rem; }
 	.eyebrow { margin: 0; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: #3f6549; }
 	h1 { margin: 0; font-family: Georgia, serif; font-weight: 500; font-size: 1.8rem; overflow-wrap: anywhere; }
+	h2 { margin: 0.6rem 0 0; font-family: Georgia, serif; font-weight: 500; font-size: 1.3rem; }
 	.meta, .source, .hint { margin: 0; font-size: 0.8rem; color: #5c6d61; }
 	code { overflow-wrap: anywhere; font-size: 0.75rem; }
 	.banner { display: flex; flex-direction: column; gap: 0.3rem; padding: 0.9rem 1rem; border-radius: 0.7rem; margin: 0; }

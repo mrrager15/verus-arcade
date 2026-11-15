@@ -18,11 +18,7 @@ import crypto from 'node:crypto';
 
 import { createChainReader } from '../../shared/chain-reader.mjs';
 import { verifyPlayerBundleIndependently } from '../../shared/independent-bundle.mjs';
-import { ARCADE_OPERATOR_ID, verifyRoundIndependently } from '../../shared/independent-round.mjs';
-
-/** `arcade-storage-poc@`: de operator-ID van testrondes (server/test-rounds.mjs). */
-const TEST_OPERATOR_ID = 'i9ARtCeKDBH84LvevYPoMxtZNxfts3c5SN';
-const TEST_ROUND = /:\d{4}-\d{2}-\d{2}T\d{4}$/;
+import { operatorForRound, verifyRoundIndependently } from '../../shared/independent-round.mjs';
 
 const args = process.argv.slice(2);
 const options = {};
@@ -32,7 +28,7 @@ for (let i = 0; i < args.length; i++) {
 }
 const [playerId, roundId] = positional;
 if (!playerId || !roundId) throw new Error('Gebruik: node scripts/agent/bundle-check.mjs <i-adres> <ronde-id> [--url …] [--operator <i-adres>]');
-const operatorId = options.operator ?? (TEST_ROUND.test(roundId) ? TEST_OPERATOR_ID : ARCADE_OPERATOR_ID);
+const operatorId = options.operator ?? operatorForRound(roundId);
 
 const sha256Hex = async (text) => crypto.createHash('sha256').update(text, 'utf8').digest('hex');
 const reader = createChainReader({ url: options.url, limits: { timeMs: 60_000 } });

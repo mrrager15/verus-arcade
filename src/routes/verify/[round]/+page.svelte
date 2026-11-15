@@ -60,6 +60,9 @@
 		<p class="independent">
 			This page uses proof material from the Arcade server.
 			<a href={`/verify/${encodeURIComponent(page.params.round)}/independent`}>Check it on chain only, without our server →</a>
+			{#if data?.reveal}
+				<br /><a href={`/verify/${encodeURIComponent(page.params.round)}/replay`}>Replay every player’s moves →</a>
+			{/if}
 		</p>
 	{/if}
 

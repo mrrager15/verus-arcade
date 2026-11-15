@@ -18,6 +18,10 @@ if (!playerId) throw new Error('Gebruik: node scripts/agent/profile-check.mjs <i
 
 const sha256Hex = async (text) => crypto.createHash('sha256').update(text, 'utf8').digest('hex');
 const r = await verifyProfileIndependently({ playerId, reader: createChainReader({ url, limits: { timeMs: 60_000 } }), sha256Hex });
+const bundle = (b) => ({
+  verdict: b.verdict, height: b.height, revealHeight: b.revealHeight, sealed: b.sealed, sealedBeforeReveal: b.sealedBeforeReveal,
+  actions: b.actions, receipt: b.receipt, replay: b.replay, matchesResult: b.matchesResult, duplicates: b.duplicates, problems: b.problems,
+});
 console.log(JSON.stringify({
   verdict: r.verdict,
   name: r.name,
@@ -25,5 +29,10 @@ console.log(JSON.stringify({
   ignored: r.ignored,
   unreadable: r.unreadable,
   problems: r.problems,
-  results: r.results.map((x) => ({ round: x.round, v: x.recordVersion, status: x.status, root: x.root, replay: x.replay, roundVerdict: x.roundVerdict, height: x.height })),
+  results: r.results.map((x) => ({
+    round: x.round, v: x.recordVersion, status: x.status, root: x.root, replay: x.replay, roundVerdict: x.roundVerdict, height: x.height,
+    ...(x.testRound ? { testRound: true } : {}), ...(x.bundle ? { bundle: bundle(x.bundle) } : {}),
+  })),
+  // Fase 5: verzegelde bundels van rondes zonder resultaat in de ID.
+  sealedOnly: r.sealedOnly.map((x) => ({ round: x.round, roundVerdict: x.roundVerdict, ...(x.testRound ? { testRound: true } : {}), bundle: bundle(x.check) })),
 }, null, 2));
